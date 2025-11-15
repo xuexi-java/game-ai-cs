@@ -1,0 +1,163 @@
+.dashboard-container {
+    padding: 0;
+}
+
+.dashboard-loading {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 400px;
+}
+
+.dashboard-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 24px;
+    flex-wrap: wrap;
+    gap: 16px;
+}
+
+.dashboard-filters {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.stats-cards {
+    margin-bottom: 24px;
+}
+
+.response-stats {
+    margin-bottom: 24px;
+}
+
+.charts-section {
+    margin-bottom: 24px;
+}
+
+
+/* 客服卡片样式 */
+
+.agent-card {
+    border-radius: 8px;
+    transition: all 0.3s;
+    cursor: pointer;
+}
+
+.agent-card:hover {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    transform: translateY(-2px);
+}
+
+.agent-card.online {
+    border-left: 4px solid #52c41a;
+}
+
+.agent-card.offline {
+    border-left: 4px solid #d9d9d9;
+}
+
+.agent-info {
+    display: flex;
+    align-items: center;
+    margin-bottom: 12px;
+}
+
+.agent-icon {
+    font-size: 24px;
+    color: #1890ff;
+    margin-right: 12px;
+}
+
+.agent-details {
+    flex: 1;
+}
+
+.agent-name {
+    font-weight: 500;
+    font-size: 14px;
+    color: #333;
+    margin-bottom: 4px;
+}
+
+.agent-status {
+    font-size: 12px;
+    color: #666;
+}
+
+.agent-card.online .agent-status {
+    color: #52c41a;
+}
+
+.agent-card.offline .agent-status {
+    color: #d9d9d9;
+}
+
+.agent-stats {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    color: #666;
+}
+
+
+/* 统计卡片样式优化 */
+
+.ant-statistic-title {
+    font-size: 14px;
+    color: #666;
+    margin-bottom: 8px;
+}
+
+.ant-statistic-content {
+    font-size: 24px;
+    font-weight: 600;
+}
+
+.ant-card {
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+.ant-card-head-title {
+    font-weight: 500;
+}
+
+
+/* 响应式设计 */
+
+@media (max-width: 768px) {
+    .dashboard-header {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+    .dashboard-filters {
+        width: 100%;
+        justify-content: flex-start;
+    }
+    .dashboard-filters .ant-select,
+    .dashboard-filters .ant-picker {
+        width: 100%;
+        margin-bottom: 8px;
+    }
+    .ant-statistic-content {
+        font-size: 20px;
+    }
+}
+
+@media (max-width: 576px) {
+    .agent-info {
+        flex-direction: column;
+        text-align: center;
+    }
+    .agent-icon {
+        margin-right: 0;
+        margin-bottom: 8px;
+    }
+    .agent-stats {
+        justify-content: center;
+        gap: 16px;
+    }
+}

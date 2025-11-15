@@ -1,0 +1,305 @@
+// Prisma Schema for AI 客服系统
+// 数据库设计文档的完整实现
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ==================== 游戏配置 ====================
+
+model Game {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  icon        String?
+  enabled     Boolean  @default(true)
+  difyApiKey  String   @db.Text // 加密存储
+  difyBaseUrl String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  deletedAt   DateTime?
+
+  // 关系
+  servers Server[]
+  tickets Ticket[]
+
+  @@index([enabled], where: { enabled: true })
+  @@index([name])
+  @@map("Game")
+}
+
+// ==================== 区服 ====================
+
+model Server {
+  id        String   @id @default(uuid())
+  gameId    String
+  name      String
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+
+  // 关系
+  game   Game     @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  tickets Ticket[]
+
+  @@index([gameId])
+  @@index([gameId, enabled], where: { enabled: true })
+  @@map("Server")
+}
+
+// ==================== 工单 ====================
+
+enum IdentityStatus {
+  NOT_VERIFIED
+  VERIFIED_PAYMENT
+}
+
+enum TicketStatus {
+  NEW
+  IN_PROGRESS
+  WAITING
+  RESOLVED
+  CLOSED
+}
+
+enum Priority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+model Ticket {
+  id              String         @id @default(uuid())
+  ticketNo        String         @unique
+  gameId          String
+  serverId        String?
+  serverName      String? // 玩家输入的区服
+  playerIdOrName  String
+  description     String         @db.Text
+  occurredAt      DateTime?
+  paymentOrderNo  String?
+  identityStatus  IdentityStatus @default(NOT_VERIFIED)
+  status          TicketStatus   @default(NEW)
+  priority        Priority       @default(NORMAL)
+  token           String         @unique
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  closedAt        DateTime?
+  deletedAt       DateTime?
+
+  // 关系
+  game            Game              @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  server          Server?          @relation(fields: [serverId], references: [id], onDelete: SetNull)
+  attachments     TicketAttachment[]
+  sessions        Session[]
+  messages        TicketMessage[]
+  satisfactionRatings SatisfactionRating[]
+
+  @@index([ticketNo])
+  @@index([gameId, playerIdOrName])
+  @@index([status])
+  @@index([priority])
+  @@index([createdAt])
+  @@index([token])
+  @@map("Ticket")
+}
+
+// ==================== 工单附件 ====================
+
+model TicketAttachment {
+  id        String   @id @default(uuid())
+  ticketId  String
+  fileUrl   String
+  fileName  String
+  fileType  String
+  fileSize  Int
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+
+  // 关系
+  ticket Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  @@index([ticketId])
+  @@map("TicketAttachment")
+}
+
+// ==================== 会话 ====================
+
+enum SessionStatus {
+  PENDING
+  QUEUED
+  IN_PROGRESS
+  CLOSED
+}
+
+enum Urgency {
+  URGENT
+  NON_URGENT
+}
+
+model Session {
+  id            String        @id @default(uuid())
+  ticketId      String
+  agentId       String?
+  status        SessionStatus @default(PENDING)
+  detectedIntent String?
+  aiUrgency     Urgency?
+  playerUrgency Urgency?
+  priorityScore Int          @default(0)
+  queuePosition Int?
+  queuedAt      DateTime?
+  startedAt     DateTime?
+  closedAt      DateTime?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  // 关系
+  ticket            Ticket              @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  agent             User?              @relation(fields: [agentId], references: [id], onDelete: SetNull)
+  messages          Message[]
+  satisfactionRating SatisfactionRating?
+
+  @@index([ticketId])
+  @@index([agentId])
+  @@index([status])
+  @@index([queuedAt])
+  @@index([priorityScore(desc), queuedAt(asc)])
+  @@map("Session")
+}
+
+// ==================== 消息 ====================
+
+enum SenderType {
+  PLAYER
+  AI
+  AGENT
+  SYSTEM
+}
+
+enum MessageType {
+  TEXT
+  IMAGE
+  SYSTEM_NOTICE
+  QUICK_OPTION
+}
+
+model Message {
+  id          String      @id @default(uuid())
+  sessionId   String
+  senderType  SenderType
+  senderId    String? // Agent ID (当senderType为AGENT时)
+  content     String      @db.Text
+  messageType MessageType @default(TEXT)
+  metadata    Json?
+  createdAt   DateTime    @default(now())
+
+  // 关系
+  session Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  agent   User?   @relation(fields: [senderId], references: [id], onDelete: SetNull)
+
+  @@index([sessionId])
+  @@index([createdAt])
+  @@index([sessionId, createdAt])
+  @@map("Message")
+}
+
+// ==================== 工单消息 ====================
+
+model TicketMessage {
+  id        String   @id @default(uuid())
+  ticketId  String
+  senderId  String? // Agent ID
+  content   String   @db.Text
+  createdAt DateTime @default(now())
+
+  // 关系
+  ticket Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  sender User?  @relation("TicketMessages", fields: [senderId], references: [id], onDelete: SetNull)
+
+  @@index([ticketId])
+  @@index([createdAt])
+  @@map("TicketMessage")
+}
+
+// ==================== 用户 ====================
+
+enum UserRole {
+  ADMIN
+  AGENT
+}
+
+model User {
+  id          String    @id @default(uuid())
+  username    String    @unique
+  password    String // BCrypt加密
+  role        UserRole
+  realName    String?
+  email       String?
+  phone       String?
+  avatar      String?
+  isOnline    Boolean   @default(false)
+  lastLoginAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  // 关系
+  sessions            Session[]            @relation
+  messages            Message[]
+  ticketMessages      TicketMessage[]      @relation("TicketMessages")
+  satisfactionRatings SatisfactionRating[]
+
+  @@index([username])
+  @@index([role])
+  @@index([isOnline], where: { isOnline: true })
+  @@map("User")
+}
+
+// ==================== 紧急排序规则 ====================
+
+model UrgencyRule {
+  id            String   @id @default(uuid())
+  name          String
+  enabled       Boolean  @default(true)
+  priorityWeight Int      // 1-100
+  description   String?  @db.Text
+  conditions    Json     // 匹配条件JSON
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  deletedAt     DateTime?
+
+  @@index([enabled], where: { enabled: true })
+  @@index([priorityWeight(desc)])
+  @@map("UrgencyRule")
+}
+
+// ==================== 满意度评价 ====================
+
+model SatisfactionRating {
+  id        String   @id @default(uuid())
+  sessionId String   @unique
+  ticketId  String
+  agentId   String?
+  rating    Int      // 1-5
+  tags      String[]
+  comment   String?  @db.Text
+  createdAt DateTime @default(now())
+
+  // 关系
+  session Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  ticket  Ticket  @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  agent   User?   @relation(fields: [agentId], references: [id], onDelete: SetNull)
+
+  @@index([sessionId])
+  @@index([ticketId])
+  @@index([agentId])
+  @@index([rating])
+  @@map("SatisfactionRating")
+}
+

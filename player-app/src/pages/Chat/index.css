@@ -1,0 +1,104 @@
+/* 聊天页面特定样式 */
+
+.chat-status-indicator {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+}
+
+.chat-status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    animation: pulse 2s infinite;
+}
+
+.chat-status-dot.online {
+    background: #52c41a;
+}
+
+.chat-status-dot.pending {
+    background: #fa8c16;
+}
+
+.chat-status-dot.queued {
+    background: #1890ff;
+}
+
+@keyframes pulse {
+    0% {
+        transform: scale(0.95);
+        box-shadow: 0 0 0 0 rgba(82, 196, 26, 0.7);
+    }
+    70% {
+        transform: scale(1);
+        box-shadow: 0 0 0 10px rgba(82, 196, 26, 0);
+    }
+    100% {
+        transform: scale(0.95);
+        box-shadow: 0 0 0 0 rgba(82, 196, 26, 0);
+    }
+}
+
+
+/* 输入框增强 */
+
+.chat-input-enhanced {
+    position: relative;
+}
+
+.chat-input-enhanced .ant-input {
+    padding-right: 50px;
+}
+
+.chat-input-tools {
+    position: absolute;
+    right: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    display: flex;
+    gap: 4px;
+}
+
+.chat-input-tool {
+    width: 24px;
+    height: 24px;
+    border: none;
+    background: transparent;
+    color: #999;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: all 0.2s;
+}
+
+.chat-input-tool:hover {
+    background: #f5f5f5;
+    color: #666;
+}
+
+
+/* 快捷回复 */
+
+.quick-replies {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 12px;
+    flex-wrap: wrap;
+}
+
+.quick-reply-item {
+    padding: 6px 12px;
+    background: #f5f5f5;
+    border: 1px solid #d9d9d9;
+    border-radius: 16px;
+    cursor: pointer;
+    font-size: 12px;
+    transition: all 0.2s;
+}
+
+.quick-reply-item:hover {
+    background: #e6f7ff;
+    border-color: #91d5ff;
+    color: #1890ff;
+}

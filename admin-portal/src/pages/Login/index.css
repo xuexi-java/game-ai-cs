@@ -1,0 +1,310 @@
+.login-container {
+    min-height: 100vh;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+}
+
+.login-container::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><defs><pattern id="grain" width="100" height="100" patternUnits="userSpaceOnUse"><circle cx="25" cy="25" r="1" fill="rgba(255,255,255,0.1)"/><circle cx="75" cy="75" r="1" fill="rgba(255,255,255,0.1)"/><circle cx="50" cy="10" r="0.5" fill="rgba(255,255,255,0.05)"/><circle cx="10" cy="50" r="0.5" fill="rgba(255,255,255,0.05)"/><circle cx="90" cy="30" r="0.5" fill="rgba(255,255,255,0.05)"/></pattern></defs><rect width="100" height="100" fill="url(%23grain)"/></svg>');
+    opacity: 0.3;
+}
+
+.login-content-wrapper {
+    width: 100%;
+    max-width: 600px;
+    position: relative;
+    z-index: 1;
+}
+
+.login-content {
+    width: 100%;
+}
+
+.login-card {
+    border-radius: 20px;
+    box-shadow: 0 25px 50px rgba(0, 0, 0, 0.25);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    -webkit-backdrop-filter: blur(20px);
+    backdrop-filter: blur(20px);
+    background: rgba(255, 255, 255, 0.95);
+    overflow: hidden;
+    padding: 20px;
+}
+
+.login-header {
+    text-align: center;
+    margin-bottom: 32px;
+}
+
+
+/* 品牌区域 */
+
+.brand-section {
+    margin-bottom: 32px;
+    padding-bottom: 24px;
+    border-bottom: 1px solid #f0f0f0;
+}
+
+.brand-icon {
+    font-size: 48px;
+    color: #667eea;
+    margin-bottom: 16px;
+    display: block;
+}
+
+.brand-title {
+    color: #1f2937 !important;
+    margin-bottom: 8px !important;
+    font-weight: 700;
+    font-size: 28px !important;
+}
+
+.brand-subtitle {
+    color: #6b7280;
+    font-size: 16px;
+    line-height: 1.6;
+    display: block;
+}
+
+
+/* 登录标题区域 */
+
+.login-title-section {
+    margin-bottom: 24px;
+}
+
+.login-title-section .ant-typography h2 {
+    margin-bottom: 8px;
+    color: #1f2937;
+    font-weight: 600;
+    font-size: 24px;
+}
+
+.login-title-section .ant-typography {
+    color: #6b7280;
+    font-size: 14px;
+}
+
+
+/* 表单样式 */
+
+.login-form {
+    margin-bottom: 24px;
+}
+
+.login-form .ant-form-item {
+    margin-bottom: 20px;
+}
+
+.login-form .ant-input,
+.login-form .ant-input-password {
+    height: 48px;
+    border-radius: 12px;
+    border: 2px solid #e5e7eb;
+    font-size: 16px;
+    transition: all 0.3s ease;
+}
+
+.login-form .ant-input:focus,
+.login-form .ant-input-password:focus,
+.login-form .ant-input-focused,
+.login-form .ant-input-password-focused {
+    border-color: #667eea;
+    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+.input-icon {
+    color: #9ca3af;
+    font-size: 16px;
+}
+
+.login-button {
+    height: 48px;
+    font-size: 16px;
+    font-weight: 600;
+    border-radius: 12px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border: none;
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+    transition: all 0.3s ease;
+}
+
+.login-button:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(102, 126, 234, 0.5);
+}
+
+.login-button:active {
+    transform: translateY(0);
+}
+
+
+/* 演示账号区域 */
+
+.demo-accounts {
+    background: #f8fafc;
+    border-radius: 12px;
+    padding: 20px;
+    margin: 20px 0;
+}
+
+.demo-account {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 12px;
+}
+
+.demo-account:last-child {
+    margin-bottom: 0;
+}
+
+.demo-account .ant-typography code {
+    background: #e0e7ff;
+    color: #3730a3;
+    border: 1px solid #c7d2fe;
+    border-radius: 6px;
+    padding: 4px 8px;
+    font-weight: 600;
+    font-size: 13px;
+}
+
+.login-footer {
+    text-align: center;
+    margin-top: 24px;
+    padding-top: 20px;
+    border-top: 1px solid #f0f0f0;
+}
+
+
+/* 分割线样式 */
+
+.ant-divider {
+    margin: 24px 0;
+    border-color: #e5e7eb;
+}
+
+.ant-divider-inner-text {
+    color: #6b7280;
+    font-size: 14px;
+}
+
+
+/* 响应式设计 */
+
+@media (max-width: 768px) {
+    .login-container {
+        padding: 16px;
+    }
+    .login-content-wrapper {
+        max-width: 100%;
+    }
+    .login-card {
+        border-radius: 16px;
+        padding: 16px;
+    }
+    .brand-title {
+        font-size: 24px !important;
+    }
+    .brand-icon {
+        font-size: 40px;
+    }
+    .login-title-section .ant-typography h2 {
+        font-size: 20px;
+    }
+    .demo-account {
+        flex-direction: column;
+        text-align: center;
+        gap: 8px;
+    }
+    .demo-account .ant-typography {
+        font-size: 12px;
+    }
+}
+
+@media (max-width: 480px) {
+    .login-container {
+        padding: 12px;
+    }
+    .login-card {
+        border-radius: 12px;
+        padding: 12px;
+    }
+    .brand-section {
+        margin-bottom: 24px;
+        padding-bottom: 16px;
+    }
+    .brand-title {
+        font-size: 20px !important;
+    }
+    .brand-icon {
+        font-size: 36px;
+        margin-bottom: 12px;
+    }
+    .login-form .ant-input,
+    .login-form .ant-input-password,
+    .login-button {
+        height: 44px;
+    }
+    .demo-accounts {
+        padding: 16px;
+    }
+}
+
+
+/* 动画效果 */
+
+@keyframes fadeInUp {
+    from {
+        opacity: 0;
+        transform: translateY(30px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes fadeInScale {
+    from {
+        opacity: 0;
+        transform: scale(0.95);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+.login-card {
+    animation: fadeInScale 0.6s ease-out;
+}
+
+.brand-section {
+    animation: fadeInUp 0.8s ease-out 0.2s both;
+}
+
+.login-title-section {
+    animation: fadeInUp 0.8s ease-out 0.3s both;
+}
+
+.login-form {
+    animation: fadeInUp 0.8s ease-out 0.4s both;
+}
+
+.demo-accounts {
+    animation: fadeInUp 0.8s ease-out 0.5s both;
+}

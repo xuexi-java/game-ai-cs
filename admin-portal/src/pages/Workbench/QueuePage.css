@@ -1,0 +1,195 @@
+.queue-container {
+    padding: 0;
+}
+
+.queue-loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 400px;
+    color: #666;
+}
+
+.queue-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 24px;
+    flex-wrap: wrap;
+    gap: 16px;
+}
+
+.queue-list {
+    margin-top: 16px;
+}
+
+.queue-item {
+    border: 1px solid #f0f0f0;
+    border-radius: 8px;
+    margin-bottom: 16px;
+    padding: 16px;
+    background: #fff;
+    transition: all 0.3s;
+}
+
+.queue-item:hover {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    border-color: #1890ff;
+}
+
+.queue-item-content {
+    width: 100%;
+}
+
+.queue-item-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 12px;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+
+.queue-item-title {
+    display: flex;
+    align-items: center;
+    flex: 1;
+    min-width: 0;
+}
+
+.queue-item-title h5 {
+    color: #1890ff;
+    font-weight: 600;
+}
+
+.queue-item-tags {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.queue-item-description {
+    margin-bottom: 12px;
+    padding: 12px;
+    background: #f9f9f9;
+    border-radius: 6px;
+    border-left: 4px solid #1890ff;
+}
+
+.queue-item-description .ant-typography {
+    margin: 0;
+    line-height: 1.6;
+}
+
+.queue-item-meta {
+    color: #666;
+    font-size: 12px;
+}
+
+.queue-item-meta .anticon {
+    margin-right: 4px;
+}
+
+
+/* 优先级徽章样式 */
+
+.ant-badge {
+    background: #1890ff;
+    color: #fff;
+    font-weight: 600;
+    min-width: 24px;
+    height: 24px;
+    line-height: 24px;
+    border-radius: 12px;
+}
+
+
+/* 紧急标签动画 */
+
+.ant-tag[color="red"] {
+    animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+    0% {
+        box-shadow: 0 0 0 0 rgba(255, 77, 79, 0.4);
+    }
+    70% {
+        box-shadow: 0 0 0 10px rgba(255, 77, 79, 0);
+    }
+    100% {
+        box-shadow: 0 0 0 0 rgba(255, 77, 79, 0);
+    }
+}
+
+
+/* 接入按钮样式 */
+
+.ant-list-item-action {
+    margin-left: 16px;
+}
+
+.ant-list-item-action .ant-btn-primary {
+    background: #52c41a;
+    border-color: #52c41a;
+}
+
+.ant-list-item-action .ant-btn-primary:hover {
+    background: #73d13d;
+    border-color: #73d13d;
+}
+
+
+/* 响应式设计 */
+
+@media (max-width: 768px) {
+    .queue-header {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    .queue-item-header {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+    .queue-item-title {
+        margin-bottom: 8px;
+    }
+    .queue-item-tags {
+        width: 100%;
+        justify-content: flex-start;
+    }
+    .ant-list-item-action {
+        margin-left: 0;
+        margin-top: 12px;
+    }
+    .ant-list-item-action .ant-btn {
+        width: 100%;
+    }
+}
+
+@media (max-width: 576px) {
+    .queue-item {
+        padding: 12px;
+        margin-bottom: 12px;
+    }
+    .queue-item-title .ant-avatar {
+        width: 32px;
+        height: 32px;
+        margin-right: 8px;
+    }
+    .queue-item-title h5 {
+        font-size: 14px;
+    }
+    .queue-item-description {
+        padding: 8px;
+        font-size: 12px;
+    }
+    .queue-item-meta {
+        font-size: 11px;
+    }
+    .ant-tag {
+        font-size: 11px;
+        padding: 0 6px;
+    }
+}
