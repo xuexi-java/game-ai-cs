@@ -29,8 +29,13 @@ apiClient.interceptors.request.use(
 // 响应拦截器
 apiClient.interceptors.response.use(
   (response: AxiosResponse) => {
-    // 直接返回data字段
-    return response.data.data;
+    // 后端使用 TransformInterceptor 包装响应，格式为 { success, data, timestamp }
+    // 提取 data 字段
+    if (response.data && typeof response.data === 'object' && 'data' in response.data) {
+      return response.data.data;
+    }
+    // 兼容直接返回数据的情况
+    return response.data;
   },
   (error) => {
     const { response } = error;

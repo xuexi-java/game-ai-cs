@@ -1,14 +1,10 @@
 import { PrismaClient } from '@prisma/client';
-// 注意：需要安装 bcrypt: npm install bcrypt @types/bcrypt
-// 如果未安装，可以使用简单的字符串（仅用于开发测试）
-// 生产环境必须使用 bcrypt 加密
+import * as bcrypt from 'bcrypt';
 
-// 简单的密码哈希函数（仅用于开发，生产环境请使用bcrypt）
+// 密码哈希函数
 function hashPassword(password: string): string {
-  // 开发环境临时方案，生产环境必须使用 bcrypt
-  // const bcrypt = require('bcrypt');
-  // return bcrypt.hashSync(password, 10);
-  return `hashed_${password}`; // 临时方案
+  // 使用 bcrypt 加密密码
+  return bcrypt.hashSync(password, 10);
 }
 
 const prisma = new PrismaClient();

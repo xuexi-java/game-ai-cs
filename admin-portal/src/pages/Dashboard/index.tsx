@@ -43,7 +43,8 @@ const DashboardPage: React.FC = () => {
       ]);
       
       setMetrics(metricsData);
-      setGames(gamesData);
+      // 确保 gamesData 是数组
+      setGames(Array.isArray(gamesData) ? gamesData : []);
     } catch (error) {
       console.error('加载仪表盘数据失败:', error);
     } finally {
@@ -204,7 +205,7 @@ const DashboardPage: React.FC = () => {
             onChange={setSelectedGameId}
             allowClear
           >
-            {games.map(game => (
+            {Array.isArray(games) && games.map(game => (
               <Option key={game.id} value={game.id}>
                 {game.name}
               </Option>

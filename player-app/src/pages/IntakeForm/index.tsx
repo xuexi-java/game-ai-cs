@@ -73,7 +73,7 @@ const IntakeFormPage = () => {
         description: values.description,
         occurredAt: values.occurredAt?.toISOString(),
         paymentOrderNo: values.paymentOrderNo,
-        attachments: [],
+        // 注意：attachments 不在创建工单时发送，而是在创建后单独上传
       };
 
       const ticket = await createTicket(ticketData);
@@ -135,7 +135,7 @@ const IntakeFormPage = () => {
               />
             </Form.Item>
 
-            <Form.Item label={text.attachmentsLabel} name="attachments">
+            <Form.Item label={text.attachmentsLabel}>
               <Upload
                 listType="picture-card"
                 fileList={fileList}

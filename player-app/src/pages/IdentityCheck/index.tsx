@@ -23,7 +23,13 @@ const IdentityCheckPage = () => {
     const loadGames = async () => {
       try {
         const gameList = await getEnabledGames();
-        setGames(gameList);
+        // 确保 gameList 是数组
+        if (Array.isArray(gameList)) {
+          setGames(gameList);
+        } else {
+          console.warn('游戏列表格式不正确:', gameList);
+          setGames([]);
+        }
       } catch (error) {
         console.error('加载游戏列表失败:', error);
         // 如果后端未运行，使用模拟数据
@@ -106,7 +112,7 @@ const IdentityCheckPage = () => {
                 (option?.children as unknown as string)?.toLowerCase().includes(input.toLowerCase())
               }
             >
-              {games.map((game) => (
+              {Array.isArray(games) && games.map((game) => (
                 <Option key={game.id} value={game.id}>
                   {game.name}
                 </Option>

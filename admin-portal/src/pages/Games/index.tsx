@@ -54,17 +54,20 @@ const GamesPage: React.FC = () => {
     setLoading(true);
     try {
       const gamesData = await getGames();
-      setGames(gamesData);
+      // 确保 gamesData 是数组
+      const gamesArray = Array.isArray(gamesData) ? gamesData : [];
+      setGames(gamesArray);
       
       // 如果有选中的游戏，加载其服务器列表
       if (selectedGameId) {
         loadServers(selectedGameId);
-      } else if (gamesData.length > 0) {
-        setSelectedGameId(gamesData[0].id);
-        loadServers(gamesData[0].id);
+      } else if (gamesArray.length > 0) {
+        setSelectedGameId(gamesArray[0].id);
+        loadServers(gamesArray[0].id);
       }
     } catch (error) {
       console.error('加载游戏列表失败:', error);
+      setGames([]); // 出错时设置为空数组
     } finally {
       setLoading(false);
     }
@@ -74,9 +77,11 @@ const GamesPage: React.FC = () => {
   const loadServers = async (gameId: string) => {
     try {
       const serversData = await getGameServers(gameId);
-      setServers(serversData);
+      // 确保 serversData 是数组
+      setServers(Array.isArray(serversData) ? serversData : []);
     } catch (error) {
       console.error('加载服务器列表失败:', error);
+      setServers([]); // 出错时设置为空数组
     }
   };
 
@@ -325,7 +330,7 @@ const GamesPage: React.FC = () => {
             />
           </TabPane>
           
-          {games.map((game) => (
+          {Array.isArray(games) && games.map((game) => (
             <TabPane
               tab={
                 <span>

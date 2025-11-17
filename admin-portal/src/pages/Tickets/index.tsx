@@ -87,9 +87,11 @@ const TicketsPage: React.FC = () => {
   const loadGames = async () => {
     try {
       const gamesData = await getGames();
-      setGames(gamesData);
+      // 确保 gamesData 是数组
+      setGames(Array.isArray(gamesData) ? gamesData : []);
     } catch (error) {
       console.error('加载游戏列表失败:', error);
+      setGames([]); // 出错时设置为空数组
     }
   };
 
@@ -284,7 +286,7 @@ const TicketsPage: React.FC = () => {
                 style={{ width: 150 }}
                 allowClear
               >
-                {games.map(game => (
+                {Array.isArray(games) && games.map(game => (
                   <Option key={game.id} value={game.id}>
                     {game.name}
                   </Option>

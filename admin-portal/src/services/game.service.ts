@@ -23,7 +23,9 @@ export interface UpdateServerRequest extends Partial<CreateServerRequest> {}
  * 获取所有游戏
  */
 export const getGames = async (): Promise<Game[]> => {
-  return apiClient.get('/games');
+  const response = await apiClient.get<Game[]>('/games');
+  // 确保返回的是数组
+  return Array.isArray(response) ? response : [];
 };
 
 /**
@@ -58,7 +60,9 @@ export const deleteGame = async (id: string): Promise<void> => {
  * 获取游戏的服务器列表
  */
 export const getGameServers = async (gameId: string): Promise<Server[]> => {
-  return apiClient.get(`/games/${gameId}/servers`);
+  const response = await apiClient.get<Server[]>(`/games/${gameId}/servers`);
+  // 确保返回的是数组
+  return Array.isArray(response) ? response : [];
 };
 
 /**
