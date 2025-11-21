@@ -27,7 +27,7 @@ function App() {
       locale={zhCN}
       theme={{
         token: {
-          colorPrimary: '#667eea',
+          colorPrimary: '#372B7B',
           borderRadius: 8,
           colorBgContainer: '#ffffff',
         },

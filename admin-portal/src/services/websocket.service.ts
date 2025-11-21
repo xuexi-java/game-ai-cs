@@ -2,12 +2,32 @@ import { io, Socket } from 'socket.io-client';
 import { WS_URL } from '../config/api';
 import { message } from 'antd';
 import { useSessionStore } from '../stores/sessionStore';
+import { useAgentStore } from '../stores/agentStore';
 import type { Session, Message } from '../types';
 
 class WebSocketService {
   private socket: Socket | null = null;
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 5;
+
+  private handleAgentStatusPayload(payload: {
+    agentId: string;
+    isOnline: boolean;
+    username?: string;
+    realName?: string;
+    avatar?: string;
+  }) {
+    const { updateAgentStatus } = useAgentStore.getState();
+    updateAgentStatus(payload.agentId, payload.isOnline, {
+      username: payload.username,
+      realName: payload.realName,
+      avatar: payload.avatar,
+      isOnline: payload.isOnline,
+    });
+
+    const displayName = payload.realName || payload.username || '客服';
+    message.info(`${displayName}${payload.isOnline ? '已上线' : '已离线'}`);
+  }
 
   connect(token: string) {
     if (this.socket?.connected) {
@@ -72,6 +92,10 @@ class WebSocketService {
       message.info(`新会话: ${session.ticket.ticketNo}`, 3);
     });
 
+    this.socket.on('agent-status-changed', (payload) => {
+      this.handleAgentStatusPayload(payload);
+    });
+
     // 会话状态更新
     this.socket.on('session-update', (data: Partial<Session> & { sessionId: string }) => {
       console.log('会话状态更新:', data);
@@ -80,10 +104,55 @@ class WebSocketService {
     });
 
     // 接收消息
-    this.socket.on('message', (data: { sessionId: string; message: Message }) => {
+    this.socket.on('message', (data: { sessionId: string; message: Message } | Message) => {
       console.log('收到消息:', data);
-      const { addMessage } = useSessionStore.getState();
-      addMessage(data.sessionId, data.message);
+      const { addMessage, setSessionMessages } = useSessionStore.getState();
+      
+      let sessionId: string | undefined;
+      let messageData: Message;
+      
+      // 兼容两种格式：{ sessionId, message } 或直接是 message 对象
+      if (data && typeof data === 'object' && 'sessionId' in data && 'message' in data) {
+        // 格式：{ sessionId, message }
+        sessionId = (data as { sessionId: string; message: Message }).sessionId;
+        messageData = (data as { sessionId: string; message: Message }).message;
+      } else if (data && typeof data === 'object' && 'sessionId' in data) {
+        // 格式：直接是 message 对象，但包含 sessionId
+        const msg = data as any;
+        sessionId = msg.sessionId;
+        messageData = msg;
+      } else {
+        console.warn('未知的消息格式:', data);
+        return;
+      }
+      
+      if (!sessionId || !messageData) {
+        console.warn('消息格式不完整:', data);
+        return;
+      }
+      
+      // 获取当前消息列表
+      const state = useSessionStore.getState();
+      const currentMessages = state.sessionMessages[sessionId] || [];
+      
+      // 检查是否有临时消息需要替换
+      const tempMessage = currentMessages.find(
+        (msg) => msg.id.startsWith('temp-') && 
+        msg.content === messageData.content &&
+        msg.senderType === messageData.senderType
+      );
+      
+      if (tempMessage) {
+        // 移除临时消息并添加真实消息
+        const filteredMessages = currentMessages.filter(m => m.id !== tempMessage.id);
+        const newMessages = [...filteredMessages, messageData].sort(
+          (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+        );
+        setSessionMessages(sessionId, newMessages);
+      } else {
+        // 直接添加消息（addMessage 会自动去重和排序）
+        addMessage(sessionId, messageData);
+      }
     });
   }
 

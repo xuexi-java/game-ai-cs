@@ -10,7 +10,7 @@ interface ProtectedRouteProps {
 const ProtectedRoute = ({ children, requiredRole }: ProtectedRouteProps) => {
   const { isAuthenticated, user } = useAuthStore();
   const fallbackRoute =
-    user?.role === 'ADMIN' ? '/dashboard' : '/workbench/queue';
+    user?.role === 'ADMIN' ? '/dashboard' : '/workbench/active';
 
   if (!isAuthenticated) {
     return <Navigate to="/login" replace />;

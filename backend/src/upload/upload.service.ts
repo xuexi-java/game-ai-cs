@@ -3,13 +3,10 @@ import { ConfigService } from '@nestjs/config';
 import * as fs from 'fs';
 import * as path from 'path';
 import { v4 as uuidv4 } from 'uuid';
-import OSS from 'ali-oss';
 
 @Injectable()
 export class UploadService {
   private readonly uploadDir: string;
-  private readonly useOSS: boolean;
-  private ossClient: OSS | null = null;
 
   constructor(private configService: ConfigService) {
     const configuredDir =
@@ -18,40 +15,35 @@ export class UploadService {
       ? configuredDir
       : path.join(process.cwd(), configuredDir);
 
-    // 检查是否配置了 OSS
-    const ossAccessKeyId = this.configService.get<string>('OSS_ACCESS_KEY_ID');
-    const ossAccessKeySecret = this.configService.get<string>(
-      'OSS_ACCESS_KEY_SECRET',
-    );
-    const ossBucket = this.configService.get<string>('OSS_BUCKET');
-    const ossRegion = this.configService.get<string>('OSS_REGION');
+    this.ensureDirectoryExists(this.uploadDir);
+  }
 
-    this.useOSS = !!(
-      ossAccessKeyId &&
-      ossAccessKeySecret &&
-      ossBucket &&
-      ossRegion
-    );
-
-    // 如果使用 OSS，初始化 OSS 客户端
-    if (this.useOSS) {
-      this.ossClient = new OSS({
-        accessKeyId: ossAccessKeyId,
-        accessKeySecret: ossAccessKeySecret,
-        bucket: ossBucket,
-        region: ossRegion,
-        endpoint: this.configService.get<string>('OSS_ENDPOINT') || undefined,
-      });
-    } else {
-      // 使用本地存储，确保目录存在
-      this.ensureUploadDirExists();
+  private ensureDirectoryExists(dirPath: string) {
+    if (!fs.existsSync(dirPath)) {
+      fs.mkdirSync(dirPath, { recursive: true });
     }
   }
 
-  private ensureUploadDirExists() {
-    if (!fs.existsSync(this.uploadDir)) {
-      fs.mkdirSync(this.uploadDir, { recursive: true });
-    }
+  private saveBufferToLocal(targetPath: string, buffer: Buffer) {
+    const directory = path.dirname(targetPath);
+    this.ensureDirectoryExists(directory);
+    fs.writeFileSync(targetPath, buffer);
+  }
+
+  private buildFileResponse(
+    relativePath: string,
+    originalName: string,
+    mimetype: string,
+    size: number,
+  ) {
+    const normalizedPath = relativePath.replace(/\\/g, '/');
+    const fileUrl = `/uploads/${normalizedPath}`;
+    return {
+      fileUrl,
+      fileName: originalName,
+      fileType: mimetype,
+      fileSize: size,
+    };
   }
 
   // 保存头像文件
@@ -81,48 +73,16 @@ export class UploadService {
     // 生成唯一文件名
     const fileExt = path.extname(file.originalname);
     const fileName = `${uuidv4()}${fileExt}`;
-    const objectKey = `avatars/${userId}/${fileName}`;
+    const relativePath = path.join('avatars', userId, fileName);
+    const filePath = path.join(this.uploadDir, relativePath);
 
-    if (this.useOSS && this.ossClient) {
-      // 上传到 OSS
-      try {
-        const result = await this.ossClient.put(objectKey, file.buffer, {
-          mime: file.mimetype,
-        });
-
-        // 返回 OSS 文件 URL
-        const fileUrl = result.url;
-        return {
-          fileUrl,
-          fileName: file.originalname,
-          fileType: file.mimetype,
-          fileSize: file.size,
-        };
-      } catch (error) {
-        throw new BadRequestException(`文件上传失败: ${error.message}`);
-      }
-    } else {
-      // 使用本地存储
-      const filePath = path.join(this.uploadDir, 'avatars', userId, fileName);
-
-      // 确保目录存在
-      const avatarDir = path.join(this.uploadDir, 'avatars', userId);
-      if (!fs.existsSync(avatarDir)) {
-        fs.mkdirSync(avatarDir, { recursive: true });
-      }
-
-      // 保存文件
-      fs.writeFileSync(filePath, file.buffer);
-
-      // 返回文件信息
-      const fileUrl = `/uploads/avatars/${userId}/${fileName}`;
-      return {
-        fileUrl,
-        fileName: file.originalname,
-        fileType: file.mimetype,
-        fileSize: file.size,
-      };
-    }
+    this.saveBufferToLocal(filePath, file.buffer);
+    return this.buildFileResponse(
+      relativePath,
+      file.originalname,
+      file.mimetype,
+      file.size,
+    );
   }
 
   // 保存文件
@@ -152,73 +112,48 @@ export class UploadService {
     // 生成唯一文件名
     const fileExt = path.extname(file.originalname);
     const fileName = `${uuidv4()}${fileExt}`;
-    const objectKey = `tickets/${ticketId}/${fileName}`;
+    const relativePath = path.join(ticketId, fileName);
+    const filePath = path.join(this.uploadDir, relativePath);
 
-    if (this.useOSS && this.ossClient) {
-      // 上传到 OSS
-      try {
-        const result = await this.ossClient.put(objectKey, file.buffer, {
-          mime: file.mimetype,
-        });
-
-        // 返回 OSS 文件 URL
-        const fileUrl = result.url;
-        return {
-          fileUrl,
-          fileName: file.originalname,
-          fileType: file.mimetype,
-          fileSize: file.size,
-        };
-      } catch (error) {
-        throw new BadRequestException(`文件上传失败: ${error.message}`);
-      }
-    } else {
-      // 使用本地存储
-      const filePath = path.join(this.uploadDir, ticketId, fileName);
-
-      // 确保目录存在
-      const ticketDir = path.join(this.uploadDir, ticketId);
-      if (!fs.existsSync(ticketDir)) {
-        fs.mkdirSync(ticketDir, { recursive: true });
-      }
-
-      // 保存文件
-      fs.writeFileSync(filePath, file.buffer);
-
-      // 返回文件信息
-      const fileUrl = `/uploads/${ticketId}/${fileName}`;
-      return {
-        fileUrl,
-        fileName: file.originalname,
-        fileType: file.mimetype,
-        fileSize: file.size,
-      };
-    }
+    this.saveBufferToLocal(filePath, file.buffer);
+    return this.buildFileResponse(
+      relativePath,
+      file.originalname,
+      file.mimetype,
+      file.size,
+    );
   }
 
   // 删除文件
   async deleteFile(fileUrl: string): Promise<void> {
-    if (this.useOSS && this.ossClient) {
-      // 从 OSS 删除文件
-      try {
-        // 从 URL 中提取 object key
-        // 例如: https://game-ai-cs.oss-cn-shenzhen.aliyuncs.com/tickets/xxx/xxx.jpg
-        const url = new URL(fileUrl);
-        const objectKey = url.pathname.substring(1); // 移除开头的 /
-        await this.ossClient.delete(objectKey);
-      } catch (error) {
-        console.error('删除 OSS 文件失败:', error);
-        // 不抛出异常，允许继续执行
-      }
-    } else {
-      // 从本地删除文件
-      const filePath = path.join(
-        this.uploadDir,
-        fileUrl.replace('/uploads/', ''),
-      );
-      if (fs.existsSync(filePath)) {
-        fs.unlinkSync(filePath);
-      }
+    const relativePath = this.extractRelativePath(fileUrl);
+    if (!relativePath) {
+      return;
     }
+
+    const filePath = path.join(this.uploadDir, relativePath);
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
+  }
+
+  private extractRelativePath(fileUrl: string): string | null {
+    try {
+      if (fileUrl.startsWith('http://') || fileUrl.startsWith('https://')) {
+        const parsed = new URL(fileUrl);
+        return this.normalizeRelativePath(parsed.pathname);
+      }
+      return this.normalizeRelativePath(fileUrl);
+    } catch (error) {
+      return null;
+    }
+  }
+
+  private normalizeRelativePath(pathname: string): string | null {
+    if (!pathname) return null;
+    if (pathname.startsWith('/uploads/')) {
+      return pathname.replace('/uploads/', '');
+    }
+    return pathname.startsWith('/') ? pathname.substring(1) : pathname;
   }
 }

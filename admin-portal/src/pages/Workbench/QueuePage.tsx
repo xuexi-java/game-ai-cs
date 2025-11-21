@@ -19,74 +19,52 @@ import {
   ExclamationCircleOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
-import { getQueuedSessions, joinSession } from '../../services/session.service';
 import { useSessionStore } from '../../stores/sessionStore';
-import { websocketService } from '../../services/websocket.service';
 import type { Session } from '../../types';
 import './QueuePage.css';
-import { useMessage } from '../../hooks/useMessage';
 
 const { Title, Text } = Typography;
 const { confirm } = Modal;
 
-const QueuePage: React.FC = () => {
-  const [loading, setLoading] = useState(false);
-  const { queuedSessions, setQueuedSessions, removeFromQueue, addToActive } = useSessionStore();
-  const message = useMessage();
+const mockQueuedSessions: Session[] = [
+  {
+    id: 'queue-1',
+    ticketId: 'ticket-2',
+    status: 'QUEUED',
+    ticket: {
+      id: 'ticket-2',
+      ticketNo: 'T-20251119-430',
+      description: '充值后未到账，请尽快处理。',
+      playerIdOrName: '玩家-小明',
+      createdAt: '2025-11-19T07:30:00.000Z',
+      occurredAt: '2025-11-19T07:00:00.000Z',
+      game: { id: 'game-1', name: '弹弹堂', createdAt: '', updatedAt: '' },
+      server: { id: 'server-2', name: '二区', createdAt: '', updatedAt: '', gameId: 'game-1' },
+      attachments: [],
+      playerId: '',
+      playerName: '',
+      status: 'PENDING',
+      priority: 'HIGH',
+      descriptionImages: [],
+    },
+    createdAt: '2025-11-19T07:30:00.000Z',
+    queuedAt: '2025-11-19T07:35:00.000Z',
+    priorityScore: 82,
+    aiUrgency: 'URGENT',
+  },
+];
 
-  // 加载排队会话
-  const loadQueuedSessions = async () => {
-    setLoading(true);
-    try {
-      const sessions = await getQueuedSessions();
-      setQueuedSessions(sessions);
-    } catch (error) {
-      console.error('加载排队会话失败:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
+const QueuePage: React.FC = () => {
+  const [loading] = useState(false);
+  const { queuedSessions, setQueuedSessions } = useSessionStore();
 
   useEffect(() => {
-    loadQueuedSessions();
-    
-    // 每30秒刷新一次
-    const interval = setInterval(loadQueuedSessions, 30000);
-    
-    return () => clearInterval(interval);
-  }, []);
+    setQueuedSessions(mockQueuedSessions);
+  }, [setQueuedSessions]);
 
   // 接入会话
-  const handleJoinSession = (session: Session) => {
-    confirm({
-      title: '确认接入会话',
-      icon: <ExclamationCircleOutlined />,
-      content: (
-        <div>
-          <p>您确定要接入以下会话吗？</p>
-          <p><strong>工单号：</strong>{session.ticket.ticketNo}</p>
-          <p><strong>玩家：</strong>{session.ticket.playerIdOrName}</p>
-          <p><strong>游戏：</strong>{session.ticket.game.name}</p>
-          <p><strong>问题：</strong>{session.ticket.description}</p>
-        </div>
-      ),
-      onOk: async () => {
-        try {
-          const updatedSession = await joinSession(session.id);
-          
-          // 更新本地状态
-          removeFromQueue(session.id);
-          addToActive(updatedSession);
-          
-          // 加入WebSocket房间
-          await websocketService.joinSession(session.id);
-          
-          message.success('成功接入会话');
-        } catch (error) {
-          console.error('接入会话失败:', error);
-        }
-      },
-    });
+  const handleJoinSession = () => {
+    console.log('演示模式：接入会话');
   };
 
   // 获取优先级颜色
@@ -137,13 +115,7 @@ const QueuePage: React.FC = () => {
             )}
           </Title>
           
-          <Button
-            type="primary"
-            onClick={loadQueuedSessions}
-            loading={loading}
-          >
-            刷新队列
-          </Button>
+          <Button type="primary">刷新队列</Button>
         </div>
 
         {queuedSessions.length === 0 ? (

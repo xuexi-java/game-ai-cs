@@ -38,15 +38,33 @@ export interface TransferResult {
 /**
  * 转人工客服
  */
+export interface TransferToAgentPayload {
+  urgency: 'URGENT' | 'NON_URGENT';
+  reason?: string;
+  issueTypeId?: string;
+}
+
 export const transferToAgent = async (
   sessionId: string,
-  urgency: 'URGENT' | 'NON_URGENT' = 'URGENT',
+  payload: TransferToAgentPayload,
 ): Promise<TransferResult> => {
-  return apiClient.post(`/sessions/${sessionId}/transfer-to-agent`, {
-    urgency,
-  });
+  return apiClient.post(`/sessions/${sessionId}/transfer-to-agent`, payload);
 };
 
 export const closeSession = async (sessionId: string): Promise<Session> => {
   return apiClient.patch(`/sessions/${sessionId}/close-player`, {});
+};
+
+export interface SubmitRatingRequest {
+  sessionId: string;
+  rating: number;
+  tags: string[];
+  comment?: string;
+}
+
+/**
+ * 提交满意度评价
+ */
+export const submitRating = async (data: SubmitRatingRequest): Promise<any> => {
+  return apiClient.post('/satisfaction', data);
 };

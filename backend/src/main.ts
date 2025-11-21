@@ -1,5 +1,6 @@
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
+import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { TransformInterceptor } from './common/interceptors/transform.interceptor';
@@ -47,10 +48,49 @@ async function bootstrap() {
   // API前缀
   app.setGlobalPrefix('api/v1');
 
+  // Swagger配置
+  const config = new DocumentBuilder()
+    .setTitle('AI客服系统 API')
+    .setDescription('AI客服系统后端API文档')
+    .setVersion('1.0')
+    .addBearerAuth(
+      {
+        type: 'http',
+        scheme: 'bearer',
+        bearerFormat: 'JWT',
+        name: 'JWT',
+        description: '输入JWT token',
+        in: 'header',
+      },
+      'JWT-auth', // 这个名称将在@ApiBearerAuth()中使用
+    )
+    .addTag('auth', '认证相关接口')
+    .addTag('users', '用户管理接口')
+    .addTag('games', '游戏管理接口')
+    .addTag('tickets', '工单管理接口')
+    .addTag('sessions', '会话管理接口')
+    .addTag('messages', '消息管理接口')
+    .addTag('issue-types', '问题类型管理接口')
+    .addTag('urgency-rules', '紧急规则管理接口')
+    .addTag('dashboard', '仪表盘接口')
+    .addTag('upload', '文件上传接口')
+    .addTag('satisfaction', '满意度评价接口')
+    .build();
+
+  const document = SwaggerModule.createDocument(app, config);
+  SwaggerModule.setup('api/v1/docs', app, document, {
+    swaggerOptions: {
+      persistAuthorization: true, // 保持授权状态
+      tagsSorter: 'alpha', // 标签排序
+      operationsSorter: 'alpha', // 操作排序
+    },
+  });
+
   const port = process.env.PORT || 3000;
   await app.listen(port);
-  console.log(`🚀 后端服务运行在 http://localhost:${port}`);
-  console.log(`📚 API文档: http://localhost:${port}/api/v1`);
+  const baseUrl = `http://localhost:${port}`;
+  console.log(`🚀 后端服务运行在 ${baseUrl}`);
+  console.log(`📚 Swagger API在线文档: ${baseUrl}/api/v1/docs`);
 }
 
 bootstrap();

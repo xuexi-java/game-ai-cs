@@ -4,6 +4,7 @@ import type { Ticket, PaginationResponse, PaginationParams } from '../types';
 export interface TicketQueryParams extends PaginationParams {
   status?: string;
   priority?: string;
+  issueTypeId?: string;
   gameId?: string;
 }
 
@@ -15,6 +16,7 @@ export const getTickets = async (params?: TicketQueryParams): Promise<Pagination
   
   if (params?.status) queryParams.append('status', params.status);
   if (params?.priority) queryParams.append('priority', params.priority);
+  if (params?.issueTypeId) queryParams.append('issueTypeId', params.issueTypeId);
   if (params?.gameId) queryParams.append('gameId', params.gameId);
   if (params?.page) queryParams.append('page', params.page.toString());
   if (params?.pageSize) queryParams.append('pageSize', params.pageSize.toString());

@@ -32,9 +32,9 @@
     "@nestjs/platform-express": "^10.3.0",
     "@nestjs/platform-socket.io": "^10.3.0",
     "@nestjs/serve-static": "^4.0.2",
+    "@nestjs/swagger": "^7.1.17",
     "@nestjs/websockets": "^10.3.0",
     "@prisma/client": "^5.7.0",
-    "ali-oss": "^6.20.0",
     "axios": "^1.6.2",
     "bcrypt": "^5.1.1",
     "class-transformer": "^0.5.1",
@@ -45,6 +45,7 @@
     "reflect-metadata": "^0.2.1",
     "rxjs": "^7.8.1",
     "socket.io": "^4.7.2",
+    "swagger-ui-express": "^5.0.1",
     "uuid": "^9.0.1"
   },
   "devDependencies": {

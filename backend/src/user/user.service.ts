@@ -133,4 +133,27 @@ export class UserService {
 
     return { success: true };
   }
+
+  async findOnlineAgents() {
+    const agents = await this.prisma.user.findMany({
+      where: {
+        deletedAt: null,
+        role: 'AGENT',
+        isOnline: true,
+      },
+      select: {
+        id: true,
+        username: true,
+        realName: true,
+        avatar: true,
+        email: true,
+        phone: true,
+        isOnline: true,
+        lastLoginAt: true,
+      },
+      orderBy: { username: 'asc' },
+    });
+
+    return agents.map((agent) => this.sanitizeUser(agent));
+  }
 }

@@ -46,11 +46,8 @@ export const validatePlayerIdOrName: FieldValidator = (_, value) => {
 
 // 验证问题描述
 export const validateDescription: FieldValidator = (_, value) => {
-  if (!value) {
+  if (!value || !value.trim()) {
     return Promise.reject(new Error('请输入问题详情'));
-  }
-  if (value.length < 10) {
-    return Promise.reject(new Error('问题描述至少需要10个字符'));
   }
   if (value.length > 2000) {
     return Promise.reject(new Error('问题描述不能超过2000个字符'));

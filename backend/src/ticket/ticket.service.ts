@@ -1,7 +1,9 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, Inject, forwardRef } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateTicketDto, TicketResponseDto } from './dto/create-ticket.dto';
 import { TicketPriorityService } from './ticket-priority.service';
+import { TicketMessageService } from '../ticket-message/ticket-message.service';
+import { WebsocketGateway } from '../websocket/websocket.gateway';
 import * as crypto from 'crypto';
 
 @Injectable()
@@ -9,6 +11,9 @@ export class TicketService {
   constructor(
     private prisma: PrismaService,
     private priorityService: TicketPriorityService,
+    private ticketMessageService: TicketMessageService,
+    @Inject(forwardRef(() => WebsocketGateway))
+    private websocketGateway: WebsocketGateway,
   ) {}
 
   // 生成工单编号
@@ -241,6 +246,16 @@ export class TicketService {
         attachments: {
           orderBy: { sortOrder: 'asc' },
         },
+        ticketIssueTypes: {
+          include: {
+            issueType: {
+              select: {
+                id: true,
+                name: true,
+              },
+            },
+          },
+        },
         sessions: {
           include: {
             messages: {
@@ -276,11 +291,100 @@ export class TicketService {
     });
   }
 
+  // 根据token获取工单消息列表（玩家端）
+  async getMessagesByToken(token: string) {
+    const ticket = await this.findByToken(token);
+    return this.ticketMessageService.findByTicket(ticket.id);
+  }
+
+  // 根据token发送工单消息（玩家端）
+  async sendMessageByToken(token: string, content: string) {
+    const ticket = await this.findByToken(token);
+    
+    // 玩家发送消息时，senderId 为 null（表示玩家）
+    // 但 TicketMessage 的 senderId 是可选的，所以我们可以创建一个特殊的消息
+    // 或者使用一个特殊的标识来表示玩家消息
+    
+    // 由于 TicketMessage 的 senderId 是可选但用于关联客服，玩家消息我们暂时不设置 senderId
+    // 但需要修改 TicketMessage 模型以支持玩家消息，或者创建一个新的消息类型
+    
+    // 临时方案：创建一个没有 senderId 的消息（需要确保数据库允许）
+    // 更好的方案：修改 TicketMessage 模型，添加 senderType 字段区分玩家和客服
+    
+    // 目前先使用 Prisma 直接创建，senderId 为 null
+    const message = await this.prisma.ticketMessage.create({
+      data: {
+        ticketId: ticket.id,
+        senderId: null, // 玩家消息，没有 senderId
+        content,
+      },
+    });
+
+    // 更新工单状态为等待回复
+    await this.prisma.ticket.update({
+      where: { id: ticket.id },
+      data: {
+        status: 'WAITING',
+      },
+    });
+
+    // 获取完整消息信息（包含 sender）
+    const messageWithSender = await this.prisma.ticketMessage.findUnique({
+      where: { id: message.id },
+      include: {
+        sender: {
+          select: {
+            id: true,
+            username: true,
+            realName: true,
+          },
+        },
+      },
+    });
+
+    // 通过 WebSocket 通知工单消息（通知玩家端）
+    if (messageWithSender) {
+      this.websocketGateway.notifyTicketMessage(ticket.id, messageWithSender);
+    }
+
+    // 如果工单关联了会话，同时创建会话消息并发送到会话房间（客服端可以接收）
+    const session = await this.prisma.session.findFirst({
+      where: {
+        ticketId: ticket.id,
+        status: { in: ['QUEUED', 'IN_PROGRESS'] },
+      },
+    });
+
+    if (session) {
+      try {
+        // 创建会话消息（玩家消息）
+        const sessionMessage = await this.prisma.message.create({
+          data: {
+            sessionId: session.id,
+            senderType: 'PLAYER',
+            senderId: null,
+            content: messageWithSender?.content || message.content,
+            messageType: 'TEXT',
+          },
+        });
+
+        // 发送到会话房间（格式：{ sessionId, message }）
+        this.websocketGateway.notifyMessage(session.id, sessionMessage);
+      } catch (sessionError) {
+        // 会话消息创建失败不影响工单消息
+        console.warn(`创建会话消息失败: ${sessionError.message}`);
+      }
+    }
+
+    return messageWithSender || message;
+  }
+
   // 获取工单列表（管理端）
   async findAll(
     query: {
       status?: string;
       priority?: string;
+      issueTypeId?: string;
       gameId?: string;
       page?: number;
       pageSize?: number;
@@ -298,6 +402,13 @@ export class TicketService {
     }
     if (query.priority) {
       where.priority = query.priority;
+    }
+    if (query.issueTypeId) {
+      where.ticketIssueTypes = {
+        some: {
+          issueTypeId: query.issueTypeId,
+        },
+      };
     }
     if (query.gameId) {
       where.gameId = query.gameId;
@@ -321,6 +432,31 @@ export class TicketService {
         include: {
           game: true,
           server: true,
+          ticketIssueTypes: {
+            include: {
+              issueType: {
+                select: {
+                  id: true,
+                  name: true,
+                },
+              },
+            },
+          },
+          sessions: {
+            include: {
+              agent: {
+                select: {
+                  id: true,
+                  username: true,
+                  realName: true,
+                },
+              },
+            },
+            orderBy: {
+              createdAt: 'desc',
+            },
+            take: 1, // 只取最新的会话
+          },
         },
         orderBy: {
           [query.sortBy || 'createdAt']: query.sortOrder || 'desc',

@@ -44,25 +44,6 @@ class EnvironmentVariables {
   @IsNumber()
   MAX_FILE_SIZE?: number;
 
-  @IsOptional()
-  @IsString()
-  OSS_ACCESS_KEY_ID?: string;
-
-  @IsOptional()
-  @IsString()
-  OSS_ACCESS_KEY_SECRET?: string;
-
-  @IsOptional()
-  @IsString()
-  OSS_BUCKET?: string;
-
-  @IsOptional()
-  @IsString()
-  OSS_REGION?: string;
-
-  @IsOptional()
-  @IsString()
-  OSS_ENDPOINT?: string;
 }
 
 export function validate(config: Record<string, unknown>) {

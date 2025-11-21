@@ -3,7 +3,6 @@
  *
  * 测试覆盖：
  * - 本地文件存储
- * - 阿里云 OSS 存储
  * - 文件类型验证
  * - 文件大小验证
  * - 文件删除
@@ -18,26 +17,6 @@ import * as path from 'path';
 // Mock fs 模块
 jest.mock('fs');
 const mockedFs = fs as jest.Mocked<typeof fs>;
-
-// Mock ali-oss 模块（创建虚拟 mock，不依赖实际包）
-const mockPut = jest.fn();
-const mockDelete = jest.fn();
-const mockOSSClient = {
-  put: mockPut,
-  delete: mockDelete,
-};
-
-jest.mock(
-  'ali-oss',
-  () => {
-    const MockOSS = jest.fn().mockImplementation(() => mockOSSClient);
-    return {
-      __esModule: true,
-      default: MockOSS,
-    };
-  },
-  { virtual: true },
-);
 
 describe('UploadService', () => {
   let service: UploadService;
@@ -174,108 +153,6 @@ describe('UploadService', () => {
       await service.deleteFile(fileUrl);
 
       expect(mockedFs.unlinkSync).not.toHaveBeenCalled();
-    });
-  });
-
-  describe('OSS 存储模式', () => {
-    beforeEach(async () => {
-      // 重置 mock
-      mockPut.mockClear();
-      mockDelete.mockClear();
-
-      // 配置 OSS 环境变量
-      mockConfigService.get.mockImplementation((key: string) => {
-        const config: Record<string, any> = {
-          UPLOAD_DIR: './uploads',
-          MAX_FILE_SIZE: 10485760,
-          OSS_ACCESS_KEY_ID: 'test-access-key-id',
-          OSS_ACCESS_KEY_SECRET: 'test-access-key-secret',
-          OSS_BUCKET: 'test-bucket',
-          OSS_REGION: 'oss-cn-shenzhen',
-          OSS_ENDPOINT: 'oss-cn-shenzhen.aliyuncs.com',
-        };
-        return config[key];
-      });
-
-      const module: TestingModule = await Test.createTestingModule({
-        providers: [
-          UploadService,
-          {
-            provide: ConfigService,
-            useValue: mockConfigService,
-          },
-        ],
-      }).compile();
-
-      service = module.get<UploadService>(UploadService);
-      configService = module.get<ConfigService>(ConfigService);
-    });
-
-    it('应该成功上传文件到 OSS', async () => {
-      const mockFile = {
-        originalname: 'test.jpg',
-        mimetype: 'image/jpeg',
-        size: 1024,
-        buffer: Buffer.from('test file content'),
-      };
-
-      const mockOSSResult = {
-        url: 'https://test-bucket.oss-cn-shenzhen.aliyuncs.com/tickets/ticket-123/test-uuid.jpg',
-      };
-
-      mockPut.mockResolvedValue(mockOSSResult);
-
-      const result = await service.saveFile(mockFile, 'ticket-123');
-
-      expect(result).toHaveProperty('fileUrl', mockOSSResult.url);
-      expect(result).toHaveProperty('fileName', 'test.jpg');
-      expect(result).toHaveProperty('fileType', 'image/jpeg');
-      expect(result).toHaveProperty('fileSize', 1024);
-      expect(mockPut).toHaveBeenCalledWith(
-        expect.stringContaining('tickets/ticket-123/'),
-        mockFile.buffer,
-        { mime: 'image/jpeg' },
-      );
-    });
-
-    it('应该抛出异常当 OSS 上传失败', async () => {
-      const mockFile = {
-        originalname: 'test.jpg',
-        mimetype: 'image/jpeg',
-        size: 1024,
-        buffer: Buffer.from('test'),
-      };
-
-      mockPut.mockRejectedValue(new Error('OSS upload failed'));
-
-      await expect(service.saveFile(mockFile, 'ticket-123')).rejects.toThrow(
-        BadRequestException,
-      );
-    });
-
-    it('应该成功从 OSS 删除文件', async () => {
-      const fileUrl =
-        'https://test-bucket.oss-cn-shenzhen.aliyuncs.com/tickets/ticket-123/test.jpg';
-      mockDelete.mockResolvedValue({});
-
-      await service.deleteFile(fileUrl);
-
-      expect(mockDelete).toHaveBeenCalledWith('tickets/ticket-123/test.jpg');
-    });
-
-    it('应该处理 OSS 删除失败但不抛出异常', async () => {
-      const fileUrl =
-        'https://test-bucket.oss-cn-shenzhen.aliyuncs.com/tickets/ticket-123/test.jpg';
-      const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
-      mockDelete.mockRejectedValue(new Error('Delete failed'));
-
-      await service.deleteFile(fileUrl);
-
-      expect(consoleSpy).toHaveBeenCalledWith(
-        '删除 OSS 文件失败:',
-        expect.any(Error),
-      );
-      consoleSpy.mockRestore();
     });
   });
 

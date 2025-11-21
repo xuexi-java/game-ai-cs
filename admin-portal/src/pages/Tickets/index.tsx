@@ -27,7 +27,10 @@ import {
   updateTicketPriority,
 } from '../../services/ticket.service';
 import { getGames } from '../../services/game.service';
-import type { Ticket, Game } from '../../types';
+import { getAllIssueTypes } from '../../services/issueType.service';
+import { getUsers } from '../../services/user.service';
+import { assignSession } from '../../services/session.service';
+import type { Ticket, Game, IssueType, User } from '../../types';
 import { useMessage } from '../../hooks/useMessage';
 import { useAuthStore } from '../../stores/authStore';
 import { API_BASE_URL } from '../../config/api';
@@ -92,11 +95,16 @@ const TicketsPage: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [games, setGames] = useState<Game[]>([]);
+  const [issueTypes, setIssueTypes] = useState<IssueType[]>([]);
+  const [agents, setAgents] = useState<User[]>([]);
   const [total, setTotal] = useState(0);
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
   const [detailModalVisible, setDetailModalVisible] = useState(false);
+  const [assignModalVisible, setAssignModalVisible] = useState(false);
+  const [assigningSessionId, setAssigningSessionId] = useState<string | null>(null);
+  const [selectedAgentId, setSelectedAgentId] = useState<string>('');
   const message = useMessage();
   const { user } = useAuthStore();
   const isAdmin = user?.role === 'ADMIN';
@@ -104,7 +112,7 @@ const TicketsPage: React.FC = () => {
   // 筛选条件
   const [filters, setFilters] = useState({
     status: '',
-    priority: '',
+    issueTypeId: '',
     gameId: '',
     search: '',
   });
@@ -117,13 +125,28 @@ const TicketsPage: React.FC = () => {
         page: currentPage,
         pageSize,
         status: filters.status || undefined,
-        priority: filters.priority || undefined,
+        issueTypeId: filters.issueTypeId || undefined,
         gameId: isAdmin ? filters.gameId || undefined : undefined,
         sortBy: 'createdAt',
         sortOrder: 'desc',
       });
 
-      setTickets(response?.items ?? []);
+      // 转换后端返回的数据格式，将 ticketIssueTypes 转换为 issueTypes
+      const transformedTickets = (response?.items ?? []).map((ticket: any) => {
+        if (ticket.ticketIssueTypes && Array.isArray(ticket.ticketIssueTypes) && ticket.ticketIssueTypes.length > 0) {
+          ticket.issueTypes = ticket.ticketIssueTypes.map((item: any) => ({
+            id: item.issueType?.id || item.issueTypeId,
+            name: item.issueType?.name || '未知类型',
+          }));
+          delete ticket.ticketIssueTypes;
+        } else {
+          // 如果没有问题类型，设置为空数组
+          ticket.issueTypes = [];
+        }
+        return ticket;
+      });
+
+      setTickets(transformedTickets);
       setTotal(response?.total ?? 0);
     } catch (error) {
       console.error('加载工单列表失败:', error);
@@ -148,8 +171,46 @@ const TicketsPage: React.FC = () => {
     }
   };
 
+  // 加载问题类型列表
+  const loadIssueTypes = async () => {
+    try {
+      const issueTypesData = await getAllIssueTypes();
+      setIssueTypes(Array.isArray(issueTypesData) ? issueTypesData : []);
+    } catch (error) {
+      console.error('加载问题类型列表失败:', error);
+      setIssueTypes([]);
+    }
+  };
+
+  // 加载客服列表
+  const loadAgents = async () => {
+    if (!isAdmin) {
+      setAgents([]);
+      return;
+    }
+    try {
+      // 加载所有客服和管理员（管理员可以给自己分配）
+      const [agentsResult, adminsResult] = await Promise.all([
+        getUsers({ role: 'AGENT', page: 1, pageSize: 100 }),
+        getUsers({ role: 'ADMIN', page: 1, pageSize: 100 }),
+      ]);
+      const allUsers = [
+        ...(agentsResult.items ?? []),
+        ...(adminsResult.items ?? []),
+      ];
+      setAgents(allUsers);
+    } catch (error) {
+      console.error('加载用户列表失败:', error);
+      setAgents([]);
+    }
+  };
+
   useEffect(() => {
     loadGames();
+    loadIssueTypes();
+    if (isAdmin) {
+      loadAgents();
+    }
     if (!isAdmin && filters.gameId) {
       setFilters((prev) => ({ ...prev, gameId: '' }));
     }
@@ -162,7 +223,17 @@ const TicketsPage: React.FC = () => {
   // 查看工单详情
   const handleViewDetail = async (ticketId: string) => {
     try {
-      const ticket = await getTicketById(ticketId);
+      const ticket: any = await getTicketById(ticketId);
+      // 转换后端返回的数据格式，将 ticketIssueTypes 转换为 issueTypes
+      if (ticket.ticketIssueTypes && Array.isArray(ticket.ticketIssueTypes) && ticket.ticketIssueTypes.length > 0) {
+        ticket.issueTypes = ticket.ticketIssueTypes.map((item: any) => ({
+          id: item.issueType?.id || item.issueTypeId,
+          name: item.issueType?.name || '未知类型',
+        }));
+        delete ticket.ticketIssueTypes;
+      } else {
+        ticket.issueTypes = [];
+      }
       setSelectedTicket(ticket);
       setDetailModalVisible(true);
     } catch (error) {
@@ -190,6 +261,48 @@ const TicketsPage: React.FC = () => {
     } catch (error) {
       console.error('更新优先级失败:', error);
     }
+  };
+
+  // 手动分配会话给客服（支持多次分配）
+  const handleManualAssign = async () => {
+    if (!assigningSessionId || !selectedAgentId) {
+      message.warning('请选择客服');
+      return;
+    }
+    try {
+      await assignSession(assigningSessionId, selectedAgentId);
+      message.success('分配成功，会话记录已更新');
+      setAssignModalVisible(false);
+      setAssigningSessionId(null);
+      setSelectedAgentId('');
+      // 立即刷新工单列表以更新客服信息
+      await loadTickets();
+      // 如果详情弹窗已打开，刷新详情数据
+      if (detailModalVisible && selectedTicket) {
+        await handleViewDetail(selectedTicket.id);
+      }
+    } catch (error: any) {
+      console.error('分配失败:', error);
+      message.error(error?.response?.data?.message || '分配失败，请重试');
+    }
+  };
+
+  // 打开手动分配弹窗（支持多次分配）
+  const handleOpenAssignModal = (ticket: Ticket) => {
+    // 获取工单的最新会话
+    const latestSession = ticket.sessions && ticket.sessions.length > 0 
+      ? ticket.sessions[0] 
+      : null;
+    
+    if (!latestSession) {
+      message.warning('该工单没有会话，无法分配');
+      return;
+    }
+    
+    setAssigningSessionId(latestSession.id);
+    // 如果已经分配过，默认选中当前客服
+    setSelectedAgentId(latestSession.agentId || '');
+    setAssignModalVisible(true);
   };
 
   // 表格列定义
@@ -246,40 +359,43 @@ const TicketsPage: React.FC = () => {
       dataIndex: 'status',
       key: 'status',
       width: 110,
-      render: (status, record) => (
-        <Select
-          value={status}
-          size="small"
-          style={{ width: '100%' }}
-          onChange={(value) => handleUpdateStatus(record.id, value)}
-        >
-          {STATUS_OPTIONS.map(({ value, color, text }) => (
-            <Option key={value} value={value}>
-              <Tag color={color}>{text}</Tag>
-            </Option>
-          ))}
-        </Select>
-      ),
+      render: (status, record) => {
+        return (
+          <Select
+            value={status}
+            size="small"
+            style={{ width: '100%' }}
+            onChange={(value) => handleUpdateStatus(record.id, value)}
+            optionLabelProp="children"
+          >
+            {STATUS_OPTIONS.map(({ value, color, text }) => (
+              <Option key={value} value={value}>
+                <Tag color={color}>{text}</Tag>
+              </Option>
+            ))}
+          </Select>
+        );
+      },
     },
     {
-      title: '优先级',
-      dataIndex: 'priority',
-      key: 'priority',
-      width: 100,
-      render: (priority, record) => (
-        <Select
-          value={priority}
-          size="small"
-          style={{ width: '100%' }}
-          onChange={(value) => handleUpdatePriority(record.id, value)}
-        >
-          {PRIORITY_OPTIONS.map(({ value, color, text }) => (
-            <Option key={value} value={value}>
-              <Tag color={color}>{text}</Tag>
-            </Option>
-          ))}
-        </Select>
-      ),
+      title: '问题类型',
+      dataIndex: 'issueTypes',
+      key: 'issueTypes',
+      width: 150,
+      render: (issueTypes: Array<{ id: string; name: string }> | undefined, record) => {
+        if (issueTypes && issueTypes.length > 0) {
+          return (
+            <Space size={[4, 4]} wrap>
+              {issueTypes.map((issueType) => (
+                <Tag key={issueType.id} color="blue">
+                  {issueType.name}
+                </Tag>
+              ))}
+            </Space>
+          );
+        }
+        return <span>-</span>;
+      },
     },
     {
       title: '创建时间',
@@ -291,19 +407,36 @@ const TicketsPage: React.FC = () => {
     {
       title: '操作',
       key: 'action',
-      width: 120,
-      render: (_, record) => (
-        <Space>
-          <Button
-            type="link"
-            size="small"
-            icon={<EyeOutlined />}
-            onClick={() => handleViewDetail(record.id)}
-          >
-            详情
-          </Button>
-        </Space>
-      ),
+      width: isAdmin ? 240 : 120,
+      render: (_, record) => {
+        const latestSession = record.sessions && record.sessions.length > 0 
+          ? record.sessions[0] 
+          : null;
+        const hasSession = latestSession !== null;
+        const isAssigned = latestSession?.agentId && latestSession?.status === 'IN_PROGRESS';
+        
+        return (
+          <Space>
+            <Button
+              type="link"
+              size="small"
+              icon={<EyeOutlined />}
+              onClick={() => handleViewDetail(record.id)}
+            >
+              详情
+            </Button>
+            {isAdmin && hasSession && (
+              <Button
+                type="link"
+                size="small"
+                onClick={() => handleOpenAssignModal(record)}
+              >
+                {isAssigned ? '重新分配' : '分配客服'}
+              </Button>
+            )}
+          </Space>
+        );
+      },
     },
   ];
 
@@ -342,17 +475,30 @@ const TicketsPage: React.FC = () => {
               {isAdmin && (
                 <Select
                   placeholder="选择游戏"
-                  value={filters.gameId}
-                  onChange={(value) => setFilters({ ...filters, gameId: value })}
+                  value={filters.gameId ? filters.gameId : undefined}
+                  onChange={(value) => setFilters({ ...filters, gameId: value || '' })}
                   style={{ width: 150 }}
                   allowClear
+                  loading={games.length === 0 && isAdmin}
+                  notFoundContent={
+                    games.length === 0 && isAdmin ? '暂无游戏，请先创建游戏' : undefined
+                  }
+                  showSearch
+                  filterOption={(input, option) => {
+                    const label = String(option?.label || '');
+                    return label.toLowerCase().includes(input.toLowerCase());
+                  }}
                 >
                   {Array.isArray(games) &&
-                    games.map((game) => (
-                      <Option key={game.id} value={game.id}>
-                        {game.name}
-                      </Option>
-                    ))}
+                    games.length > 0 &&
+                    games.map((game) => {
+                      const gameName = game.name || `游戏 ${game.id}`;
+                      return (
+                        <Option key={game.id} value={game.id} label={gameName}>
+                          {gameName}
+                        </Option>
+                      );
+                    })}
                 </Select>
               )}
               
@@ -373,17 +519,17 @@ const TicketsPage: React.FC = () => {
               </Select>
               
               <Select
-                placeholder="优先级"
-                value={filters.priority || undefined}
+                placeholder="问题类型"
+                value={filters.issueTypeId || undefined}
                 onChange={(value) =>
-                  setFilters({ ...filters, priority: value || '' })
+                  setFilters({ ...filters, issueTypeId: value || '' })
                 }
                 style={{ width: 140 }}
                 allowClear
               >
-                {PRIORITY_OPTIONS.map(({ value, text }) => (
-                  <Option key={value} value={value}>
-                    {text}
+                {issueTypes.map((issueType) => (
+                  <Option key={issueType.id} value={issueType.id}>
+                    {issueType.name}
                   </Option>
                 ))}
               </Select>
@@ -442,12 +588,52 @@ const TicketsPage: React.FC = () => {
               })()}
             </Descriptions.Item>
 
-            <Descriptions.Item label="优先级">
-              {(() => {
-                const info = getPriorityDisplay(selectedTicket.priority);
-                return <Tag color={info.color}>{info.text}</Tag>;
-              })()}
+            <Descriptions.Item label="问题类型">
+              {selectedTicket.issueTypes && selectedTicket.issueTypes.length > 0 ? (
+                <Space size={[4, 4]} wrap>
+                  {selectedTicket.issueTypes.map((issueType: any) => (
+                    <Tag key={issueType.id} color="blue">
+                      {issueType.name}
+                    </Tag>
+                  ))}
+                </Space>
+              ) : (
+                <span>-</span>
+              )}
             </Descriptions.Item>
+            {selectedTicket.sessions && selectedTicket.sessions.length > 0 && (
+              <>
+                <Descriptions.Item label="处理客服">
+                  {(() => {
+                    const latestSession = selectedTicket.sessions[0];
+                    if (latestSession?.agent) {
+                      return (
+                        <span>
+                          {latestSession.agent.realName || latestSession.agent.username}
+                          {latestSession.status === 'IN_PROGRESS' && (
+                            <Tag color="green" style={{ marginLeft: 8 }}>处理中</Tag>
+                          )}
+                        </span>
+                      );
+                    }
+                    return <span>-</span>;
+                  })()}
+                </Descriptions.Item>
+                <Descriptions.Item label="会话状态">
+                  {(() => {
+                    const latestSession = selectedTicket.sessions[0];
+                    const statusMap: Record<string, { text: string; color: string }> = {
+                      PENDING: { text: '进行中', color: 'processing' },
+                      QUEUED: { text: '排队中', color: 'processing' },
+                      IN_PROGRESS: { text: '人工处理中', color: 'warning' },
+                      CLOSED: { text: '已关闭', color: 'success' },
+                    };
+                    const statusInfo = statusMap[latestSession?.status] || { text: '未知', color: 'default' };
+                    return <Tag color={statusInfo.color}>{statusInfo.text}</Tag>;
+                  })()}
+                </Descriptions.Item>
+              </>
+            )}
             <Descriptions.Item label="创建时间">
               {dayjs(selectedTicket.createdAt).format('YYYY-MM-DD HH:mm:ss')}
             </Descriptions.Item>
@@ -504,6 +690,48 @@ const TicketsPage: React.FC = () => {
           </Descriptions>
         )}
       </Modal>
+
+      {/* 手动分配客服弹窗（支持多次分配） */}
+      <Modal
+        title="分配客服"
+        open={assignModalVisible}
+        onOk={handleManualAssign}
+        onCancel={() => {
+          setAssignModalVisible(false);
+          setAssigningSessionId(null);
+          setSelectedAgentId('');
+        }}
+        okText="确认分配"
+        cancelText="取消"
+      >
+        <div style={{ marginBottom: 16 }}>
+          <label style={{ display: 'block', marginBottom: 8 }}>选择客服：</label>
+          <Select
+            style={{ width: '100%' }}
+            value={selectedAgentId}
+            onChange={setSelectedAgentId}
+            placeholder="请选择客服"
+            showSearch
+            filterOption={(input, option) =>
+              (option?.children as string)?.toLowerCase().includes(input.toLowerCase())
+            }
+          >
+            {agents.map((agent) => (
+              <Option key={agent.id} value={agent.id}>
+                {agent.realName || agent.username}
+                {agent.isOnline && <Tag color="green" style={{ marginLeft: 8 }}>在线</Tag>}
+                {!agent.isOnline && <Tag color="default" style={{ marginLeft: 8 }}>离线</Tag>}
+              </Option>
+            ))}
+          </Select>
+        </div>
+        <div style={{ padding: 12, background: '#f5f5f5', borderRadius: 4 }}>
+          <div style={{ fontSize: 12, color: '#666' }}>
+            提示：可以多次分配，每次分配完成后会话记录中的客服信息会立即更新。
+          </div>
+        </div>
+      </Modal>
+
     </div>
   );
 };

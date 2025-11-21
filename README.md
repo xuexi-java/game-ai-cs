@@ -126,6 +126,49 @@ npm run db:seed      # 初始化种子数据
 
 ### 6. 启动开发服务
 
+#### 方式一：使用启动脚本（推荐）
+
+**Windows 用户**:
+```bash
+# 启动所有服务（推荐方式）
+.\start.bat
+```
+
+启动脚本会自动执行以下步骤：
+1. ✅ 检查 Node.js 和 npm 环境
+2. ✅ 检查 Docker 环境，如果 Docker Desktop 未运行会自动启动
+3. ✅ 启动 Docker 服务 (PostgreSQL & Redis)
+4. ✅ 等待数据库就绪
+5. ✅ 启动后端服务（在独立窗口）
+6. ✅ 启动管理端前端（在独立窗口）
+7. ✅ 启动玩家端前端（在独立窗口）
+8. ✅ 显示服务访问地址
+
+**启动顺序**：
+- 首先启动 Docker 服务（PostgreSQL 和 Redis）
+- 然后启动后端服务（等待 3 秒）
+- 接着启动管理端前端（等待 2 秒）
+- 最后启动玩家端前端（等待 2 秒）
+
+**服务窗口**：
+- 每个服务都在独立的命令行窗口中运行
+- 关闭窗口将停止对应的服务
+- 可以单独查看每个服务的输出日志
+
+**日志文件**：
+- 所有服务的日志都保存在 `logs` 文件夹中
+- `backend.log` - 后端服务日志
+- `admin.log` - 管理端日志
+- `player.log` - 玩家端日志
+- `*-error.log` - 各服务的错误日志
+
+**注意**: 
+- 如果 Docker Desktop 未运行，脚本会自动尝试启动它（最多等待 45 秒）
+- 停止脚本窗口时，Docker 服务会继续运行。如需停止 Docker 服务，请运行 `docker-compose down`
+- 如需停止所有服务，请关闭各个服务窗口，然后运行 `docker-compose down` 停止 Docker 服务
+
+#### 方式二：手动启动
+
 **后端服务**:
 ```bash
 cd backend
@@ -135,7 +178,7 @@ npm run start:dev
 
 **玩家端**:
 ```bash
-cd player-app
+
 npm run dev
 ```
 玩家端运行在: http://localhost:5173

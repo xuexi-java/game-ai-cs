@@ -39,7 +39,7 @@ const QueuePage = () => {
     });
 
     newSocket.on('connect', () => {
-      newSocket.emit('join-session', sessionId);
+      newSocket.emit('join-session', { sessionId });
     });
 
     newSocket.on('queue-update', (data) => {
@@ -53,7 +53,19 @@ const QueuePage = () => {
       updateSession(sessionData);
       if (sessionData.status === 'IN_PROGRESS') {
         // 客服已接入，跳转到聊天页面
-        window.location.href = `/chat/${sessionId}`;
+        setTimeout(() => {
+          window.location.href = `/chat/${sessionId}`;
+        }, 100);
+      }
+    });
+
+    // 监听消息（转接人工后可能收到客服消息）
+    newSocket.on('message', (data: any) => {
+      console.log('排队页面收到消息:', data);
+      // 如果收到消息，说明客服可能已经接入，刷新会话状态
+      const messageData = data.message || data;
+      if (messageData?.senderType === 'AGENT') {
+        loadSession();
       }
     });
 

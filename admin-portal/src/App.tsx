@@ -14,7 +14,6 @@ import LoginPage from './pages/Login';
 import DashboardPage from './pages/Dashboard';
 import TicketsPage from './pages/Tickets';
 import SessionsPage from './pages/Sessions';
-import QueuePage from './pages/Workbench/QueuePage';
 import ActivePage from './pages/Workbench/ActivePage';
 import GamesPage from './pages/Games';
 import UrgencyRulesPage from './pages/Settings/UrgencyRules';
@@ -36,7 +35,7 @@ const RoleBasedHomeRedirect = () => {
     return <Navigate to="/login" replace />;
   }
   const targetPath =
-    user?.role === 'ADMIN' ? '/dashboard' : '/workbench/queue';
+    user?.role === 'ADMIN' ? '/dashboard' : '/workbench/active';
   return <Navigate to={targetPath} replace />;
 };
 
@@ -129,10 +128,7 @@ function App() {
                 <Route path="sessions" element={<SessionsPage />} />
 
                 {/* 客服工作台 */}
-                <Route path="workbench">
-                  <Route path="queue" element={<QueuePage />} />
-                  <Route path="active" element={<ActivePage />} />
-                </Route>
+                <Route path="workbench/active" element={<ActivePage />} />
 
                 {/* 游戏管理 - 仅管理员 */}
                 <Route

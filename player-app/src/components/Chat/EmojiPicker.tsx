@@ -3,7 +3,7 @@
  */
 import { useState } from 'react';
 import { Popover, Button } from 'antd';
-import { SmileOutlined } from '@ant-design/icons';
+import { SmileTwoTone } from '@ant-design/icons';
 
 interface EmojiPickerProps {
   onEmojiSelect: (emoji: string) => void;
@@ -82,7 +82,7 @@ const EmojiPicker = ({ onEmojiSelect }: EmojiPickerProps) => {
     >
       <Button
         type="text"
-        icon={<SmileOutlined />}
+        icon={<SmileTwoTone />}
         size="small"
         style={{ 
           border: 'none',

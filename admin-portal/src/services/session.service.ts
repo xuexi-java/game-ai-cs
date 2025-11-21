@@ -6,6 +6,7 @@ export interface SessionQueryParams extends PaginationParams {
   agentId?: string;
   gameId?: string;
   search?: string;
+  transferredToAgent?: boolean; // true: 已转人工, false: 未转人工, undefined: 全部
 }
 
 /**
@@ -54,4 +55,18 @@ export const joinSession = async (id: string): Promise<Session> => {
  */
 export const closeSession = async (id: string): Promise<Session> => {
   return apiClient.patch(`/sessions/${id}/close`);
+};
+
+/**
+ * 管理员手动分配会话给指定客服
+ */
+export const assignSession = async (sessionId: string, agentId: string): Promise<Session> => {
+  return apiClient.post(`/sessions/${sessionId}/assign`, { agentId });
+};
+
+/**
+ * 自动分配会话（根据客服当前接待数量）
+ */
+export const autoAssignSession = async (sessionId: string): Promise<Session> => {
+  return apiClient.post(`/sessions/${sessionId}/auto-assign`);
 };

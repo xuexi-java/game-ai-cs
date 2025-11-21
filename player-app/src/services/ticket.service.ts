@@ -76,3 +76,38 @@ export const getTicketByToken = async (token: string): Promise<TicketDetail> => 
   return apiClient.get(`/tickets/by-token/${token}`);
 };
 
+/**
+ * 工单消息接口
+ */
+export interface TicketMessage {
+  id: string;
+  ticketId: string;
+  senderId?: string | null;
+  sender?: {
+    id: string;
+    username: string;
+    realName?: string | null;
+  } | null;
+  content: string;
+  createdAt: string;
+}
+
+/**
+ * 根据 token 获取工单消息列表
+ */
+export const getTicketMessagesByToken = async (
+  token: string
+): Promise<TicketMessage[]> => {
+  return apiClient.get(`/tickets/by-token/${token}/messages`);
+};
+
+/**
+ * 根据 token 发送工单消息
+ */
+export const sendTicketMessageByToken = async (
+  token: string,
+  content: string
+): Promise<TicketMessage> => {
+  return apiClient.post(`/tickets/by-token/${token}/messages`, { content });
+};
+

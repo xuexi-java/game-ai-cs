@@ -65,6 +65,23 @@ const IdentityCheckPage = () => {
             servers: [{ id: 'server-3', name: '一区', enabled: true }],
           },
         ]);
+        
+        // 模拟问题类型数据
+        setIssueTypes([
+          { id: '1', name: '充值未到账', priorityWeight: 95, icon: '💰', sortOrder: 1 },
+          { id: '2', name: '账号被盗', priorityWeight: 90, icon: '🔒', sortOrder: 2 },
+          { id: '3', name: '游戏无法登录', priorityWeight: 85, icon: '🚫', sortOrder: 3 },
+          { id: '4', name: '账号封禁申诉', priorityWeight: 80, icon: '🔓', sortOrder: 4 },
+          { id: '5', name: '道具丢失', priorityWeight: 75, icon: '📦', sortOrder: 5 },
+          { id: '6', name: '游戏闪退/卡顿', priorityWeight: 70, icon: '⚠️', sortOrder: 6 },
+          { id: '7', name: '游戏BUG', priorityWeight: 65, icon: '🐛', sortOrder: 7 },
+          { id: '8', name: '活动奖励问题', priorityWeight: 60, icon: '🎁', sortOrder: 8 },
+          { id: '9', name: '实名认证问题', priorityWeight: 55, icon: '📝', sortOrder: 9 },
+          { id: '10', name: '其他问题', priorityWeight: 50, icon: '📌', sortOrder: 10 },
+          { id: '11', name: '好友/社交问题', priorityWeight: 40, icon: '👥', sortOrder: 11 },
+          { id: '12', name: '游戏玩法咨询', priorityWeight: 30, icon: '❓', sortOrder: 12 },
+        ]);
+        
         messageApi.warning('后端服务未连接，使用模拟数据');
       }
     };
@@ -218,14 +235,14 @@ const IdentityCheckPage = () => {
               size="large"
               showSearch
               filterOption={(input, option) =>
-                (option?.children as unknown as string)?.toLowerCase().includes(input.toLowerCase())
+                (option?.label as string ?? '').toLowerCase().includes(input.toLowerCase())
               }
               onChange={(value) => {
                 console.log('选择的问题类型 ID:', value);
               }}
             >
               {issueTypes.map((type) => (
-                <Option key={type.id} value={type.id}>
+                <Option key={type.id} value={type.id} label={type.name}>
                   {type.icon} {type.name}
                 </Option>
               ))}

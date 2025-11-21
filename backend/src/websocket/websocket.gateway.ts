@@ -30,7 +30,7 @@ export class WebsocketGateway
   private readonly logger = new Logger(WebsocketGateway.name);
   private connectedClients = new Map<
     string,
-    { userId?: string; role?: string }
+    { userId?: string; role?: string; username?: string; realName?: string }
   >();
 
   constructor(
@@ -61,6 +61,8 @@ export class WebsocketGateway
             this.connectedClients.set(client.id, {
               userId: user.id,
               role: user.role,
+              username: user.username,
+              realName: user.realName || undefined,
             });
 
             // 更新用户在线状态
@@ -68,6 +70,11 @@ export class WebsocketGateway
               await this.prisma.user.update({
                 where: { id: user.id },
                 data: { isOnline: true },
+              });
+              this.notifyAgentStatusChange(user.id, true, {
+                username: user.username,
+                realName: user.realName || undefined,
+                avatar: user.avatar || undefined,
               });
             }
 
@@ -91,12 +98,18 @@ export class WebsocketGateway
 
     if (clientInfo?.userId) {
       // 更新用户离线状态
-      await this.prisma.user
+      const user = await this.prisma.user
         .update({
           where: { id: clientInfo.userId },
           data: { isOnline: false },
         })
         .catch(() => {});
+      if (user?.role === 'AGENT') {
+        this.notifyAgentStatusChange(clientInfo.userId, false, {
+          username: clientInfo.username,
+          realName: clientInfo.realName,
+        });
+      }
     }
 
     this.connectedClients.delete(client.id);
@@ -139,6 +152,19 @@ export class WebsocketGateway
         return { success: false, error: '未认证' };
       }
 
+      // 获取会话信息，检查是否关联了工单
+      const session = await this.prisma.session.findUnique({
+        where: { id: data.sessionId },
+        include: {
+          ticket: true,
+        },
+      });
+
+      if (!session) {
+        return { success: false, error: '会话不存在' };
+      }
+
+      // 创建会话消息
       const message = await this.messageService.create(
         {
           sessionId: data.sessionId,
@@ -148,7 +174,45 @@ export class WebsocketGateway
         clientInfo.userId,
       );
 
+      // 发送到会话房间
       this.notifyMessage(data.sessionId, message);
+
+      // 如果会话关联了工单，同时创建工单消息并发送到工单房间
+      if (session.ticketId && session.ticket) {
+        try {
+          // 创建工单消息
+          const ticketMessage = await this.prisma.ticketMessage.create({
+            data: {
+              ticketId: session.ticketId,
+              senderId: clientInfo.userId,
+              content: data.content,
+            },
+            include: {
+              sender: {
+                select: {
+                  id: true,
+                  username: true,
+                  realName: true,
+                },
+              },
+            },
+          });
+
+          // 发送到工单房间（玩家端可以接收）
+          this.notifyTicketMessage(session.ticketId, ticketMessage);
+
+          // 更新工单状态
+          await this.prisma.ticket.update({
+            where: { id: session.ticketId },
+            data: {
+              status: 'IN_PROGRESS',
+            },
+          });
+        } catch (ticketError) {
+          // 工单消息创建失败不影响会话消息
+          this.logger.warn(`创建工单消息失败: ${ticketError.message}`);
+        }
+      }
 
       return { success: true, messageId: message.id };
     } catch (error) {
@@ -179,6 +243,28 @@ export class WebsocketGateway
     return { success: true };
   }
 
+  // 加入工单房间（玩家端）
+  @SubscribeMessage('join-ticket')
+  async handleJoinTicket(
+    @MessageBody() data: { ticketId: string },
+    @ConnectedSocket() client: Socket,
+  ) {
+    client.join(`ticket:${data.ticketId}`);
+    this.logger.log(`客户端加入工单: ${data.ticketId}`);
+    return { success: true };
+  }
+
+  // 离开工单房间
+  @SubscribeMessage('leave-ticket')
+  async handleLeaveTicket(
+    @MessageBody() data: { ticketId: string },
+    @ConnectedSocket() client: Socket,
+  ) {
+    client.leave(`ticket:${data.ticketId}`);
+    this.logger.log(`客户端离开工单: ${data.ticketId}`);
+    return { success: true };
+  }
+
   // 通知会话更新（客服接入、队列更新等）
   notifySessionUpdate(sessionId: string, data: any) {
     this.server.to(`session:${sessionId}`).emit('session-update', data);
@@ -199,6 +285,30 @@ export class WebsocketGateway
 
   // 通知新消息
   notifyMessage(sessionId: string, message: any) {
-    this.server.to(`session:${sessionId}`).emit('message', message);
+    // 发送给会话房间的所有客户端（玩家端和客服端）
+    this.server.to(`session:${sessionId}`).emit('message', {
+      sessionId,
+      message,
+    });
+  }
+
+  notifyAgentStatusChange(
+    agentId: string,
+    isOnline: boolean,
+    extra?: { username?: string; realName?: string; avatar?: string },
+  ) {
+    this.server.emit('agent-status-changed', {
+      agentId,
+      isOnline,
+      username: extra?.username,
+      realName: extra?.realName,
+      avatar: extra?.avatar,
+    });
+  }
+
+  // 通知工单消息（玩家端和客服端）
+  notifyTicketMessage(ticketId: string, message: any) {
+    // 通知所有连接到该工单的客户端（通过 ticketId 房间）
+    this.server.to(`ticket:${ticketId}`).emit('ticket-message', message);
   }
 }

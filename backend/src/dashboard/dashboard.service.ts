@@ -329,6 +329,14 @@ export class DashboardService {
       ratingDistribution: entry.ratingDistribution,
     }));
 
+    // 计算AI拦截率 = (总会话数 - 转人工会话数) / 总会话数 * 100%
+    const aiInterceptionRate =
+      totalSessions > 0
+        ? Math.round(
+            ((totalSessions - transferredSessions) / totalSessions) * 10000,
+          ) / 100
+        : 0;
+
     return {
       totalTickets,
       openTickets,
@@ -336,6 +344,7 @@ export class DashboardService {
       averageResponseTime: avgResponseSeconds,
       averageResolutionTime: avgResolutionSeconds,
       satisfactionRating: averageSatisfaction,
+      aiInterceptionRate, // AI拦截率（百分比）
       agentStats,
       dailyStats,
     };

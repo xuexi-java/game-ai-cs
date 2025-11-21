@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Row, Col, Card, Statistic, DatePicker, Select, Spin, Typography } from 'antd';
 import {
   FileTextOutlined,
@@ -12,6 +12,8 @@ import ReactECharts from 'echarts-for-react';
 import dayjs from 'dayjs';
 import { getDashboardMetrics } from '../../services/dashboard.service';
 import { getGames } from '../../services/game.service';
+import { getUsers } from '../../services/user.service';
+import { useAgentStore } from '../../stores/agentStore';
 import type { DashboardMetrics, Game } from '../../types';
 import './index.css';
 
@@ -29,6 +31,8 @@ const DashboardPage: React.FC = () => {
     dayjs()
   ]);
   const agentStats = metrics?.agentStats ?? [];
+  const allAgents = useAgentStore((state) => state.allAgents);
+  const setAllAgents = useAgentStore((state) => state.setAllAgents);
 
   // 加载数据
   const loadData = async () => {
@@ -56,6 +60,32 @@ const DashboardPage: React.FC = () => {
   useEffect(() => {
     loadData();
   }, [selectedGameId, dateRange]);
+
+  useEffect(() => {
+    const loadAgents = async () => {
+      try {
+        const response = await getUsers({
+          role: 'AGENT',
+          page: 1,
+          pageSize: 500,
+        });
+        const agents =
+          response?.items?.map((agent) => ({
+            id: agent.id,
+            username: agent.username,
+            realName: agent.realName,
+            avatar: agent.avatar,
+            isOnline: !!agent.isOnline,
+            lastLoginAt: agent.lastLoginAt,
+          })) ?? [];
+        setAllAgents(agents);
+      } catch (error) {
+        console.error('加载客服列表失败:', error);
+      }
+    };
+
+    loadAgents();
+  }, [setAllAgents]);
 
   // 每日统计图表配置
   const getDailyStatsChartOption = () => {
@@ -202,15 +232,27 @@ const DashboardPage: React.FC = () => {
           <Select
             placeholder="选择游戏"
             style={{ width: 200, marginRight: 16 }}
-            value={selectedGameId}
-            onChange={setSelectedGameId}
+            value={selectedGameId ? selectedGameId : undefined}
+            onChange={(value) => setSelectedGameId(value || '')}
             allowClear
+            loading={games.length === 0}
+            notFoundContent={games.length === 0 ? '暂无游戏，请先创建游戏' : undefined}
+            showSearch
+            filterOption={(input, option) => {
+              const label = String(option?.label || '');
+              return label.toLowerCase().includes(input.toLowerCase());
+            }}
           >
-            {Array.isArray(games) && games.map(game => (
-              <Option key={game.id} value={game.id}>
-                {game.name}
-              </Option>
-            ))}
+            {Array.isArray(games) &&
+              games.length > 0 &&
+              games.map((game) => {
+                const gameName = game.name || `游戏 ${game.id}`;
+                return (
+                  <Option key={game.id} value={game.id} label={gameName}>
+                    {gameName}
+                  </Option>
+                );
+              })}
           </Select>
           <RangePicker
             value={dateRange}
@@ -296,6 +338,17 @@ const DashboardPage: React.FC = () => {
             />
           </Card>
         </Col>
+        <Col xs={24} sm={12}>
+          <Card>
+            <Statistic
+              title="AI拦截率"
+              value={metrics?.aiInterceptionRate || 0}
+              suffix="%"
+              prefix={<UserOutlined />}
+              valueStyle={{ color: '#fa8c16' }}
+            />
+          </Card>
+        </Col>
       </Row>
 
       {/* 图表区域 */}
@@ -327,25 +380,46 @@ const DashboardPage: React.FC = () => {
         <Col span={24}>
           <Card title="在线客服状态">
             <Row gutter={[16, 16]}>
-              {agentStats.map(agent => (
-                <Col xs={24} sm={12} md={8} lg={6} key={agent.agentId}>
-                  <Card size="small" className={`agent-card ${agent.isOnline ? 'online' : 'offline'}`}>
-                    <div className="agent-info">
-                      <UserOutlined className="agent-icon" />
-                      <div className="agent-details">
-                        <div className="agent-name">{agent.agentName}</div>
-                        <div className="agent-status">
-                          {agent.isOnline ? '在线' : '离线'}
+              {allAgents.map((agent) => {
+                const stats = agentStats.find(
+                  (stat) => stat.agentId === agent.id,
+                );
+                return (
+                  <Col xs={24} sm={12} md={8} lg={6} key={agent.id}>
+                    <Card
+                      size="small"
+                      className={`agent-card ${agent.isOnline ? 'online' : 'offline'}`}
+                    >
+                      <div className="agent-info">
+                        <UserOutlined className="agent-icon" />
+                        <div className="agent-details">
+                          <div className="agent-name">
+                            {agent.realName || agent.username}
+                          </div>
+                          <div className="agent-status">
+                            {agent.isOnline ? '在线' : '离线'}
+                          </div>
                         </div>
                       </div>
-                    </div>
-                    <div className="agent-stats">
-                      <div>处理: {agent.handledTickets}</div>
-                      <div>评分: {agent.averageRating.toFixed(1)}</div>
-                    </div>
-                  </Card>
+                      <div className="agent-stats">
+                        <div>处理: {stats?.handledTickets ?? 0}</div>
+                        <div>
+                          评分:{' '}
+                          {stats
+                            ? stats.averageRating.toFixed(1)
+                            : (agent as any).averageRating?.toFixed?.(1) ||
+                              '0.0'}
+                        </div>
+                      </div>
+                    </Card>
+                  </Col>
+                );
+              })}
+              {allAgents.length === 0 && (
+                <Col span={24}>
+                  <div className="online-agents-empty">暂无客服数据</div>
                 </Col>
-              ))}
+              )}
             </Row>
           </Card>
         </Col>

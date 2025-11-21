@@ -1,5 +1,5 @@
 import apiClient from './api';
-import type { PaginationResponse, User } from '../types';
+import type { PaginationResponse, User, OnlineAgent } from '../types';
 
 export interface UserQueryParams {
   page?: number;
@@ -34,5 +34,9 @@ export const updateUser = async (id: string, data: Partial<UserPayload>) => {
 
 export const deleteUser = async (id: string) => {
   return apiClient.delete(`/users/${id}`);
+};
+
+export const getOnlineAgents = async (): Promise<OnlineAgent[]> => {
+  return apiClient.get('/users/agents/online');
 };
 

@@ -14,6 +14,15 @@ export interface User {
   deletedAt?: string | null;
 }
 
+export interface OnlineAgent {
+  id: string;
+  username: string;
+  realName?: string;
+  avatar?: string;
+  isOnline: boolean;
+  lastLoginAt?: string;
+}
+
 export interface LoginRequest {
   username: string;
   password: string;
@@ -60,6 +69,13 @@ export interface Ticket {
   createdAt: string;
   updatedAt: string;
   attachments?: TicketAttachment[];
+  issueTypes?: Array<{ id: string; name: string }>;
+  ticketIssueTypes?: Array<{
+    issueType: {
+      id: string;
+      name: string;
+    } | null;
+  }>;
 }
 
 export interface TicketAttachment {
@@ -80,8 +96,15 @@ export interface Session {
   status: 'PENDING' | 'QUEUED' | 'IN_PROGRESS' | 'CLOSED';
   detectedIntent?: string;
   aiUrgency?: 'URGENT' | 'NON_URGENT';
+  playerUrgency?: 'URGENT' | 'NON_URGENT';
   priorityScore?: number;
   queuedAt?: string;
+  queuePosition?: number;
+  transferAt?: string;
+  transferReason?: string;
+  transferIssueTypeId?: string;
+  difyConversationId?: string;
+  difyStatus?: string | null;
   agentId?: string;
   agent?: {
     id: string;
@@ -94,6 +117,8 @@ export interface Session {
   updatedAt?: string;
   startedAt?: string;
   closedAt?: string;
+  allowManualTransfer?: boolean;
+  manuallyAssigned?: boolean; // 是否手动分配过
 }
 
 // 消息相关类型
@@ -135,6 +160,7 @@ export interface DashboardMetrics {
   averageResponseTime: number;
   averageResolutionTime: number;
   satisfactionRating: number;
+  aiInterceptionRate?: number; // AI拦截率（百分比）
   agentStats: AgentStats[];
   dailyStats: Array<{
     date: string;

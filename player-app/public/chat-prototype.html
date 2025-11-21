@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mobile Chat Interface V3.0</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Playfair+Display:wght@700&display=swap" rel="stylesheet">
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                        brand: ['"Playfair Display"', 'serif'],
+                    },
+                    colors: {
+                        primary: '#372B7B',   // Human Agent (Deep Purple)
+                        player: '#F97316',    // Player (Orange)
+                        ai: '#F1F5F9',        // AI Background (Gray)
+                        'ai-text': '#334155', // AI Text
+                        warning: '#F59E0B',   // Queue/System
+                    },
+                    animation: {
+                        'slide-up': 'slideUp 0.3s ease-out forwards',
+                        'fade-in': 'fadeIn 0.3s ease-out forwards',
+                    },
+                    keyframes: {
+                        slideUp: {
+                            '0%': { transform: 'translateY(10px)', opacity: '0' },
+                            '100%': { transform: 'translateY(0)', opacity: '1' },
+                        },
+                        fadeIn: {
+                            '0%': { opacity: '0' },
+                            '100%': { opacity: '1' },
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+    </style>
+</head>
+<body class="bg-gray-100 h-screen flex items-center justify-center overflow-hidden p-4 font-sans text-slate-800">
+
+    <!-- Mobile Container -->
+    <div class="w-full max-w-sm h-[800px] max-h-[90vh] bg-white rounded-3xl shadow-2xl overflow-hidden flex flex-col relative border border-gray-200">
+
+        <!-- ================= HEADER ================= -->
+        <header id="app-header" class="bg-white border-b border-gray-100 p-4 flex items-center justify-between z-20 transition-colors duration-500">
+            <div class="flex items-center gap-3">
+                <div class="relative">
+                    <div id="header-avatar" class="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center text-gray-500 transition-all duration-500">
+                        <i data-lucide="bot" class="w-6 h-6"></i>
+                    </div>
+                    <span class="absolute bottom-0 right-0 w-2.5 h-2.5 bg-green-500 border-2 border-white rounded-full"></span>
+                </div>
+                <div>
+                    <h1 id="header-name" class="font-bold text-gray-800 text-base">智能助手</h1>
+                    <p id="header-status" class="text-xs text-green-600 font-medium">在线</p>
+                </div>
+            </div>
+            <div class="flex gap-2">
+                <button onclick="app.reset()" class="p-2 text-gray-400 hover:bg-gray-50 rounded-full transition-colors" title="Reset Demo">
+                    <i data-lucide="rotate-ccw" class="w-5 h-5"></i>
+                </button>
+                <button class="p-2 text-gray-400 hover:bg-gray-50 rounded-full transition-colors">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+        </header>
+
+        <!-- ================= QUEUE BANNER ================= -->
+        <div id="queue-banner" class="hidden bg-orange-50 border-b border-orange-100 p-2 flex items-center justify-between text-xs text-orange-700 px-4 transition-all">
+            <div class="flex items-center gap-2">
+                <div class="animate-spin"><i data-lucide="loader-2" class="w-3 h-3"></i></div>
+                <span>正在转接人工客服...</span>
+            </div>
+            <span class="font-bold">第 <span id="queue-pos">3</span> 位</span>
+        </div>
+
+        <!-- ================= CHAT BODY ================= -->
+        <main id="chat-body" class="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50 no-scrollbar scroll-smooth">
+            <div class="text-center text-xs text-gray-400 py-2">今天 14:30</div>
+            <!-- Messages will be injected here -->
+        </main>
+
+        <!-- ================= FOOTER ================= -->
+        <footer class="bg-white border-t border-gray-100 p-3 z-20 relative">
+            
+            <!-- Quick Actions (AI Mode) -->
+            <div id="quick-actions" class="flex gap-2 mb-3 overflow-x-auto no-scrollbar pb-1">
+                <!-- Buttons injected by JS -->
+            </div>
+
+            <!-- Toolbar -->
+            <div class="flex items-center justify-between mb-2 px-1">
+                <div class="flex gap-3 text-gray-400">
+                    <button class="hover:text-primary transition-colors"><i data-lucide="image" class="w-5 h-5"></i></button>
+                    <button class="hover:text-primary transition-colors"><i data-lucide="smile" class="w-5 h-5"></i></button>
+                </div>
+                <button id="btn-transfer" onclick="app.startTransfer()" class="flex items-center gap-1.5 text-xs font-medium text-gray-500 bg-gray-50 border border-gray-200 px-3 py-1.5 rounded-full hover:border-primary hover:text-primary transition-all">
+                    <i data-lucide="headset" class="w-3.5 h-3.5"></i>
+                    <span id="transfer-text">转人工</span>
+                </button>
+            </div>
+
+            <!-- Input Area -->
+            <div class="flex gap-2 items-end">
+                <textarea id="chat-input" rows="1" class="flex-1 bg-gray-100 text-gray-800 text-sm rounded-2xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:bg-white transition-all resize-none max-h-24" placeholder="请输入..."></textarea>
+                <button onclick="app.sendMessage()" class="bg-primary hover:bg-opacity-90 text-white p-3 rounded-xl shadow-lg shadow-indigo-100 transition-transform active:scale-95">
+                    <i data-lucide="send" class="w-4 h-4"></i>
+                </button>
+            </div>
+
+            <!-- End Session Overlay (Disabled State) -->
+            <div id="footer-disabled" class="absolute inset-0 bg-white/80 backdrop-blur-[1px] hidden flex items-center justify-center z-30">
+                <span class="text-sm text-gray-500 font-medium">会话已结束</span>
+            </div>
+        </footer>
+
+        <!-- ================= RATING MODAL ================= -->
+        <div id="rating-modal" class="absolute inset-0 bg-black/30 backdrop-blur-sm z-50 hidden opacity-0 transition-opacity duration-300 flex items-end">
+            <div class="bg-white w-full p-6 rounded-t-3xl shadow-[0_-10px_40px_rgba(0,0,0,0.1)] transform translate-y-full transition-transform duration-300" id="rating-card">
+                <div class="w-12 h-1 bg-gray-200 rounded-full mx-auto mb-6"></div>
+                <div class="text-center mb-6">
+                    <h3 class="text-lg font-bold text-gray-800 font-brand">服务评价</h3>
+                    <p class="text-sm text-gray-500 mt-1">请对客服 <span class="text-primary font-semibold">007</span> 的服务打分</p>
+                </div>
+                <div class="flex justify-center gap-4 mb-8">
+                    <button class="text-4xl grayscale hover:grayscale-0 hover:scale-110 transition-all transform" onclick="app.submitRating(1)">😠</button>
+                    <button class="text-4xl grayscale hover:grayscale-0 hover:scale-110 transition-all transform" onclick="app.submitRating(3)">😐</button>
+                    <button class="text-4xl grayscale hover:grayscale-0 hover:scale-110 transition-all transform" onclick="app.submitRating(5)">😍</button>
+                </div>
+                <button onclick="app.closeRating()" class="w-full bg-gray-100 text-gray-600 font-semibold py-3.5 rounded-xl hover:bg-gray-200 transition-colors">暂不评价</button>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        const app = {
+            state: {
+                mode: 'ai', // 'ai' | 'queue' | 'agent' | 'ended'
+                queueCount: 3,
+                isTyping: false
+            },
+
+            init() {
+                lucide.createIcons();
+                this.addMessage('ai', '您好，收到您反馈的**充值未到账**问题。请别着急，这通常是网络延迟导致的。您可以点击下方按钮自助查询。');
+                this.renderQuickActions(['查询充值记录', '10分钟内未到账', '联系人工']);
+                
+                document.getElementById('chat-input').addEventListener('keypress', (e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        this.sendMessage();
+                    }
+                });
+            },
+
+            // Core Message Renderer
+            addMessage(role, text) {
+                const container = document.getElementById('chat-body');
+                const msgDiv = document.createElement('div');
+                msgDiv.className = `flex gap-3 mb-4 animate-slide-up ${role === 'player' ? 'flex-row-reverse' : ''}`;
+
+                // Config based on Role
+                const config = {
+                    ai: {
+                        bg: 'bg-ai', text: 'text-ai-text', 
+                        rounded: 'rounded-tl-none',
+                        avatarIcon: 'bot', avatarBg: 'bg-gray-100', iconColor: 'text-gray-500',
+                        name: 'AI 助手'
+                    },
+                    player: {
+                        bg: 'bg-player', text: 'text-white', 
+                        rounded: 'rounded-tr-none',
+                        avatarIcon: 'user', avatarBg: 'bg-orange-50', iconColor: 'text-player',
+                        name: '我'
+                    },
+                    agent: {
+                        bg: 'bg-primary', text: 'text-white', 
+                        rounded: 'rounded-tl-none',
+                        avatarIcon: 'headset', avatarBg: 'bg-primary', iconColor: 'text-white',
+                        name: '客服 007'
+                    },
+                    system: { isSystem: true }
+                };
+
+                const c = config[role];
+
+                if (c.isSystem) {
+                    msgDiv.className = "flex justify-center mb-4 animate-fade-in";
+                    msgDiv.innerHTML = `<span class="text-xs text-gray-400 bg-gray-100 px-3 py-1 rounded-full border border-gray-200">${text}</span>`;
+                } else {
+                    msgDiv.innerHTML = `
+                        <div class="w-8 h-8 rounded-full ${c.avatarBg} flex items-center justify-center flex-shrink-0 shadow-sm">
+                            <i data-lucide="${c.avatarIcon}" class="w-4 h-4 ${c.iconColor}"></i>
+                        </div>
+                        <div class="flex flex-col gap-1 max-w-[80%] ${role === 'player' ? 'items-end' : 'items-start'}">
+                            <span class="text-[10px] text-gray-400 mx-1">${c.name}</span>
+                            <div class="p-3.5 text-sm leading-relaxed shadow-sm rounded-2xl ${c.bg} ${c.text} ${c.rounded}">
+                                ${text}
+                            </div>
+                        </div>
+                    `;
+                }
+
+                container.appendChild(msgDiv);
+                lucide.createIcons();
+                container.scrollTop = container.scrollHeight;
+            },
+
+            sendMessage() {
+                const input = document.getElementById('chat-input');
+                const text = input.value.trim();
+                if (!text) return;
+
+                this.addMessage('player', text);
+                input.value = '';
+
+                // Simulate Response
+                if (this.state.mode === 'ai') {
+                    setTimeout(() => {
+                        this.addMessage('ai', '抱歉，我暂时无法处理这个具体的订单问题。建议您点击下方“转人工”按钮，由专业客服为您服务。');
+                    }, 1000);
+                } else if (this.state.mode === 'agent') {
+                    setTimeout(() => {
+                        this.addMessage('agent', '好的，我已经帮您登记了补单申请。还有其他问题吗？');
+                        // Simulate End Session after agent reply
+                        setTimeout(() => this.endSession(), 3000);
+                    }, 1500);
+                }
+            },
+
+            renderQuickActions(actions) {
+                const container = document.getElementById('quick-actions');
+                container.innerHTML = actions.map(action => 
+                    `<button onclick="app.fillInput('${action}')" class="whitespace-nowrap px-4 py-1.5 rounded-full border border-gray-200 bg-white text-xs text-gray-600 hover:border-primary hover:text-primary hover:bg-indigo-50 transition-all shadow-sm">${action}</button>`
+                ).join('');
+            },
+
+            fillInput(text) {
+                if (text === '联系人工') {
+                    this.startTransfer();
+                } else {
+                    document.getElementById('chat-input').value = text;
+                    this.sendMessage();
+                }
+            },
+
+            startTransfer() {
+                if (this.state.mode !== 'ai') return;
+                
+                this.state.mode = 'queue';
+                this.addMessage('system', '已为您申请转接人工客服');
+                
+                // UI Updates
+                const btn = document.getElementById('btn-transfer');
+                btn.classList.add('opacity-50', 'cursor-not-allowed');
+                document.getElementById('quick-actions').style.display = 'none';
+                
+                // Show Queue Banner
+                const banner = document.getElementById('queue-banner');
+                banner.classList.remove('hidden');
+
+                // Simulate Queue Countdown
+                const interval = setInterval(() => {
+                    this.state.queueCount--;
+                    document.getElementById('queue-pos').innerText = this.state.queueCount;
+                    
+                    if (this.state.queueCount <= 0) {
+                        clearInterval(interval);
+                        this.connectAgent();
+                    }
+                }, 1500);
+            },
+
+            connectAgent() {
+                this.state.mode = 'agent';
+                document.getElementById('queue-banner').classList.add('hidden');
+                
+                // Update Header to Agent Style
+                const avatar = document.getElementById('header-avatar');
+                avatar.className = "w-10 h-10 rounded-full bg-primary flex items-center justify-center text-white transition-all duration-500 shadow-md shadow-indigo-200";
+                avatar.innerHTML = `<i data-lucide="headset" class="w-5 h-5"></i>`;
+                document.getElementById('header-name').innerText = "客服 007";
+                document.getElementById('header-status').innerHTML = "为您服务中";
+                
+                // Update Transfer Button to End Button
+                const transferBtn = document.getElementById('btn-transfer');
+                transferBtn.onclick = () => this.endSession();
+                transferBtn.innerHTML = `<i data-lucide="power" class="w-3.5 h-3.5"></i><span>结束</span>`;
+                transferBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+                transferBtn.className = "flex items-center gap-1.5 text-xs font-medium text-red-500 bg-red-50 border border-red-100 px-3 py-1.5 rounded-full hover:bg-red-100 transition-all";
+
+                this.addMessage('system', '人工客服 007 已接入会话');
+                
+                setTimeout(() => {
+                    this.addMessage('agent', '您好，我是工号007。刚才看到您反馈充值未到账，请问是刚才那笔 648 元的订单吗？');
+                    lucide.createIcons();
+                }, 500);
+                
+                lucide.createIcons();
+            },
+
+            endSession() {
+                this.state.mode = 'ended';
+                this.addMessage('system', '会话已结束');
+                
+                // Disable UI
+                document.getElementById('footer-disabled').classList.remove('hidden');
+                
+                // Show Rating Modal
+                const modal = document.getElementById('rating-modal');
+                const card = document.getElementById('rating-card');
+                
+                modal.classList.remove('hidden');
+                // Trigger reflow
+                void modal.offsetWidth;
+                modal.classList.remove('opacity-0');
+                card.classList.remove('translate-y-full');
+            },
+
+            submitRating(score) {
+                this.closeRating();
+                // In real app: POST /api/feedback
+                setTimeout(() => alert(`感谢您的评价: ${score} 星`), 300);
+            },
+
+            closeRating() {
+                const modal = document.getElementById('rating-modal');
+                const card = document.getElementById('rating-card');
+                card.classList.add('translate-y-full');
+                modal.classList.add('opacity-0');
+                setTimeout(() => modal.classList.add('hidden'), 300);
+            },
+
+            reset() {
+                window.location.reload();
+            }
+        };
+
+        app.init();
+    </script>
+</body>
+</html>

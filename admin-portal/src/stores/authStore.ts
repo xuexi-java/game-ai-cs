@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import type { User } from '../types';
-import { getCurrentUser, clearUserInfo } from '../services/auth.service';
+import { getCurrentUser, clearUserInfo, requestLogout } from '../services/auth.service';
+import { websocketService } from '../services/websocket.service';
 
 interface AuthState {
   user: User | null;
@@ -20,10 +21,13 @@ export const useAuthStore = create<AuthState>((set) => ({
   }),
   
   logout: () => {
-    clearUserInfo();
-    set({ 
-      user: null, 
-      isAuthenticated: false 
+    requestLogout().finally(() => {
+      websocketService.disconnect();
+      clearUserInfo();
+      set({ 
+        user: null, 
+        isAuthenticated: false 
+      });
     });
   },
   

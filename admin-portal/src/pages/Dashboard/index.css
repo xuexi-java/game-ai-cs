@@ -102,6 +102,13 @@
     color: #666;
 }
 
+.online-agents-empty {
+    text-align: center;
+    color: #999;
+    padding: 20px 0;
+    font-size: 14px;
+}
+
 
 /* 统计卡片样式优化 */
 

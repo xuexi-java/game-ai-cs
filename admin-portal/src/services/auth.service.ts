@@ -33,6 +33,13 @@ export const clearUserInfo = () => {
 };
 
 /**
+ * 退出登录
+ */
+export const requestLogout = async () => {
+  return apiClient.post('/auth/logout');
+};
+
+/**
  * 检查是否已登录
  */
 export const isAuthenticated = (): boolean => {

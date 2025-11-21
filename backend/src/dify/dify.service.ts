@@ -4,13 +4,98 @@ import axios, { AxiosInstance } from 'axios';
 
 export interface DifyMessageResult {
   text: string;
-  status?: number | string;
+  status?: number | string | null;
   suggestedOptions: string[];
   detectedIntent: string;
   urgency: 'urgent' | 'non_urgent';
   metadata?: any;
   conversationId?: string;
 }
+
+const parseDifyResult = (payload: any): DifyMessageResult => {
+  if (!payload || typeof payload !== 'object') {
+    return {
+      text: '',
+      suggestedOptions: [],
+      detectedIntent: 'unknown',
+      urgency: 'non_urgent',
+    };
+  }
+
+  const metadata = { ...(payload.metadata || payload.data?.metadata || {}) };
+
+  if (payload.files && Array.isArray(payload.files)) {
+    metadata.files = payload.files;
+  }
+
+  let text =
+    payload.text ||
+    payload.answer ||
+    payload.output ||
+    payload.initial_reply ||
+    metadata.text ||
+    payload.content ||
+    '';
+
+  if (typeof text === 'string' && text.includes('</think>')) {
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      try {
+        const jsonData = JSON.parse(jsonMatch[0]);
+        if (jsonData.text) {
+          text = jsonData.text;
+        }
+        if (jsonData.status !== undefined) {
+          metadata.status = jsonData.status;
+        }
+      } catch (e) {
+        console.warn('解析 Dify JSON 失败:', e);
+      }
+    }
+    text = text.replace(/<\/redacted_reasoning>[\s\S]*$/, '').trim();
+  }
+
+  if (
+    typeof text === 'string' &&
+    text.trim().startsWith('{') &&
+    text.trim().endsWith('}')
+  ) {
+    try {
+      const jsonData = JSON.parse(text);
+      if (jsonData.text) {
+        text = jsonData.text;
+      }
+      if (jsonData.status !== undefined) {
+        metadata.status = jsonData.status;
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
+  const status =
+    payload.status ??
+    payload.state ??
+    payload.workflow_status ??
+    metadata.status ??
+    metadata.workflow_status;
+
+  const suggestedOptions =
+    payload.suggested_options ||
+    metadata.suggested_options ||
+    payload.options ||
+    [];
+
+  return {
+    text,
+    status: null,
+    suggestedOptions: Array.isArray(suggestedOptions) ? suggestedOptions : [],
+    detectedIntent: 'unknown',
+    urgency: 'non_urgent',
+    metadata,
+    conversationId: payload.conversation_id,
+  };
+};
 
 @Injectable()
 export class DifyService {
@@ -53,7 +138,7 @@ export class DifyService {
       // 解析Dify返回的数据
       const output =
         response.data?.outputs || response.data?.data?.outputs || response.data;
-      return this.parseResult(output);
+      return parseDifyResult(output);
     } catch (error: any) {
       console.error('Dify 工作流API调用失败，尝试使用对话API:', error.message);
 
@@ -103,7 +188,7 @@ export class DifyService {
       );
 
       // 解析Dify对话API返回的数据
-      const parsed = this.parseResult(response.data);
+      const parsed = parseDifyResult(response.data);
       if (!parsed.text) {
         parsed.text = '您好，我正在为您分析问题...';
       }
@@ -151,7 +236,7 @@ export class DifyService {
         },
       );
 
-      const parsed = this.parseResult(response.data);
+      const parsed = parseDifyResult(response.data);
       parsed.conversationId =
         response.data?.conversation_id ?? parsed.conversationId;
       return parsed;
@@ -252,92 +337,4 @@ export class DifyService {
     }
   }
 
-  private parseResult(payload: any): DifyMessageResult {
-    if (!payload || typeof payload !== 'object') {
-      return {
-        text: '',
-        suggestedOptions: [],
-        detectedIntent: 'unknown',
-        urgency: 'non_urgent',
-      };
-    }
-
-    const metadata = payload.metadata || payload.data?.metadata || {};
-    let text =
-      payload.text ||
-      payload.answer ||
-      payload.output ||
-      payload.initial_reply ||
-      metadata.text ||
-      payload.content ||
-      '';
-
-    // 处理 Dify 返回的 JSON 格式文本（包含 </think> 和 JSON）
-    if (typeof text === 'string' && text.includes('</think>')) {
-      // 提取 JSON 部分
-      const jsonMatch = text.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        try {
-          const jsonData = JSON.parse(jsonMatch[0]);
-          // 如果 JSON 中有 text 字段，使用它
-          if (jsonData.text) {
-            text = jsonData.text;
-          }
-          // 如果 JSON 中有 status，使用它
-          if (jsonData.status !== undefined) {
-            metadata.status = jsonData.status;
-          }
-        } catch (e) {
-          // JSON 解析失败，继续使用原始文本
-          console.warn('解析 Dify JSON 失败:', e);
-        }
-      }
-      // 移除 </think> 标记和 JSON 部分
-      text = text.replace(/<\/redacted_reasoning>[\s\S]*$/, '').trim();
-    }
-
-    // 尝试从文本中提取 JSON（如果整个文本是 JSON）
-    if (typeof text === 'string' && text.trim().startsWith('{') && text.trim().endsWith('}')) {
-      try {
-        const jsonData = JSON.parse(text);
-        if (jsonData.text) {
-          text = jsonData.text;
-        }
-        if (jsonData.status !== undefined) {
-          metadata.status = jsonData.status;
-        }
-      } catch (e) {
-        // 不是有效的 JSON，继续使用原始文本
-      }
-    }
-
-    const status =
-      payload.status ??
-      payload.state ??
-      payload.workflow_status ??
-      metadata.status ??
-      metadata.workflow_status;
-
-    const suggestedOptions =
-      payload.suggested_options ||
-      metadata.suggested_options ||
-      payload.options ||
-      [];
-
-    const detected_intent =
-      payload.detected_intent || metadata.detected_intent || 'unknown';
-
-    const urgencyValue =
-      payload.urgency || metadata.urgency || payload.priority || 'non_urgent';
-
-    return {
-      text,
-      status,
-      suggestedOptions: Array.isArray(suggestedOptions) ? suggestedOptions : [],
-      detectedIntent: detected_intent,
-      urgency: urgencyValue === 'urgent' ? 'urgent' : 'non_urgent',
-      metadata,
-      conversationId: payload.conversation_id,
-    };
-  }
 }

@@ -1,9 +1,14 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, Inject, forwardRef } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { WebsocketGateway } from '../websocket/websocket.gateway';
 
 @Injectable()
 export class TicketMessageService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    @Inject(forwardRef(() => WebsocketGateway))
+    private websocketGateway: WebsocketGateway,
+  ) {}
 
   // 创建工单消息（异步工单回复）
   async create(ticketId: string, senderId: string, content: string) {
@@ -41,6 +46,9 @@ export class TicketMessageService {
         status: 'WAITING',
       },
     });
+
+    // 通过 WebSocket 通知工单消息（通知玩家端）
+    this.websocketGateway.notifyTicketMessage(ticketId, message);
 
     // TODO: 触发游戏内邮件通知
 

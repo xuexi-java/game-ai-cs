@@ -41,19 +41,9 @@ const MainLayout: React.FC = () => {
       visible: isAdmin,
     },
     {
-      key: '/workbench',
+      key: '/workbench/active',
       icon: <CustomerServiceOutlined />,
       label: '客服工作台',
-      children: [
-        {
-          key: '/workbench/queue',
-          label: '待接入队列',
-        },
-        {
-          key: '/workbench/active',
-          label: '活跃会话',
-        },
-      ],
     },
     {
       key: '/tickets',
@@ -79,7 +69,7 @@ const MainLayout: React.FC = () => {
       children: [
         {
           key: '/settings/urgency-rules',
-          label: '紧急规则',
+          label: '问题类型规则',
         },
         {
           key: '/settings/users',

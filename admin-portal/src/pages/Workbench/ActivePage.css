@@ -1,330 +1,806 @@
-.active-container {
-    padding: 0;
+/* 工作台页面容器 */
+.workbench-page {
+  height: calc(100vh - 64px);
+  display: flex;
+  flex-direction: column;
+  background: #f5f5f5;
+  padding: 16px;
+  overflow: hidden;
 }
 
-.active-loading {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    min-height: 400px;
-    color: #666;
+/* 三栏布局 - 可调整大小 */
+.workbench-layout {
+  display: flex;
+  gap: 0;
+  height: 100%;
+  overflow: hidden;
+  position: relative;
 }
 
-.active-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 24px;
-    flex-wrap: wrap;
-    gap: 16px;
+/* 左侧会话列表面板 - 可调整宽度 */
+.workbench-list-panel {
+  width: 320px;
+  min-width: 200px;
+  max-width: 600px;
+  background: #fff;
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  position: relative;
+  resize: horizontal;
+  overflow: hidden;
 }
 
-.active-list {
-    margin-top: 16px;
+/* 调整大小的拖拽条 */
+.workbench-list-panel::after {
+  content: '';
+  position: absolute;
+  right: -8px;
+  top: 0;
+  bottom: 0;
+  width: 16px;
+  cursor: col-resize;
+  z-index: 10;
+  background: transparent;
 }
 
-.active-item {
-    border: 1px solid #f0f0f0;
-    border-radius: 8px;
-    margin-bottom: 16px;
-    padding: 16px;
-    background: #fff;
-    transition: all 0.3s;
+.workbench-list-panel:hover::after {
+  background: rgba(24, 144, 255, 0.1);
 }
 
-.active-item:hover {
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-    border-color: #52c41a;
+.workbench-list-panel > .session-group:first-of-type {
+  border-bottom: 1px solid #f0f0f0;
 }
 
-.active-item-content {
-    width: 100%;
+.panel-header {
+  padding: 16px;
+  border-bottom: 1px solid #f0f0f0;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  flex-shrink: 0;
 }
 
-.active-item-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    margin-bottom: 12px;
-    flex-wrap: wrap;
-    gap: 12px;
+.panel-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #262626;
+  margin-bottom: 4px;
 }
 
-.active-item-title {
-    display: flex;
-    align-items: center;
-    flex: 1;
-    min-width: 0;
+.panel-title span {
+  font-size: 14px;
+  font-weight: 400;
+  color: #8c8c8c;
 }
 
-.active-item-title h5 {
-    color: #52c41a;
-    font-weight: 600;
+.panel-subtitle {
+  font-size: 12px;
+  color: #8c8c8c;
 }
 
-.active-item-tags {
-    display: flex;
-    gap: 8px;
-    flex-wrap: wrap;
+.online-agents-panel {
+  padding: 12px 16px;
+  border-bottom: 1px solid #f0f0f0;
+  background: #fff;
 }
 
-.active-item-description {
-    margin-bottom: 12px;
-    padding: 12px;
-    background: #f6ffed;
-    border-radius: 6px;
-    border-left: 4px solid #52c41a;
+.online-agents-header {
+  font-size: 13px;
+  font-weight: 600;
+  color: #262626;
+  margin-bottom: 8px;
 }
 
-.active-item-description .ant-typography {
-    margin: 0;
-    line-height: 1.6;
+.online-agents-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
-.active-item-meta {
-    color: #666;
-    font-size: 12px;
+.online-agent-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #f6ffed;
+  border: 1px solid #b7eb8f;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  color: #389e0d;
 }
 
-.active-item-meta .anticon {
-    margin-right: 4px;
+.online-agents-empty {
+  font-size: 12px;
+  color: #999;
 }
 
-
-/* 聊天窗口样式 */
-
-.chat-modal .ant-modal-body {
-    padding: 0;
+.status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #52c41a;
+  display: inline-block;
 }
 
-.chat-modal-title {
-    display: flex;
-    align-items: center;
-    font-weight: 600;
+.agent-name {
+  font-weight: 500;
 }
 
-.chat-container {
-    height: 500px;
-    display: flex;
-    flex-direction: column;
+.session-group {
+  flex: 0 0 50%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  overflow: hidden;
 }
 
-.agent-ticket-info {
-    padding: 16px;
-    background: #fafafa;
-    border-bottom: 1px solid #f0f0f0;
+.group-header {
+  font-size: 14px;
+  font-weight: 600;
+  color: #262626;
+  padding: 12px 16px;
+  background: #fff;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  border-bottom: 1px solid #f0f0f0;
+  flex-shrink: 0;
 }
 
-.agent-ticket-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-    gap: 12px;
-    margin-bottom: 12px;
-    font-size: 13px;
+.session-group-content {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 12px;
+  min-height: 0;
+  /* 自定义滚动条样式 */
+  scrollbar-width: thin;
+  scrollbar-color: #d9d9d9 #f5f5f5;
 }
 
-.agent-ticket-grid .label,
-.agent-ticket-problem .label,
-.agent-ticket-attachments .label {
-    display: block;
-    font-size: 12px;
-    text-transform: uppercase;
-    color: #999;
-    margin-bottom: 4px;
-    letter-spacing: 0.05em;
+.session-group-content::-webkit-scrollbar {
+  width: 6px;
 }
 
-.agent-ticket-problem {
-    padding: 12px;
-    background: #fff;
-    border: 1px solid #f0f0f0;
-    border-radius: 8px;
-    margin-bottom: 12px;
+.session-group-content::-webkit-scrollbar-track {
+  background: #f5f5f5;
+  border-radius: 3px;
 }
 
-.agent-ticket-attachments {
-    margin-top: 4px;
+.session-group-content::-webkit-scrollbar-thumb {
+  background: #d9d9d9;
+  border-radius: 3px;
 }
 
-.agent-ticket-attachment-list {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    margin-top: 8px;
+.session-group-content::-webkit-scrollbar-thumb:hover {
+  background: #bfbfbf;
 }
 
-.chat-messages {
-    flex: 1;
-    padding: 16px;
-    overflow-y: auto;
-    background: #f5f5f5;
-    max-height: 350px;
+.session-card {
+  padding: 12px;
+  border: 1px solid #f0f0f0;
+  border-radius: 8px;
+  margin-bottom: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+  background: #fff;
 }
 
-.message-item {
-    margin-bottom: 16px;
-    display: flex;
+.session-card:hover {
+  border-color: #1890ff;
+  box-shadow: 0 2px 8px rgba(24, 144, 255, 0.1);
 }
 
-.message-item.message-agent {
-    justify-content: flex-end;
+.session-card.active {
+  border-color: #1890ff;
+  background: #e6f7ff;
 }
 
-.message-item.message-player {
-    justify-content: flex-start;
+.session-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
 }
 
-.message-item.message-system {
-    justify-content: center;
+.session-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: #262626;
 }
 
-.message-content {
-    max-width: 70%;
-    background: #fff;
-    border-radius: 8px;
-    padding: 12px;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+.session-desc {
+  font-size: 12px;
+  color: #8c8c8c;
+  margin-bottom: 8px;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
-.message-item.message-agent .message-content {
-    background: #1890ff;
-    color: #fff;
+.session-extra {
+  font-size: 12px;
+  color: #8c8c8c;
 }
 
-.message-item.message-system .message-content {
-    background: #f0f0f0;
-    color: #666;
-    text-align: center;
-    max-width: 50%;
+.session-card-content {
+  flex: 1;
+  cursor: pointer;
 }
 
-.message-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 8px;
-    font-size: 12px;
+.session-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 8px;
+  border-top: 1px solid #f0f0f0;
+  margin-top: 8px;
 }
 
-.message-sender {
-    font-weight: 600;
+/* 中间聊天面板 - 可调整宽度 */
+.workbench-chat-panel {
+  flex: 1;
+  min-width: 300px;
+  background: #fff;
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  position: relative;
+  margin: 0 16px;
+  resize: horizontal;
+  overflow: hidden;
 }
 
-.message-time {
-    opacity: 0.7;
+.workbench-chat-panel::before {
+  content: '';
+  position: absolute;
+  left: -8px;
+  top: 0;
+  bottom: 0;
+  width: 16px;
+  cursor: col-resize;
+  z-index: 10;
+  background: transparent;
 }
 
-.message-text {
-    line-height: 1.6;
-    word-break: break-word;
+.workbench-chat-panel::after {
+  content: '';
+  position: absolute;
+  right: -8px;
+  top: 0;
+  bottom: 0;
+  width: 16px;
+  cursor: col-resize;
+  z-index: 10;
+  background: transparent;
 }
 
-.chat-input {
-    padding: 16px;
-    background: #fff;
-    border-top: 1px solid #f0f0f0;
+.workbench-chat-panel:hover::before,
+.workbench-chat-panel:hover::after {
+  background: rgba(24, 144, 255, 0.1);
 }
 
-.chat-input-actions {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-top: 12px;
+.chat-panel-header {
+  padding: 16px;
+  border-bottom: 1px solid #f0f0f0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-shrink: 0;
 }
 
+.chat-context {
+  font-size: 12px;
+  color: #8c8c8c;
+  margin-top: 4px;
+}
+
+.chat-history {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+  background: #ededed;
+}
+
+.message-list-container {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* 微信风格消息样式 */
+.message-item-wechat {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  width: 100%;
+  margin-bottom: 8px;
+}
+
+.message-player-wechat {
+  flex-direction: row-reverse;
+  justify-content: flex-end;
+}
+
+.message-ai-wechat {
+  justify-content: flex-start;
+}
+
+.message-agent-wechat {
+  flex-direction: row-reverse;
+  justify-content: flex-end;
+}
+
+/* 头像 */
+.message-avatar-wechat {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  font-size: 18px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.avatar-ai-wechat {
+  background: linear-gradient(135deg, #f6d365 0%, #fda085 100%);
+  color: white;
+}
+
+.avatar-agent-wechat {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+}
+
+.avatar-player-wechat {
+  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+  color: white;
+}
+
+/* 消息内容包装器 */
+.message-content-wrapper-wechat {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 70%;
+  flex: 1;
+}
+
+.message-player-wechat .message-content-wrapper-wechat {
+  align-items: flex-end;
+}
+
+.message-ai-wechat .message-content-wrapper-wechat,
+.message-agent-wechat .message-content-wrapper-wechat {
+  align-items: flex-end;
+}
+
+/* 发送者名称 */
+.message-sender-name-wechat {
+  font-size: 12px;
+  color: #8c8c8c;
+  padding: 0 4px;
+  font-weight: 500;
+}
+
+.message-player-wechat .message-sender-name-wechat {
+  display: none;
+}
+
+/* 消息气泡 */
+.message-bubble-wechat {
+  padding: 10px 14px;
+  border-radius: 8px;
+  word-wrap: break-word;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+  line-height: 1.5;
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+}
+
+/* 玩家消息气泡 - 右侧，类似微信绿色 */
+.bubble-player-wechat {
+  background: #95ec69;
+  color: #000;
+  border-top-right-radius: 4px;
+  border-bottom-right-radius: 4px;
+  border-top-left-radius: 8px;
+  border-bottom-left-radius: 8px;
+}
+
+/* AI消息气泡 - 左侧，类似微信白色 */
+.bubble-ai-wechat {
+  background: #ffffff;
+  color: #1f2937;
+  border-top-left-radius: 4px;
+  border-bottom-left-radius: 4px;
+  border-top-right-radius: 8px;
+  border-bottom-right-radius: 8px;
+  border: 1px solid #e5e5e5;
+}
+
+/* 客服消息气泡 - 右侧，类似微信绿色 */
+.bubble-agent-wechat {
+  background: #95ec69;
+  color: #000;
+  border-top-right-radius: 4px;
+  border-bottom-right-radius: 4px;
+  border-top-left-radius: 8px;
+  border-bottom-left-radius: 8px;
+}
+
+.message-text-wechat {
+  word-break: break-word;
+  font-size: 14px;
+  margin-bottom: 4px;
+}
+
+.message-time-wechat {
+  font-size: 11px;
+  color: #8c8c8c;
+  opacity: 0.7;
+  align-self: flex-end;
+  margin-top: 2px;
+}
+
+.bubble-player-wechat .message-time-wechat {
+  color: rgba(0, 0, 0, 0.5);
+}
+
+.chat-empty {
+  text-align: center;
+  color: #8c8c8c;
+  padding: 40px;
+  font-size: 14px;
+}
+
+.chat-input-bar {
+  padding: 16px;
+  border-top: 1px solid #f0f0f0;
+  background: #fff;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.chat-input-bar .ant-input {
+  resize: vertical;
+  min-height: 60px;
+  max-height: 300px;
+}
+
+.input-toolbar {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.chat-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  margin-top: 12px;
+}
+
+.ai-optimize-btn {
+  border-color: #722ed1;
+  color: #722ed1;
+  background: rgba(114, 46, 209, 0.05);
+}
+
+.ai-optimize-btn:hover,
+.ai-optimize-btn:focus {
+  border-color: #531dab;
+  color: #531dab;
+}
+
+/* 右侧信息面板 - 可调整宽度 */
+.workbench-info-panel {
+  width: 360px;
+  min-width: 200px;
+  max-width: 600px;
+  background: #fff;
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  position: relative;
+  resize: horizontal;
+  overflow: hidden;
+}
+
+.workbench-info-panel::before {
+  content: '';
+  position: absolute;
+  left: -8px;
+  top: 0;
+  bottom: 0;
+  width: 16px;
+  cursor: col-resize;
+  z-index: 10;
+  background: transparent;
+}
+
+.workbench-info-panel:hover::before {
+  background: rgba(24, 144, 255, 0.1);
+}
+
+.workbench-info-panel .tab-content {
+  flex: 1;
+  overflow-y: auto;
+  height: 100%;
+}
+
+.tab-content {
+  padding: 16px;
+}
+
+.customer-card {
+  text-align: center;
+  padding: 24px 16px;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.avatar {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  background: #f97316;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 32px;
+  font-weight: 600;
+  margin: 0 auto 16px;
+}
+
+.customer-name {
+  font-size: 18px;
+  font-weight: 600;
+  color: #262626;
+  margin-bottom: 8px;
+}
+
+.customer-id {
+  font-size: 12px;
+  color: #8c8c8c;
+  margin-bottom: 16px;
+}
+
+.info-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 12px 0;
+  border-bottom: 1px solid #f0f0f0;
+  font-size: 14px;
+}
+
+.info-row span {
+  color: #8c8c8c;
+  flex-shrink: 0;
+  min-width: 100px;
+}
+
+.info-row strong {
+  color: #262626;
+  font-weight: 500;
+  text-align: right;
+  word-break: break-word;
+}
+
+.info-value {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-align: right;
+  flex: 1;
+  justify-content: flex-end;
+}
+
+.info-row p {
+  margin: 0;
+  color: #262626;
+  text-align: right;
+  max-width: 200px;
+  word-break: break-word;
+}
+
+.description-text {
+  margin: 0;
+  color: #262626;
+  text-align: right;
+  max-width: 200px;
+  word-break: break-word;
+  line-height: 1.6;
+}
+
+.ticket-card {
+  padding: 16px 0;
+}
+
+.ticket-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #262626;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.attachments-preview {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.info-row .attachments-preview {
+  margin-top: 0;
+}
 
 /* 滚动条样式 */
-
-.chat-messages::-webkit-scrollbar {
-    width: 6px;
+.session-group-content::-webkit-scrollbar,
+.session-group::-webkit-scrollbar,
+.chat-history::-webkit-scrollbar,
+.workbench-info-panel .ant-tabs-content-holder::-webkit-scrollbar {
+  width: 6px;
 }
 
-.chat-messages::-webkit-scrollbar-track {
-    background: #f1f1f1;
-    border-radius: 3px;
+.session-group-content::-webkit-scrollbar-track,
+.session-group::-webkit-scrollbar-track,
+.chat-history::-webkit-scrollbar-track,
+.workbench-info-panel .ant-tabs-content-holder::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 3px;
 }
 
-.chat-messages::-webkit-scrollbar-thumb {
-    background: #c1c1c1;
-    border-radius: 3px;
+.session-group-content::-webkit-scrollbar-thumb,
+.session-group::-webkit-scrollbar-thumb,
+.chat-history::-webkit-scrollbar-thumb,
+.workbench-info-panel .ant-tabs-content-holder::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 3px;
 }
 
-.chat-messages::-webkit-scrollbar-thumb:hover {
-    background: #a8a8a8;
+.session-group-content::-webkit-scrollbar-thumb:hover,
+.session-group::-webkit-scrollbar-thumb:hover,
+.chat-history::-webkit-scrollbar-thumb:hover,
+.workbench-info-panel .ant-tabs-content-holder::-webkit-scrollbar-thumb:hover {
+  background: #a8a8a8;
 }
-
 
 /* 响应式设计 */
-
-@media (max-width: 768px) {
-    .active-header {
-        flex-direction: column;
-        align-items: stretch;
-    }
-    .active-item-header {
-        flex-direction: column;
-        align-items: flex-start;
-    }
-    .active-item-title {
-        margin-bottom: 8px;
-    }
-    .active-item-tags {
-        width: 100%;
-        justify-content: flex-start;
-    }
-    .ant-list-item-action {
-        margin-left: 0;
-        margin-top: 12px;
-    }
-    .ant-list-item-action .ant-btn {
-        width: 100%;
-        margin-bottom: 8px;
-    }
-    .chat-modal {
-        margin: 0;
-        max-width: 100vw;
-        height: 100vh;
-    }
-    .chat-container {
-        height: calc(100vh - 120px);
-    }
-    .message-content {
-        max-width: 85%;
-    }
+@media (max-width: 1400px) {
+  .workbench-list-panel {
+    width: 280px;
+  }
+  .workbench-info-panel {
+    width: 320px;
+  }
 }
 
-@media (max-width: 576px) {
-    .active-item {
-        padding: 12px;
-        margin-bottom: 12px;
-    }
-    .active-item-title .ant-avatar {
-        width: 32px;
-        height: 32px;
-        margin-right: 8px;
-    }
-    .active-item-title h5 {
-        font-size: 14px;
-    }
-    .active-item-description {
-        padding: 8px;
-        font-size: 12px;
-    }
-    .active-item-meta {
-        font-size: 11px;
-    }
-    .chat-messages {
-        padding: 12px;
-    }
-    .message-content {
-        padding: 8px;
-        max-width: 90%;
-    }
-    .message-header {
-        font-size: 11px;
-    }
-    .chat-input {
-        padding: 12px;
-    }
+@media (max-width: 1200px) {
+  .workbench-layout {
+    flex-direction: column;
+  }
+  .workbench-list-panel,
+  .workbench-info-panel {
+    width: 100%;
+    height: 300px;
+  }
+  .workbench-chat-panel {
+    height: calc(100vh - 700px);
+  }
+}
+
+/* 空状态样式 */
+.session-empty {
+  padding: 40px 20px;
+  text-align: center;
+  color: #999;
+  font-size: 14px;
+}
+
+.session-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 0;
+}
+
+.session-error {
+  margin-bottom: 12px;
+  color: #ff4d4f;
+  font-size: 12px;
+}
+
+.chat-empty-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 40px;
+}
+
+.chat-empty-state .empty-message {
+  color: #999;
+  font-size: 14px;
+  text-align: center;
+}
+
+.ticket-empty-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 40px;
+}
+
+.ticket-empty-state .empty-message {
+  color: #999;
+  font-size: 14px;
+  text-align: center;
+}
+
+.timeline-section {
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid #f0f0f0;
+}
+
+.timeline-title {
+  font-weight: 600;
+  margin-bottom: 12px;
+}
+
+.timeline-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.timeline-item {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.timeline-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #1890ff;
+  margin-top: 4px;
+}
+
+.timeline-content {
+  flex: 1;
+}
+
+.timeline-label {
+  font-weight: 500;
+  margin-bottom: 2px;
+}
+
+.timeline-time {
+  font-size: 12px;
+  color: #999;
+}
+
+.timeline-desc {
+  margin-top: 4px;
+  font-size: 13px;
+  color: #666;
 }

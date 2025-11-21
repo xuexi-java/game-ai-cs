@@ -7,6 +7,14 @@ import {
   BadRequestException,
   UseGuards,
 } from '@nestjs/common';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiResponse,
+  ApiBearerAuth,
+  ApiConsumes,
+  ApiBody,
+} from '@nestjs/swagger';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { UploadService } from './upload.service';
@@ -15,6 +23,7 @@ import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { PrismaService } from '../prisma/prisma.service';
 
+@ApiTags('upload')
 @Controller('upload')
 export class UploadController {
   constructor(
@@ -29,6 +38,24 @@ export class UploadController {
       storage: memoryStorage(),
     }),
   )
+  @ApiOperation({ summary: '上传工单附件（玩家端）' })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        file: {
+          type: 'string',
+          format: 'binary',
+        },
+        ticketId: { type: 'string' },
+        ticketToken: { type: 'string' },
+        sortOrder: { type: 'number' },
+      },
+    },
+  })
+  @ApiResponse({ status: 201, description: '上传成功' })
+  @ApiResponse({ status: 400, description: '上传失败' })
   async uploadTicketAttachment(
     @UploadedFile() file: Express.Multer.File,
     @Body('ticketId') ticketId?: string,
@@ -93,6 +120,22 @@ export class UploadController {
       },
     }),
   )
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: '上传用户头像' })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        file: {
+          type: 'string',
+          format: 'binary',
+        },
+      },
+    },
+  })
+  @ApiResponse({ status: 201, description: '上传成功' })
+  @ApiResponse({ status: 400, description: '上传失败' })
   async uploadAvatar(
     @UploadedFile() file: Express.Multer.File,
     @CurrentUser() user: any,
