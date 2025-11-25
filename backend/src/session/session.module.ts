@@ -11,7 +11,7 @@ import { TicketModule } from '../ticket/ticket.module';
   imports: [
     DifyModule,
     MessageModule,
-    WebsocketModule,
+    forwardRef(() => WebsocketModule),
     forwardRef(() => TicketModule),
   ],
   controllers: [SessionController],

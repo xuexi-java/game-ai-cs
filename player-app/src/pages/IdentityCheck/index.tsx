@@ -126,14 +126,31 @@ const IdentityCheckPage = () => {
       });
 
       if (result.hasOpenTicket && result.ticket) {
-        // 直接跳转到工单聊天页面，不再显示 EscapeHatch 页面
-        // 保存工单信息到 store（如果需要）
+        // 保存工单信息到 store
         const ticketStore = useTicketStore.getState();
         if (ticketStore.setTicket && result.ticket.token) {
           ticketStore.setTicket(result.ticket.id, result.ticket.ticketNo, result.ticket.token);
         }
-        // 直接跳转到工单聊天页面
-        navigate(`/ticket/${result.ticket.token}`);
+        
+        // 显示选择对话框：继续处理现有工单还是反馈新问题
+        Modal.confirm({
+          title: '您有未解决的工单',
+          content: (
+            <div style={{ marginTop: '16px' }}>
+              <Text>检测到您有一个未完成的工单（工单号：{result.ticket.ticketNo}），请选择：</Text>
+            </div>
+          ),
+          okText: '继续处理',
+          cancelText: '反馈新问题',
+          onOk: () => {
+            // 继续处理现有工单
+            navigate(`/ticket/${result.ticket!.token}`);
+          },
+          onCancel: () => {
+            // 反馈新问题，继续进入下一步
+            navigate('/intake-form');
+          },
+        });
         return;
       }
 

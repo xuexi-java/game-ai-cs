@@ -14,7 +14,7 @@ import {
 } from '../../services/ticket.service';
 import type { Message, TicketDetail } from '../../types';
 import MessageList from '../../components/Chat/MessageList';
-import { WS_URL } from '../../config/api';
+import { WS_URL, API_BASE_URL } from '../../config/api';
 import '../Chat/index.css'; // 使用 Chat 页面的样式
 
 const { TextArea } = Input;
@@ -30,6 +30,7 @@ const TicketChatPage = () => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const socketRef = useRef<Socket | null>(null);
   const tempMessageIdRef = useRef<string | null>(null); // 跟踪临时消息 ID
+  const resolvedMessageShownRef = useRef(false); // 跟踪是否已显示"工单已解决"消息
 
   // 将 TicketMessage 转换为 Message 类型
   const convertTicketMessageToMessage = (ticketMsg: TicketMessage): Message => {
@@ -169,14 +170,16 @@ const TicketChatPage = () => {
     // 监听工单状态更新
     socket.on('ticket-update', (data: Partial<TicketDetail>) => {
       console.log('工单状态更新:', data);
-      setTicket((prev) => (prev ? { ...prev, ...data } : null));
+      setTicket((prev) => {
+        if (!prev) return null;
+        return { ...prev, ...data };
+      });
     });
 
     // 监听会话状态更新（如果工单关联了会话）
     socket.on('session-update', (sessionData: any) => {
       console.log('会话状态更新:', sessionData);
       if (sessionData.status === 'CLOSED') {
-        antdMessage.info('会话已结束');
         setTicket((prev) => (prev ? { ...prev, status: 'RESOLVED' } : null));
       }
     });
@@ -189,6 +192,17 @@ const TicketChatPage = () => {
       }
     };
   }, [ticket?.id]);
+
+  // 监听工单状态变化，显示提示消息
+  useEffect(() => {
+    if (ticket?.status === 'RESOLVED' && !resolvedMessageShownRef.current) {
+      resolvedMessageShownRef.current = true;
+      antdMessage.info('工单已解决');
+    } else if (ticket?.status !== 'RESOLVED') {
+      // 如果状态不是已解决，重置标记（允许再次显示）
+      resolvedMessageShownRef.current = false;
+    }
+  }, [ticket?.status]);
 
   // 自动滚动到底部
   useEffect(() => {
@@ -204,25 +218,36 @@ const TicketChatPage = () => {
     if (!ticket?.id) return;
     
     try {
-      // 查找关联的会话
-      const sessionId = ticket.sessions?.[0]?.id;
+      // 先尝试从工单数据中获取会话ID
+      let sessionId = ticket.sessions?.[0]?.id;
+      
+      // 如果没有找到，通过工单ID查找活跃会话
+      if (!sessionId) {
+        const response = await fetch(`${API_BASE_URL}/sessions/by-ticket/${ticket.id}/active`);
+        if (response.ok) {
+          const activeSession = await response.json();
+          sessionId = activeSession?.id;
+        }
+      }
+      
       if (sessionId) {
         // 调用退出会话API
-        const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/sessions/${sessionId}/close-player`, {
+        const response = await fetch(`${API_BASE_URL}/sessions/${sessionId}/close-player`, {
           method: 'PATCH',
         });
         
         if (response.ok) {
           // 系统消息会通过 WebSocket 自动推送，不需要手动添加
           antdMessage.success('已退出会话');
-          // 更新工单状态为已解决
-          setTicket((prev) => (prev ? { ...prev, status: 'RESOLVED' } : null));
+          // 工单状态会通过 WebSocket 自动更新，这里不需要手动更新
         } else {
           const errorData = await response.json().catch(() => ({}));
           antdMessage.error(errorData.message || '退出会话失败');
         }
       } else {
-        antdMessage.warning('未找到关联的会话');
+        // 如果没有活跃会话，直接标记工单为已解决
+        antdMessage.info('当前没有活跃会话，工单已标记为已解决');
+        setTicket((prev) => (prev ? { ...prev, status: 'RESOLVED' } : null));
       }
     } catch (error) {
       console.error('退出会话失败:', error);
@@ -346,8 +371,29 @@ const TicketChatPage = () => {
       {/* Chat Body */}
       <main className="chat-body-v3">
         <div className="chat-messages-wrapper">
-          <MessageList messages={messages} />
-          <div ref={messagesEndRef} />
+          {messages.length === 0 && !loading ? (
+            <div className="message-list-empty" style={{ 
+              display: 'flex', 
+              flexDirection: 'column', 
+              alignItems: 'center', 
+              justifyContent: 'center',
+              padding: '40px 20px',
+              textAlign: 'center',
+              color: '#666'
+            }}>
+              <div style={{ fontSize: '16px', marginBottom: '12px', fontWeight: 500 }}>
+                您的反馈已经记录
+              </div>
+              <div style={{ fontSize: '14px', lineHeight: '1.6', maxWidth: '400px' }}>
+                想要查询客服的留言，只需要再次输入您的ID、区服和问题类型即可查看。
+              </div>
+            </div>
+          ) : (
+            <>
+              <MessageList messages={messages} />
+              <div ref={messagesEndRef} />
+            </>
+          )}
         </div>
       </main>
 

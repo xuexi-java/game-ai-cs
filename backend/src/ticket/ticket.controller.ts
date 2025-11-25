@@ -119,6 +119,26 @@ export class TicketController {
     return this.ticketService.findByToken(token);
   }
 
+  // 玩家端API - 根据工单号获取工单
+  @Public()
+  @Get('by-ticket-no/:ticketNo')
+  @ApiOperation({ summary: '根据工单号获取工单' })
+  @ApiParam({ name: 'ticketNo', description: '工单号' })
+  @ApiResponse({ status: 200, description: '返回工单信息' })
+  findByTicketNo(@Param('ticketNo') ticketNo: string) {
+    return this.ticketService.findByTicketNo(ticketNo);
+  }
+
+  // 玩家端API - 根据工单号获取工单消息列表
+  @Public()
+  @Get('by-ticket-no/:ticketNo/messages')
+  @ApiOperation({ summary: '根据工单号获取工单消息列表' })
+  @ApiParam({ name: 'ticketNo', description: '工单号' })
+  @ApiResponse({ status: 200, description: '返回消息列表' })
+  getMessagesByTicketNo(@Param('ticketNo') ticketNo: string) {
+    return this.ticketService.getMessagesByTicketNo(ticketNo);
+  }
+
   // 玩家端API - 根据token获取工单消息列表
   @Public()
   @Get('by-token/:token/messages')
@@ -242,6 +262,43 @@ export class TicketController {
   @ApiResponse({ status: 200, description: '更新成功' })
   updatePriority(@Param('id') id: string, @Body() body: { priority: string }) {
     return this.ticketService.updatePriority(id, body.priority);
+  }
+
+  // 管理端API - 发送工单消息（客服回复工单）
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('ADMIN', 'AGENT')
+  @Post(':id/messages')
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: '发送工单消息（管理端）' })
+  @ApiParam({ name: 'id', description: '工单ID' })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        content: { type: 'string' },
+      },
+      required: ['content'],
+    },
+  })
+  @ApiResponse({ status: 201, description: '发送成功' })
+  sendTicketMessage(
+    @Param('id') id: string,
+    @Body() body: { content: string },
+    @CurrentUser() user: any,
+  ) {
+    return this.ticketService.sendMessageByTicketId(id, user.id, body.content);
+  }
+
+  // 管理端API - 获取工单消息列表
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('ADMIN', 'AGENT')
+  @Get(':id/messages')
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: '获取工单消息列表（管理端）' })
+  @ApiParam({ name: 'id', description: '工单ID' })
+  @ApiResponse({ status: 200, description: '返回消息列表' })
+  getTicketMessages(@Param('id') id: string) {
+    return this.ticketService.getMessagesByTicketId(id);
   }
 
   // 管理端API - 手动标记工单为已处理

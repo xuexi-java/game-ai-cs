@@ -182,6 +182,16 @@ export class SessionController {
     return this.sessionService.closeByPlayer(id);
   }
 
+  // 玩家端API - 通过工单ID查找活跃会话
+  @Public()
+  @Get('by-ticket/:ticketId/active')
+  @ApiOperation({ summary: '通过工单ID查找活跃会话（玩家端）' })
+  @ApiParam({ name: 'ticketId', description: '工单ID' })
+  @ApiResponse({ status: 200, description: '返回活跃会话' })
+  findActiveSessionByTicket(@Param('ticketId') ticketId: string) {
+    return this.sessionService.findActiveSessionByTicket(ticketId);
+  }
+
   // 管理端API - 管理员手动分配会话给指定客服
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('ADMIN')

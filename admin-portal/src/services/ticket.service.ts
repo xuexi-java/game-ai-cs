@@ -51,3 +51,17 @@ export const updateTicketStatus = async (id: string, status: string): Promise<Ti
 export const updateTicketPriority = async (id: string, priority: string): Promise<Ticket> => {
   return apiClient.patch(`/tickets/${id}/priority`, { priority });
 };
+
+/**
+ * 发送工单消息（客服回复工单）
+ */
+export const sendTicketMessage = async (ticketId: string, content: string) => {
+  return apiClient.post(`/tickets/${ticketId}/messages`, { content });
+};
+
+/**
+ * 获取工单消息列表
+ */
+export const getTicketMessages = async (ticketId: string) => {
+  return apiClient.get(`/tickets/${ticketId}/messages`);
+};

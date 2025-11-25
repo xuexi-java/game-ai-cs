@@ -10,7 +10,9 @@ import { getSession, transferToAgent, closeSession, submitRating } from '../../s
 import type { TransferToAgentPayload } from '../../services/session.service';
 import { sendPlayerMessage } from '../../services/message.service';
 import { uploadTicketAttachment } from '../../services/upload.service';
+import { getTicketByTicketNo, getTicketMessagesByTicketNo, type TicketMessage } from '../../services/ticket.service';
 import { useSessionStore } from '../../stores/sessionStore';
+import { useTicketStore } from '../../stores/ticketStore';
 import dayjs from 'dayjs';
 import { API_BASE_URL, WS_URL } from '../../config/api';
 import MessageList from '../../components/Chat/MessageList';
@@ -279,16 +281,149 @@ const ChatPage = () => {
     try {
       const result = await transferToAgent(sessionId, payload);
 
-      // 处理没有在线客服的情况 (result.queued === false)
-      if (result.queued === false && result.message) {
-        Modal.info({
-          title: '当前无客服在线',
-          content: result.message,
-          okText: '知道了',
+      // 处理没有在线客服的情况：转为加急工单
+      if (result.convertedToTicket && result.ticketNo) {
+        // 加载工单信息和消息
+        try {
+          const [ticket, messages] = await Promise.all([
+            getTicketByTicketNo(result.ticketNo),
+            getTicketMessagesByTicketNo(result.ticketNo),
+          ]);
+
+          // 获取工单状态显示
+          const getStatusText = (status: string) => {
+            const statusMap: Record<string, { text: string; color: string }> = {
+              WAITING: { text: '待人工', color: 'orange' },
+              IN_PROGRESS: { text: '处理中', color: 'blue' },
+              RESOLVED: { text: '已解决', color: 'green' },
+            };
+            return statusMap[status] || { text: '未知', color: 'default' };
+          };
+
+          const statusInfo = getStatusText(ticket.status);
+          const agentMessages = messages.filter((msg: TicketMessage) => msg.senderId && msg.sender);
+
+          Modal.info({
+            title: '当前无客服在线',
+            width: 600,
+            content: (
+              <div style={{ maxHeight: '60vh', overflowY: 'auto' }}>
+                <p style={{ marginBottom: 12 }}>
+                  {result.message || '当前暂无客服在线，您的问题已转为【加急工单】'}
+                </p>
+                {result.ticketNo && (
+                  <p style={{ marginBottom: 12, fontWeight: 'bold', fontSize: '16px' }}>
+                    工单号：{result.ticketNo}
+                  </p>
+                )}
+                
+                {/* 工单状态 */}
+                <div style={{ marginBottom: 16, padding: '12px', background: '#f5f5f5', borderRadius: '4px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: 8 }}>
+                    <span style={{ fontWeight: 500 }}>工单状态：</span>
+                    <span style={{ 
+                      color: statusInfo.color === 'orange' ? '#fa8c16' : 
+                             statusInfo.color === 'blue' ? '#1890ff' : 
+                             statusInfo.color === 'green' ? '#52c41a' : '#666',
+                      fontWeight: 500 
+                    }}>
+                      {statusInfo.text}
+                    </span>
+                  </div>
+                  {ticket.description && (
+                    <div style={{ marginTop: 8 }}>
+                      <span style={{ fontWeight: 500 }}>问题描述：</span>
+                      <div style={{ marginTop: 4, color: '#666' }}>{ticket.description}</div>
+                    </div>
+                  )}
+                </div>
+
+                {/* 客服留言 */}
+                {agentMessages.length > 0 ? (
+                  <div style={{ marginTop: 16 }}>
+                    <div style={{ fontWeight: 500, marginBottom: 8, fontSize: '14px' }}>
+                      客服留言 ({agentMessages.length}条)：
+                    </div>
+                    <div style={{ 
+                      maxHeight: '200px', 
+                      overflowY: 'auto',
+                      border: '1px solid #e8e8e8',
+                      borderRadius: '4px',
+                      padding: '12px',
+                      background: '#fafafa'
+                    }}>
+                      {agentMessages.map((msg: TicketMessage) => (
+                        <div key={msg.id} style={{ marginBottom: 12, paddingBottom: 12, borderBottom: '1px solid #e8e8e8' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                            <span style={{ fontWeight: 500, color: '#1890ff' }}>
+                              {msg.sender?.realName || msg.sender?.username || '客服'}
+                            </span>
+                            <span style={{ color: '#999', fontSize: '12px' }}>
+                              {new Date(msg.createdAt).toLocaleString('zh-CN')}
+                            </span>
+                          </div>
+                          <div style={{ color: '#333', lineHeight: '1.6' }}>
+                            {msg.content}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ 
+                    marginTop: 16, 
+                    padding: '12px', 
+                    background: '#fff7e6', 
+                    borderRadius: '4px',
+                    border: '1px solid #ffe58f',
+                    color: '#666'
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span>💬</span>
+                      <span>客服上线后会优先处理您的工单，请耐心等待。</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ),
+            okText: '知道了',
+            width: 600,
+          });
+        } catch (error) {
+          console.error('加载工单信息失败:', error);
+          // 如果加载失败，显示简化版弹窗
+          Modal.info({
+            title: '当前无客服在线',
+            content: (
+              <div>
+                <p>{result.message || '当前暂无客服在线，您的问题已转为【加急工单】'}</p>
+                {result.ticketNo && (
+                  <p style={{ marginTop: 8, fontWeight: 'bold' }}>
+                    工单号：{result.ticketNo}
+                  </p>
+                )}
+                <p style={{ marginTop: 8, color: '#666' }}>
+                  客服上线后会优先处理您的工单，请耐心等待。
+                </p>
+              </div>
+            ),
+            okText: '知道了',
+          });
+        }
+        
+        // 更新会话状态为已关闭
+        updateSession({ 
+          status: 'CLOSED',
+          allowManualTransfer: false,
+          queuePosition: null,
+          estimatedWaitTime: null,
         });
-        // 注意：这里不 return，让 finally 块执行以重置 transferring 状态
+        setQueuePosition(null);
+        setEstimatedWait(null);
+        return;
       }
 
+      // 有在线客服：正常进入排队
       if (result.queued) {
         messageApi.success('已为您转接人工客服，请稍候');
         updateSession({ 
@@ -303,18 +438,8 @@ const ChatPage = () => {
         // 不跳转页面，在聊天界面显示排队状态
         // 玩家可以继续查看聊天历史，等待客服接入
       } else {
-        messageApi.info(result.message || '您的问题已升级为加急工单');
-        // 即使没有排队，也更新会话状态
-        if (result.ticketNo) {
-          updateSession({ 
-            status: 'CLOSED',
-            allowManualTransfer: false,
-            queuePosition: null,
-            estimatedWaitTime: null,
-          });
-        }
-        setQueuePosition(null);
-        setEstimatedWait(null);
+        // 其他情况（理论上不应该到这里）
+        messageApi.info(result.message || '转人工处理中');
       }
     } catch (error: any) {
       console.error('转人工失败:', error);
@@ -383,9 +508,16 @@ const ChatPage = () => {
   const canTransfer =
     session && session.status !== 'CLOSED' && session.allowManualTransfer !== false;
   const isInputDisabled = sending || uploading || transferring || session?.status === 'CLOSED';
-  const showTransferButton = Boolean(canTransfer && session?.status !== 'QUEUED' && session?.status !== 'IN_PROGRESS');
+  const showTransferButton = Boolean(
+    canTransfer && 
+    session?.status !== 'QUEUED' && 
+    session?.status !== 'IN_PROGRESS' &&
+    session?.status !== 'CLOSED' // 已关闭的会话不能转人工
+  );
   const isAgentMode = session?.agentId || session?.status === 'IN_PROGRESS';
-  const isQueued = session?.status === 'QUEUED';
+  // 只有在有排队位置的情况下才显示排队信息（确保有在线客服）
+  const isQueued = session?.status === 'QUEUED' && 
+    (session?.queuePosition !== null && session?.queuePosition !== undefined);
   const issueTypeOptions = session?.ticket?.issueTypes || [];
 
   // 根据最新会话信息同步排队状态

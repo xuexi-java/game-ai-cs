@@ -46,6 +46,7 @@ import {
   joinSession,
   closeSession,
 } from '../../services/session.service';
+import { sendTicketMessage, getTicketMessages } from '../../services/ticket.service';
 import { websocketService } from '../../services/websocket.service';
 import { uploadTicketAttachment } from '../../services/upload.service';
 
@@ -126,7 +127,7 @@ const ActivePage: React.FC = () => {
     }
   });
   const toggleSection = (key: 'queued' | 'active') => {
-    setCollapsedSections((prev) => {
+    setCollapsedSections((prev: { queued: boolean; active: boolean }) => {
       const next = { ...prev, [key]: !prev[key] };
       if (typeof window !== 'undefined') {
         window.localStorage.setItem(COLLAPSE_STORAGE_KEY, JSON.stringify(next));
@@ -322,7 +323,54 @@ const ActivePage: React.FC = () => {
       setCurrentSession(session);
       currentSessionRef.current = session;
       
-      // 总是重新加载消息，确保获取最新的完整消息列表
+      // 检查是否为虚拟会话（工单）
+      const isVirtual = (session as any).isVirtual || session.id.startsWith('ticket-');
+      
+      if (isVirtual) {
+        // 虚拟会话（工单）：加载工单消息
+        const ticketId = session.ticketId;
+        if (!ticketId) {
+          message.error('工单信息无效');
+          return;
+        }
+
+        try {
+          const ticketMessages = await getTicketMessages(ticketId);
+          
+          // 将工单消息转换为会话消息格式
+          const convertedMessages = (Array.isArray(ticketMessages) ? ticketMessages : []).map((msg: any) => ({
+            id: msg.id,
+            sessionId: session.id,
+            senderType: msg.senderId ? 'AGENT' : 'PLAYER',
+            messageType: 'TEXT' as const,
+            content: msg.content,
+            createdAt: msg.createdAt,
+            senderId: msg.senderId,
+            sender: msg.sender,
+          }));
+
+          // 确保消息按时间排序
+          const sortedMessages = convertedMessages.sort(
+            (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+          );
+          
+          // 标记虚拟会话已加载消息，允许发送
+          const updatedSession = {
+            ...session,
+            isVirtual: true,
+            messagesLoaded: true, // 标记已加载消息
+          };
+          setCurrentSession(updatedSession);
+          currentSessionRef.current = updatedSession;
+          setSessionMessages(session.id, sortedMessages);
+        } catch (error) {
+          console.error('加载工单消息失败', error);
+          message.error('加载工单消息失败');
+        }
+        return;
+      }
+      
+      // 正常会话：总是重新加载消息，确保获取最新的完整消息列表
       try {
         const detail = await getSessionById(session.id);
         console.log('加载会话详情:', detail.id, '消息数量:', detail.messages?.length || 0);
@@ -367,7 +415,51 @@ const ActivePage: React.FC = () => {
   const handleSendMessage = async () => {
     if (!currentSession || !messageInput.trim()) return;
 
-    // 检查会话是否已接入（状态为 IN_PROGRESS 且 agentId 匹配当前用户）
+    // 检查是否为虚拟会话（工单）
+    const isVirtual = (currentSession as any).isVirtual || currentSession.id.startsWith('ticket-');
+    
+    if (isVirtual) {
+      // 虚拟会话（工单）：发送工单消息
+      const ticketId = currentSession.ticketId;
+      if (!ticketId) {
+        message.error('工单信息无效');
+        return;
+      }
+
+      const content = messageInput.trim();
+      setMessageInput('');
+      setSendingMessage(true);
+
+      try {
+        // 发送工单消息
+        const newMessage = await sendTicketMessage(ticketId, content) as any;
+        
+        // 将工单消息转换为会话消息格式并添加到消息列表
+        const convertedMessage: Message = {
+          id: newMessage.id,
+          sessionId: currentSession.id,
+          senderType: 'AGENT',
+          messageType: 'TEXT',
+          content: newMessage.content,
+          createdAt: newMessage.createdAt,
+        };
+        
+        setSessionMessages(currentSession.id, [
+          ...(sessionMessages[currentSession.id] || []),
+          convertedMessage,
+        ]);
+        
+        message.success('消息已发送');
+      } catch (error: any) {
+        console.error('发送工单消息失败:', error);
+        message.error(error?.response?.data?.message || '发送消息失败，请重试');
+      } finally {
+        setSendingMessage(false);
+      }
+      return;
+    }
+
+    // 正常会话：检查会话是否已接入（状态为 IN_PROGRESS 且 agentId 匹配当前用户）
     // 使用 ref 中的最新会话信息，如果 ref 中没有则使用 currentSession
     let sessionToUse = currentSessionRef.current || currentSession;
     let isJoined = 
@@ -404,22 +496,22 @@ const ActivePage: React.FC = () => {
     setMessageInput('');
     setSendingMessage(true);
 
-    try {
-      // 先添加临时消息（乐观更新）
-      const tempMessage: Message = {
-        id: `temp-${Date.now()}`,
-        sessionId: sessionToUse.id,
-        senderType: 'AGENT',
-        messageType: 'TEXT',
-        content,
-        createdAt: new Date().toISOString(),
-        metadata: {},
-      };
-      setSessionMessages(sessionToUse.id, [
-        ...(sessionMessages[sessionToUse.id] || []),
-        tempMessage,
-      ]);
+    // 先添加临时消息（乐观更新）
+    const tempMessage: Message = {
+      id: `temp-${Date.now()}`,
+      sessionId: sessionToUse.id,
+      senderType: 'AGENT',
+      messageType: 'TEXT',
+      content,
+      createdAt: new Date().toISOString(),
+      metadata: {},
+    };
+    setSessionMessages(sessionToUse.id, [
+      ...(sessionMessages[sessionToUse.id] || []),
+      tempMessage,
+    ]);
 
+    try {
       // 通过WebSocket发送消息
       const result = await websocketService.sendAgentMessage(sessionToUse.id, content);
 
@@ -519,6 +611,53 @@ const ActivePage: React.FC = () => {
       return;
     }
 
+    // 检查是否为虚拟会话（工单）
+    const isVirtual = (session as any).isVirtual || session.id.startsWith('ticket-');
+    
+    if (isVirtual) {
+      // 虚拟会话（工单）：直接加载工单消息，不需要接入会话
+      const ticketId = session.ticketId;
+      if (!ticketId) {
+        message.error('工单信息无效');
+        return;
+      }
+
+      try {
+        // 加载工单消息
+        const ticketMessages = await getTicketMessages(ticketId);
+        
+        // 将工单消息转换为会话消息格式
+        const convertedMessages = (Array.isArray(ticketMessages) ? ticketMessages : []).map((msg: any) => ({
+          id: msg.id,
+          sessionId: session.id,
+          senderType: msg.senderId ? 'AGENT' : 'PLAYER',
+          messageType: 'TEXT' as const,
+          content: msg.content,
+          createdAt: msg.createdAt,
+          senderId: msg.senderId,
+          sender: msg.sender,
+        }));
+
+        // 设置当前会话和消息
+        // 标记虚拟会话已加载消息，允许发送
+        const updatedSession = {
+          ...session,
+          isVirtual: true,
+          messagesLoaded: true, // 标记已加载消息
+        };
+        setCurrentSession(updatedSession);
+        currentSessionRef.current = updatedSession;
+        setSessionMessages(session.id, convertedMessages);
+        
+        message.success('已加载工单消息');
+      } catch (error: any) {
+        console.error('加载工单消息失败:', error);
+        message.error(error?.response?.data?.message || '加载工单消息失败，请重试');
+      }
+      return;
+    }
+
+    // 正常会话：接入会话
     try {
       const updatedSession = await joinSession(session.id);
       message.success('接入会话成功');
@@ -1041,7 +1180,9 @@ const ActivePage: React.FC = () => {
                             </span>
                           </div>
                           <div className="session-tags">
-                            {session.queuePosition ? (
+                            {(session as any).isVirtual ? (
+                              <Tag color="red">工单</Tag>
+                            ) : session.queuePosition ? (
                               <Tag color="orange">第 {session.queuePosition} 位</Tag>
                             ) : (
                               <Tag color="orange">排队中</Tag>
@@ -1056,7 +1197,16 @@ const ActivePage: React.FC = () => {
                           <div className="session-extra">{assignedLabel}</div>
                         </div>
                         <div className="session-actions" onClick={(e) => e.stopPropagation()}>
-                          {joinable ? (
+                          {(session as any).isVirtual ? (
+                            <Button
+                              type="primary"
+                              size="small"
+                              icon={<UserAddOutlined />}
+                              onClick={() => handleJoinSession(session)}
+                            >
+                              查看工单
+                            </Button>
+                          ) : joinable ? (
                             <Button
                               type="primary"
                               size="small"
@@ -1310,14 +1460,18 @@ const ActivePage: React.FC = () => {
           )}
 
           {currentSession && (() => {
+            // 检查是否为虚拟会话（工单）
+            const isVirtual = (currentSession as any).isVirtual || currentSession.id.startsWith('ticket-');
+            
             // 检查会话是否已接入（状态为 IN_PROGRESS 且 agentId 匹配当前用户）
-            const isJoined = 
-              currentSession.status === 'IN_PROGRESS' && 
-              currentSession.agentId === authUser?.id;
+            // 对于虚拟会话，如果已加载消息（messagesLoaded标记），则认为可以发送
+            const isJoined = isVirtual 
+              ? ((currentSession as any).messagesLoaded || (sessionMessages[currentSession.id]?.length ?? 0) > 0)
+              : (currentSession.status === 'IN_PROGRESS' && currentSession.agentId === authUser?.id);
             
             return (
               <div className="chat-input-bar">
-                {!isJoined && currentSession.status === 'QUEUED' && (
+                {!isJoined && (currentSession.status === 'QUEUED' || isVirtual) && (
                   <div style={{ 
                     padding: '16px', 
                     textAlign: 'center', 
@@ -1327,13 +1481,15 @@ const ActivePage: React.FC = () => {
                     marginBottom: '8px'
                   }}>
                     <div style={{ marginBottom: '8px', color: '#856404' }}>
-                      请先点击"接入会话"按钮才能开始聊天
+                      {isVirtual 
+                        ? '这是工单，点击"加载工单消息"查看并回复'
+                        : '请先点击"接入会话"按钮才能开始聊天'}
                     </div>
                     <Button 
                       type="primary" 
                       onClick={() => handleJoinSession(currentSession)}
                     >
-                      接入会话
+                      {isVirtual ? '加载工单消息' : '接入会话'}
                     </Button>
                   </div>
                 )}
@@ -1370,7 +1526,7 @@ const ActivePage: React.FC = () => {
                 <TextArea
                   value={messageInput}
                   onChange={(e) => handleInputChange(e.target.value)}
-                  placeholder={isJoined ? "输入回复…（Shift+Enter 换行）" : "请先接入会话后才能发送消息"}
+                  placeholder={isJoined ? "输入回复…（Shift+Enter 换行）" : (isVirtual ? "请先加载工单消息" : "请先接入会话后才能发送消息")}
                   autoSize={{ minRows: 1, maxRows: 4 }}
                   disabled={!isJoined}
                   style={{ 

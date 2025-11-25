@@ -29,10 +29,12 @@ export const getSession = async (sessionId: string): Promise<Session> => {
 
 export interface TransferResult {
   queued: boolean;
-  queuePosition?: number;
-  estimatedWaitTime?: number;
+  queuePosition?: number | null;
+  estimatedWaitTime?: number | null;
   message?: string;
   ticketNo?: string;
+  convertedToTicket?: boolean; // 是否已转为工单
+  onlineAgents?: number; // 在线客服数量
 }
 
 /**

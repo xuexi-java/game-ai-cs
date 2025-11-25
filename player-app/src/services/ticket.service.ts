@@ -77,6 +77,13 @@ export const getTicketByToken = async (token: string): Promise<TicketDetail> => 
 };
 
 /**
+ * 根据工单号获取工单信息
+ */
+export const getTicketByTicketNo = async (ticketNo: string): Promise<TicketDetail> => {
+  return apiClient.get(`/tickets/by-ticket-no/${ticketNo}`);
+};
+
+/**
  * 工单消息接口
  */
 export interface TicketMessage {
@@ -99,6 +106,15 @@ export const getTicketMessagesByToken = async (
   token: string
 ): Promise<TicketMessage[]> => {
   return apiClient.get(`/tickets/by-token/${token}/messages`);
+};
+
+/**
+ * 根据工单号获取工单消息列表
+ */
+export const getTicketMessagesByTicketNo = async (
+  ticketNo: string
+): Promise<TicketMessage[]> => {
+  return apiClient.get(`/tickets/by-ticket-no/${ticketNo}/messages`);
 };
 
 /**

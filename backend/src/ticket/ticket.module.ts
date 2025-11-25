@@ -7,6 +7,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { IssueTypeModule } from '../issue-type/issue-type.module';
 import { TicketMessageModule } from '../ticket-message/ticket-message.module';
 import { WebsocketModule } from '../websocket/websocket.module';
+import { SessionModule } from '../session/session.module';
 import { ScheduleModule } from '@nestjs/schedule';
 
 @Module({
@@ -14,6 +15,7 @@ import { ScheduleModule } from '@nestjs/schedule';
     IssueTypeModule,
     TicketMessageModule,
     forwardRef(() => WebsocketModule),
+    forwardRef(() => SessionModule),
     ScheduleModule.forRoot(),
   ],
   controllers: [TicketController],

@@ -13,6 +13,8 @@ import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { MessageService } from '../message/message.service';
+import { TicketService } from '../ticket/ticket.service';
+import { Inject, forwardRef } from '@nestjs/common';
 
 @WebSocketGateway({
   cors: {
@@ -38,6 +40,8 @@ export class WebsocketGateway
     private configService: ConfigService,
     private prisma: PrismaService,
     private messageService: MessageService,
+    @Inject(forwardRef(() => TicketService))
+    private ticketService: TicketService,
   ) {}
 
   async handleConnection(client: Socket) {
@@ -75,6 +79,12 @@ export class WebsocketGateway
                 username: user.username,
                 realName: user.realName || undefined,
                 avatar: user.avatar || undefined,
+              });
+              
+              // 客服上线时，自动分配 WAITING 状态的工单
+              // 异步执行，不阻塞连接
+              this.ticketService.autoAssignWaitingTickets(user.id).catch((error) => {
+                this.logger.error(`自动分配工单失败: ${error.message}`);
               });
             }
 
@@ -208,6 +218,11 @@ export class WebsocketGateway
             data: {
               status: 'IN_PROGRESS',
             },
+          });
+
+          // 通知工单状态更新
+          this.notifyTicketUpdate(session.ticketId, {
+            status: 'IN_PROGRESS',
           });
         } catch (ticketError) {
           // 工单消息创建失败不影响会话消息
