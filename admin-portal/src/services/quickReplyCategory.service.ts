@@ -34,7 +34,7 @@ export async function getQuickReplyCategories(enabledOnly: boolean = false): Pro
   const response = await apiClient.get('/quick-reply-categories', {
     params: { enabledOnly },
   });
-  return response;
+  return response.data || response;
 }
 
 /**
@@ -42,7 +42,7 @@ export async function getQuickReplyCategories(enabledOnly: boolean = false): Pro
  */
 export async function createQuickReplyCategory(data: CreateQuickReplyCategoryDto): Promise<QuickReplyCategory> {
   const response = await apiClient.post('/quick-reply-categories', data);
-  return response;
+  return response.data || response;
 }
 
 /**
@@ -53,7 +53,7 @@ export async function updateQuickReplyCategory(
   data: UpdateQuickReplyCategoryDto,
 ): Promise<QuickReplyCategory> {
   const response = await apiClient.patch(`/quick-reply-categories/${id}`, data);
-  return response;
+  return response.data || response;
 }
 
 /**

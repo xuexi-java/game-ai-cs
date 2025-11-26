@@ -2,7 +2,6 @@
  * 文件上传服务
  */
 import apiClient from './api';
-import { API_BASE_URL } from '../config/api';
 
 export interface UploadResponse {
   id: string;
@@ -43,6 +42,6 @@ export const uploadTicketAttachment = async (
     },
   });
   
-  return response;
+  return response.data || response;
 };
 

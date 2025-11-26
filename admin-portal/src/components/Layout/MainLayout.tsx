@@ -17,6 +17,7 @@ import {
   LogoutOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
+  ThunderboltOutlined,
 } from '@ant-design/icons';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAuthStore } from '../../stores/authStore';
@@ -62,6 +63,11 @@ const MainLayout: React.FC = () => {
       visible: user?.role === 'ADMIN',
     },
     {
+      key: '/quick-replies',
+      icon: <ThunderboltOutlined />,
+      label: '快捷回复',
+    },
+    {
       key: '/settings',
       icon: <SettingOutlined />,
       label: '系统设置',
@@ -74,6 +80,10 @@ const MainLayout: React.FC = () => {
         {
           key: '/settings/users',
           label: '用户管理',
+        },
+        {
+          key: '/settings/quick-replies',
+          label: '快捷回复管理',
         },
       ],
     },

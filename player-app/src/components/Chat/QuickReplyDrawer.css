@@ -1,0 +1,18 @@
+.quick-reply-drawer {
+  /* 快捷回复抽屉样式 */
+}
+
+.reply-content {
+  line-height: 1.5;
+  word-break: break-word;
+  max-width: 300px;
+  white-space: pre-wrap;
+}
+
+.quick-reply-drawer .ant-list-item {
+  padding: 12px 0 !important;
+}
+
+.quick-reply-drawer .ant-list-item-meta {
+  margin-bottom: 8px;
+}

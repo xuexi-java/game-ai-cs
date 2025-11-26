@@ -1,171 +1,155 @@
-/**
- * 快捷回复服务（新设计）
- */
 import apiClient from './api';
 
-export interface QuickReplyGroup {
-  id: number;
+interface CreateCategoryDto {
   name: string;
-  sortOrder: number;
-  gameId?: string | null;
-  enabled: boolean;
-  createdAt: string;
-  updatedAt: string;
-  game?: {
-    id: string;
-    name: string;
-  } | null;
-  items: QuickReplyItem[];
+  isGlobal?: boolean;
+  sortOrder?: number;
 }
 
-export interface QuickReplyItem {
-  id: number;
+interface UpdateCategoryDto {
+  name?: string;
+  isGlobal?: boolean;
+  sortOrder?: number;
+  isActive?: boolean;
+}
+
+interface CreateReplyDto {
+  categoryId: string;
   content: string;
-  shortcut?: string | null;
+  isGlobal?: boolean;
+  sortOrder?: number;
+}
+
+interface UpdateReplyDto {
+  categoryId?: string;
+  content?: string;
+  isGlobal?: boolean;
+  sortOrder?: number;
+  isActive?: boolean;
+}
+
+interface QueryReplyDto {
+  categoryId?: string;
+  onlyFavorites?: boolean;
+  onlyRecent?: boolean;
+  sortBy?: 'usageCount' | 'favoriteCount' | 'lastUsedAt';
+  page?: number;
+  pageSize?: number;
+}
+
+interface Category {
+  id: string;
+  name: string;
+  isGlobal: boolean;
+  isActive: boolean;
+  sortOrder: number;
+  createdAt: string;
+  _count: { replies: number };
+}
+
+interface Reply {
+  id: string;
+  categoryId: string;
+  content: string;
+  isGlobal: boolean;
+  isActive: boolean;
   sortOrder: number;
   usageCount: number;
-  groupId: number;
+  favoriteCount: number;
+  lastUsedAt: string | null;
   createdAt: string;
-  updatedAt: string;
-  group?: QuickReplyGroup;
+  isFavorited: boolean;
+  category: Category;
 }
 
-export interface CreateQuickReplyGroupDto {
-  name: string;
-  sortOrder?: number;
-  gameId?: string;
-  enabled?: boolean;
+interface PaginatedResponse<T> {
+  data: T[];
+  pagination: {
+    total: number;
+    page: number;
+    pageSize: number;
+    totalPages: number;
+  };
 }
 
-export interface UpdateQuickReplyGroupDto {
-  name?: string;
-  sortOrder?: number;
-  gameId?: string;
-  enabled?: boolean;
-}
+export const quickReplyService = {
+  /**
+   * 获取分类列表
+   */
+  getCategories: async (): Promise<Category[]> => {
+    const response = await apiClient.get('/quick-reply/categories');
+    return Array.isArray(response) ? response : [];
+  },
 
-export interface CreateQuickReplyItemDto {
-  content: string;
-  groupId: number;
-  shortcut?: string;
-  sortOrder?: number;
-}
+  /**
+   * 创建分类
+   */
+  createCategory: async (data: CreateCategoryDto): Promise<Category> => {
+    return await apiClient.post('/quick-reply/categories', data);
+  },
 
-export interface UpdateQuickReplyItemDto {
-  content?: string;
-  groupId?: number;
-  shortcut?: string;
-  sortOrder?: number;
-}
+  /**
+   * 更新分类
+   */
+  updateCategory: async (id: string, data: UpdateCategoryDto): Promise<Category> => {
+    return await apiClient.patch(`/quick-reply/categories/${id}`, data);
+  },
 
-/**
- * 获取指定游戏的快捷回复（按分组聚合）
- */
-export async function getQuickReplies(gameId?: string): Promise<QuickReplyGroup[]> {
-  const params = gameId ? { gameId } : {};
-  const response = await apiClient.get('/quick-replies', { params });
-  return Array.isArray(response) ? response : [];
-}
+  /**
+   * 删除分类
+   */
+  deleteCategory: async (id: string): Promise<void> => {
+    await apiClient.delete(`/quick-reply/categories/${id}`);
+  },
 
-/**
- * 搜索快捷回复
- */
-export async function searchQuickReplies(query: string, gameId?: string): Promise<QuickReplyItem[]> {
-  const params: any = { q: query };
-  if (gameId) {
-    params.gameId = gameId;
-  }
-  const response = await apiClient.get('/quick-replies/search', { params });
-  return Array.isArray(response) ? response : [];
-}
+  /**
+   * 获取快捷回复列表
+   */
+  getReplies: async (query?: QueryReplyDto): Promise<PaginatedResponse<Reply>> => {
+    return await apiClient.get('/quick-reply/replies', { params: query });
+  },
 
-/**
- * 根据快捷键查找快捷回复
- */
-export async function getQuickReplyByShortcut(shortcut: string, gameId?: string): Promise<QuickReplyItem | null> {
-  const params = gameId ? { gameId } : {};
-  const response = await apiClient.get(`/quick-replies/shortcut/${shortcut}`, { params });
-  return response || null;
-}
+  /**
+   * 创建快捷回复
+   */
+  createReply: async (data: CreateReplyDto): Promise<Reply> => {
+    return await apiClient.post('/quick-reply/replies', data);
+  },
 
-/**
- * 增加使用次数
- */
-export async function incrementQuickReplyUsage(id: number): Promise<void> {
-  await apiClient.post(`/quick-replies/items/${id}/increment-usage`);
-}
+  /**
+   * 更新快捷回复
+   */
+  updateReply: async (id: string, data: UpdateReplyDto): Promise<Reply> => {
+    return await apiClient.patch(`/quick-reply/replies/${id}`, data);
+  },
 
-// ==================== 分组管理（仅管理员）====================
+  /**
+   * 删除快捷回复
+   */
+  deleteReply: async (id: string): Promise<void> => {
+    await apiClient.delete(`/quick-reply/replies/${id}`);
+  },
 
-/**
- * 创建分组
- */
-export async function createQuickReplyGroup(data: CreateQuickReplyGroupDto): Promise<QuickReplyGroup> {
-  const response = await apiClient.post('/quick-replies/groups', data);
-  return response;
-}
+  /**
+   * 切换收藏状态
+   */
+  toggleFavorite: async (replyId: string): Promise<{ success: boolean }> => {
+    return await apiClient.post(`/quick-reply/replies/${replyId}/favorite`);
+  },
 
-/**
- * 获取所有分组
- */
-export async function getQuickReplyGroups(gameId?: string): Promise<QuickReplyGroup[]> {
-  const params = gameId ? { gameId } : {};
-  const response = await apiClient.get('/quick-replies/groups', { params });
-  return Array.isArray(response) ? response : [];
-}
+  /**
+   * 获取用户收藏列表
+   */
+  getUserFavorites: async (page: number = 1, pageSize: number = 20): Promise<PaginatedResponse<Reply>> => {
+    return await apiClient.get('/quick-reply/favorites', {
+      params: { page, pageSize },
+    });
+  },
 
-/**
- * 获取单个分组
- */
-export async function getQuickReplyGroup(id: number): Promise<QuickReplyGroup> {
-  const response = await apiClient.get(`/quick-replies/groups/${id}`);
-  return response;
-}
-
-/**
- * 更新分组
- */
-export async function updateQuickReplyGroup(id: number, data: UpdateQuickReplyGroupDto): Promise<QuickReplyGroup> {
-  const response = await apiClient.patch(`/quick-replies/groups/${id}`, data);
-  return response;
-}
-
-/**
- * 删除分组
- */
-export async function deleteQuickReplyGroup(id: number): Promise<void> {
-  await apiClient.delete(`/quick-replies/groups/${id}`);
-}
-
-// ==================== 回复项管理（仅管理员）====================
-
-/**
- * 创建回复项
- */
-export async function createQuickReplyItem(data: CreateQuickReplyItemDto): Promise<QuickReplyItem> {
-  const response = await apiClient.post('/quick-replies/items', data);
-  return response;
-}
-
-/**
- * 获取单个回复项
- */
-export async function getQuickReplyItem(id: number): Promise<QuickReplyItem> {
-  const response = await apiClient.get(`/quick-replies/items/${id}`);
-  return response;
-}
-
-/**
- * 更新回复项
- */
-export async function updateQuickReplyItem(id: number, data: UpdateQuickReplyItemDto): Promise<QuickReplyItem> {
-  const response = await apiClient.patch(`/quick-replies/items/${id}`, data);
-  return response;
-}
-
-/**
- * 删除回复项
- */
-export async function deleteQuickReplyItem(id: number): Promise<void> {
-  await apiClient.delete(`/quick-replies/items/${id}`);
-}
+  /**
+   * 增加使用次数
+   */
+  incrementUsage: async (replyId: string): Promise<{ success: boolean }> => {
+    return await apiClient.post(`/quick-reply/replies/${replyId}/usage`);
+  },
+};

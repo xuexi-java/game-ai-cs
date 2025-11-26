@@ -1,594 +1,545 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  BadRequestException,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { CreateQuickReplyGroupDto } from './dto/create-quick-reply-group.dto';
-import { UpdateQuickReplyGroupDto } from './dto/update-quick-reply-group.dto';
-import { CreateQuickReplyItemDto } from './dto/create-quick-reply-item.dto';
-import { UpdateQuickReplyItemDto } from './dto/update-quick-reply-item.dto';
+import { CreateCategoryDto } from './dto/create-category.dto';
+import { UpdateCategoryDto } from './dto/update-category.dto';
+import { CreateReplyDto } from './dto/create-reply.dto';
+import { UpdateReplyDto } from './dto/update-reply.dto';
+import { QueryReplyDto, SortByEnum } from './dto/query-reply.dto';
 
 @Injectable()
 export class QuickReplyService {
   constructor(private prisma: PrismaService) {}
 
+  // ========== 分类管理 ==========
+
   /**
-   * 获取指定游戏的快捷回复（按分组聚合）
-   * 返回 gameId 匹配的或 gameId 为 null（通用）的分组
+   * 获取分类列表
    */
-  async findAllByGame(gameId?: string) {
-    const where: any = {
-      enabled: true,
-      deletedAt: null,
-    };
+  async getCategories(userId: string, isAdmin: boolean) {
+    try {
+      const where: any = {
+        isActive: true,
+        deletedAt: null,
+      };
 
-    // 如果指定了游戏ID，查询该游戏专用的或通用的（gameId = null）
-    if (gameId) {
-      where.OR = [
-        { gameId },
-        { gameId: null }, // 通用回复
-      ];
-    } else {
-      // 如果没有指定游戏ID，只返回通用的
-      where.gameId = null;
+      if (!isAdmin) {
+        // 普通用户只能看到全局分类和自己的分类
+        where.OR = [{ isGlobal: true }, { creatorId: userId }];
+      }
+      // 管理员可以看到全部分类（不限制条件）
+
+      const categories = await this.prisma.quickReplyCategory.findMany({
+        where,
+        orderBy: { sortOrder: 'asc' },
+      });
+
+      // 如果分类为空，直接返回空数组
+      if (categories.length === 0) {
+        return [];
+      }
+
+      // 批量查询所有分类的回复数量，提高性能
+      const categoryIds = categories.map((cat) => cat.id);
+      const replyCounts = await this.prisma.quickReply.groupBy({
+        by: ['categoryId'],
+        where: {
+          categoryId: { in: categoryIds },
+          isActive: true,
+          deletedAt: null,
+        },
+        _count: {
+          id: true,
+        },
+      });
+
+      // 创建回复数量的映射
+      const countMap = new Map(
+        replyCounts.map((item) => [item.categoryId, item._count.id]),
+      );
+
+      // 为每个分类添加回复数量
+      return categories.map((category) => ({
+        ...category,
+        _count: {
+          replies: countMap.get(category.id) || 0,
+        },
+      }));
+    } catch (error) {
+      console.error('获取分类列表失败:', error);
+      throw error;
     }
-
-    const groups = await this.prisma.quickReplyGroup.findMany({
-      where,
-      include: {
-        items: {
-          where: {
-            deletedAt: null,
-          },
-          orderBy: [
-            { sortOrder: 'asc' },
-            { usageCount: 'desc' }, // 使用次数多的排在前面
-            { createdAt: 'asc' },
-          ],
-        },
-        game: {
-          select: {
-            id: true,
-            name: true,
-          },
-        },
-      },
-      orderBy: [
-        { sortOrder: 'asc' },
-        { createdAt: 'asc' },
-      ],
-    });
-
-    return groups;
   }
 
   /**
-   * 根据快捷键搜索快捷回复
+   * 创建分类
    */
-  async findByShortcut(shortcut: string, gameId?: string) {
-    const where: any = {
-      shortcut: {
-        equals: shortcut,
-        mode: 'insensitive', // 不区分大小写
-      },
-      deletedAt: null,
-      group: {
-        enabled: true,
-        deletedAt: null,
-      },
-    };
-
-    // 如果指定了游戏ID，只搜索该游戏专用的或通用的
-    if (gameId) {
-      where.group.OR = [
-        { gameId },
-        { gameId: null },
-      ];
-    } else {
-      where.group.gameId = null;
+  async createCategory(
+    userId: string,
+    isAdmin: boolean,
+    createCategoryDto: CreateCategoryDto,
+  ) {
+    // ⭐ 权限检查：只有管理员能创建全局分类
+    if (createCategoryDto.isGlobal && !isAdmin) {
+      throw new ForbiddenException('仅管理员可创建全局分类');
     }
 
-    const item = await this.prisma.quickReplyItem.findFirst({
-      where,
-      include: {
-        group: {
-          include: {
-            game: {
-              select: {
-                id: true,
-                name: true,
+    return this.prisma.quickReplyCategory.create({
+      data: {
+        ...createCategoryDto,
+        creatorId: createCategoryDto.isGlobal ? null : userId,
+      },
+    });
+  }
+
+  /**
+   * 更新分类
+   */
+  async updateCategory(
+    categoryId: string,
+    userId: string,
+    isAdmin: boolean,
+    updateCategoryDto: UpdateCategoryDto,
+  ) {
+    const category = await this.prisma.quickReplyCategory.findUniqueOrThrow({
+      where: { id: categoryId },
+    });
+
+    // ⭐ 权限检查
+    this.validateCategoryAccess(category, userId, isAdmin);
+
+    // ⭐ 禁止非管理员修改全局标记
+    if (
+      updateCategoryDto.isGlobal !== undefined &&
+      !isAdmin &&
+      updateCategoryDto.isGlobal
+    ) {
+      throw new ForbiddenException('仅管理员可修改全局标记');
+    }
+
+    return this.prisma.quickReplyCategory.update({
+      where: { id: categoryId },
+      data: updateCategoryDto,
+    });
+  }
+
+  /**
+   * 删除分类（软删除）
+   */
+  async deleteCategory(
+    categoryId: string,
+    userId: string,
+    isAdmin: boolean,
+  ) {
+    const category = await this.prisma.quickReplyCategory.findUniqueOrThrow({
+      where: { id: categoryId },
+    });
+
+    // ⭐ 权限检查
+    this.validateCategoryAccess(category, userId, isAdmin);
+
+    return this.prisma.quickReplyCategory.update({
+      where: { id: categoryId },
+      data: { deletedAt: new Date() },
+    });
+  }
+
+  // ========== 快捷回复管理 ==========
+
+  /**
+   * 获取快捷回复列表
+   */
+  async getReplies(userId: string, isAdmin: boolean, query: QueryReplyDto) {
+    try {
+      const page = query.page ?? 1;
+      const pageSize = query.pageSize ?? 20;
+      const skip = (page - 1) * pageSize;
+
+      // 构建 WHERE 条件
+      const where: any = {
+        isActive: true,
+        deletedAt: null,
+      };
+
+      if (query.categoryId) {
+        where.categoryId = query.categoryId;
+      }
+
+      // 权限过滤：用户只能看到全局回复和自己创建的回复
+      if (!isAdmin) {
+        where.OR = [{ isGlobal: true }, { creatorId: userId }];
+      }
+
+      // 只看收藏的回复
+      if (query.onlyFavorites) {
+        const favoriteIds = await this.prisma.quickReplyFavorite
+          .findMany({
+            where: { userId },
+            select: { replyId: true },
+          })
+          .then((fav) => fav.map((f) => f.replyId));
+
+        if (favoriteIds.length === 0) {
+          // 如果没有收藏，直接返回空结果
+          return {
+            data: [],
+            pagination: {
+              total: 0,
+              page,
+              pageSize,
+              totalPages: 0,
+            },
+          };
+        }
+
+        where.id = { in: favoriteIds };
+      }
+
+      // 只看最近使用的回复
+      if (query.onlyRecent) {
+        where.lastUsedAt = { not: null };
+      }
+
+      // 构建排序条件
+      let orderBy = this.buildOrderBy(query.sortBy);
+
+      console.log('查询条件:', JSON.stringify({ where, orderBy, skip, take: pageSize }, null, 2));
+
+      // 查询数据和总数
+      let data, total, favoriteIdsSet;
+      try {
+        [data, total, favoriteIdsSet] = await Promise.all([
+          this.prisma.quickReply.findMany({
+            where,
+            orderBy,
+            skip,
+            take: pageSize,
+            include: {
+              category: {
+                select: {
+                  id: true,
+                  name: true,
+                  isGlobal: true,
+                  isActive: true,
+                  sortOrder: true,
+                },
               },
             },
-          },
-        },
-      },
-    });
+          }),
+          this.prisma.quickReply.count({ where }),
+          // 获取当前用户收藏的所有回复 ID
+          this.prisma.quickReplyFavorite
+            .findMany({
+              where: { userId },
+              select: { replyId: true },
+            })
+            .then((favs) => new Set(favs.map((f) => f.replyId))),
+        ]);
+      } catch (dbError: any) {
+        console.error('数据库查询错误:', dbError);
+        console.error('错误类型:', dbError.constructor?.name);
+        console.error('错误代码:', dbError.code);
+        console.error('错误消息:', dbError.message);
+        console.error('错误堆栈:', dbError.stack);
+        
+        // 如果是排序问题，尝试使用默认排序
+        if (dbError.code === 'P2009' || dbError.message?.includes('orderBy') || dbError.message?.includes('sort')) {
+          console.log('检测到排序错误，尝试使用默认排序...');
+          orderBy = { createdAt: 'desc' };
+          [data, total, favoriteIdsSet] = await Promise.all([
+            this.prisma.quickReply.findMany({
+              where,
+              orderBy,
+              skip,
+              take: pageSize,
+              include: {
+                category: {
+                  select: {
+                    id: true,
+                    name: true,
+                    isGlobal: true,
+                    isActive: true,
+                    sortOrder: true,
+                  },
+                },
+              },
+            }),
+            this.prisma.quickReply.count({ where }),
+            this.prisma.quickReplyFavorite
+              .findMany({
+                where: { userId },
+                select: { replyId: true },
+              })
+              .then((favs) => new Set(favs.map((f) => f.replyId))),
+          ]);
+        } else {
+          throw dbError;
+        }
+      }
 
-    return item;
+      // 如果按 lastUsedAt 排序，对结果进行二次排序（将 null 值排在最后）
+      let sortedData = data;
+      if (query.sortBy === 'lastUsedAt' || query.sortBy === SortByEnum.LAST_USED_AT) {
+        sortedData = [...data].sort((a, b) => {
+          // 如果两个都是 null，按 createdAt 排序
+          if (!a.lastUsedAt && !b.lastUsedAt) {
+            return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+          }
+          // 如果 a 是 null，排在后面
+          if (!a.lastUsedAt) return 1;
+          // 如果 b 是 null，排在后面
+          if (!b.lastUsedAt) return -1;
+          // 两个都不是 null，按 lastUsedAt 排序
+          return new Date(b.lastUsedAt).getTime() - new Date(a.lastUsedAt).getTime();
+        });
+      }
+
+      return {
+        data: sortedData.map((reply) => ({
+          ...reply,
+          isFavorited: favoriteIdsSet.has(reply.id),
+        })),
+        pagination: {
+          total,
+          page,
+          pageSize,
+          totalPages: Math.ceil(total / pageSize),
+        },
+      };
+    } catch (error) {
+      console.error('获取快捷回复列表失败:', error);
+      console.error('错误详情:', {
+        message: error.message,
+        stack: error.stack,
+        name: error.name,
+      });
+      throw error;
+    }
   }
 
   /**
-   * 搜索快捷回复（支持内容模糊搜索）
+   * 创建快捷回复
    */
-  async search(query: string, gameId?: string) {
-    const where: any = {
-      OR: [
-        { content: { contains: query, mode: 'insensitive' } },
-        { shortcut: { contains: query, mode: 'insensitive' } },
-      ],
-      deletedAt: null,
-      group: {
-        enabled: true,
-        deletedAt: null,
-      },
-    };
-
-    if (gameId) {
-      where.group.OR = [
-        { gameId },
-        { gameId: null },
-      ];
-    } else {
-      where.group.gameId = null;
-    }
-
-    const items = await this.prisma.quickReplyItem.findMany({
-      where,
-      include: {
-        group: {
-          include: {
-            game: {
-              select: {
-                id: true,
-                name: true,
-              },
-            },
-          },
-        },
-      },
-      orderBy: [
-        { usageCount: 'desc' },
-        { createdAt: 'asc' },
-      ],
-      take: 20, // 限制返回数量
+  async createReply(
+    userId: string,
+    isAdmin: boolean,
+    createReplyDto: CreateReplyDto,
+  ) {
+    // 验证分类存在且有访问权限
+    const category = await this.prisma.quickReplyCategory.findUniqueOrThrow({
+      where: { id: createReplyDto.categoryId },
     });
 
-    return items;
+    // ⭐ 检查分类访问权限
+    if (!category.isGlobal && category.creatorId !== userId && !isAdmin) {
+      throw new ForbiddenException('无权在此分类中添加回复');
+    }
+
+    // ⭐ 权限检查：只有管理员能创建全局回复
+    if (createReplyDto.isGlobal && !isAdmin) {
+      throw new ForbiddenException('仅管理员可创建全局回复');
+    }
+
+    return this.prisma.quickReply.create({
+      data: {
+        ...createReplyDto,
+        creatorId: createReplyDto.isGlobal ? null : userId,
+      },
+      include: { category: true },
+    });
   }
+
+  /**
+   * 更新快捷回复
+   */
+  async updateReply(
+    replyId: string,
+    userId: string,
+    isAdmin: boolean,
+    updateReplyDto: UpdateReplyDto,
+  ) {
+    const reply = await this.prisma.quickReply.findUniqueOrThrow({
+      where: { id: replyId },
+    });
+
+    // ⭐ 权限检查：非管理员只能修改自己创建的回复
+    if (!isAdmin && reply.creatorId !== userId) {
+      throw new ForbiddenException('无权修改此回复');
+    }
+
+    // ⭐ 权限检查：非管理员不能修改全局标记
+    if (
+      updateReplyDto.isGlobal !== undefined &&
+      !isAdmin &&
+      updateReplyDto.isGlobal
+    ) {
+      throw new ForbiddenException('仅管理员可修改全局标记');
+    }
+
+    return this.prisma.quickReply.update({
+      where: { id: replyId },
+      data: updateReplyDto,
+      include: { category: true },
+    });
+  }
+
+  /**
+   * 删除快捷回复（软删除）
+   */
+  async deleteReply(
+    replyId: string,
+    userId: string,
+    isAdmin: boolean,
+  ) {
+    const reply = await this.prisma.quickReply.findUniqueOrThrow({
+      where: { id: replyId },
+    });
+
+    // ⭐ 权限检查
+    if (!isAdmin && reply.creatorId !== userId) {
+      throw new ForbiddenException('无权删除此回复');
+    }
+
+    return this.prisma.quickReply.update({
+      where: { id: replyId },
+      data: { deletedAt: new Date() },
+    });
+  }
+
+  // ========== 收藏管理 ==========
+
+  /**
+   * 切换收藏状态
+   */
+  async toggleFavorite(replyId: string, userId: string): Promise<void> {
+    // ⭐ 验证回复存在
+    await this.prisma.quickReply.findUniqueOrThrow({
+      where: { id: replyId },
+    });
+
+    // ⭐ 使用事务保证原子性
+    await this.prisma.$transaction(async (tx) => {
+      const existing = await tx.quickReplyFavorite.findUnique({
+        where: {
+          userId_replyId: { userId, replyId },
+        },
+      });
+
+      if (existing) {
+        // 取消收藏
+        await tx.quickReplyFavorite.delete({
+          where: { id: existing.id },
+        });
+        await tx.quickReply.update({
+          where: { id: replyId },
+          data: { favoriteCount: { decrement: 1 } },
+        });
+      } else {
+        // 添加收藏
+        await tx.quickReplyFavorite.create({
+          data: { userId, replyId },
+        });
+        await tx.quickReply.update({
+          where: { id: replyId },
+          data: { favoriteCount: { increment: 1 } },
+        });
+      }
+    });
+  }
+
+  /**
+   * 获取用户收藏列表
+   */
+  async getUserFavorites(
+    userId: string,
+    page: number = 1,
+    pageSize: number = 20,
+  ) {
+    const skip = (page - 1) * pageSize;
+
+    const [data, total] = await Promise.all([
+      this.prisma.quickReplyFavorite.findMany({
+        where: { userId },
+        include: {
+          reply: {
+            include: { category: true },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: pageSize,
+      }),
+      this.prisma.quickReplyFavorite.count({ where: { userId } }),
+    ]);
+
+    return {
+      data: data.map((fav) => ({
+        ...fav.reply,
+        isFavorited: true, // 收藏列表中的都是已收藏的
+      })),
+      pagination: {
+        total,
+        page,
+        pageSize,
+        totalPages: Math.ceil(total / pageSize),
+      },
+    };
+  }
+
+  // ========== 使用统计 ==========
 
   /**
    * 增加使用次数
    */
-  async incrementUsage(id: number) {
-    await this.prisma.quickReplyItem.update({
-      where: { id },
+  async incrementUsage(replyId: string): Promise<void> {
+    await this.prisma.quickReply.update({
+      where: { id: replyId },
       data: {
-        usageCount: {
-          increment: 1,
-        },
+        usageCount: { increment: 1 },
+        lastUsedAt: new Date(),
       },
     });
   }
 
-  // ==================== 分组管理 ====================
+  // ========== 辅助方法 ==========
 
   /**
-   * 创建分组
+   * 验证分类访问权限
    */
-  async createGroup(createDto: CreateQuickReplyGroupDto) {
-    try {
-      // 如果指定了游戏ID，验证游戏是否存在
-      if (createDto.gameId) {
-        const game = await this.prisma.game.findFirst({
-          where: {
-            id: createDto.gameId,
-            deletedAt: null,
-          },
-        });
-
-        if (!game) {
-          throw new NotFoundException('游戏不存在');
-        }
-      }
-
-      return await this.prisma.quickReplyGroup.create({
-      data: {
-        name: createDto.name,
-        sortOrder: createDto.sortOrder ?? 0,
-        gameId: createDto.gameId || null,
-        enabled: createDto.enabled ?? true,
-      },
-      include: {
-        game: {
-          select: {
-            id: true,
-            name: true,
-          },
-        },
-      },
-    });
-    } catch (error: any) {
-      console.error('createGroup 错误:', error);
-      // 如果是 Prisma 错误，提供更友好的错误信息
-      if (error.code === 'P2002') {
-        throw new Error('分组名称已存在');
-      }
-      if (error.code === 'P2003') {
-        throw new Error('关联的游戏不存在');
-      }
-      if (error.code === 'P2025' || error.message?.includes('does not exist')) {
-        throw new Error('数据库表不存在，请运行数据库迁移: npx prisma migrate deploy');
-      }
-      throw error;
+  private validateCategoryAccess(
+    category: any,
+    userId: string,
+    isAdmin: boolean,
+  ): void {
+    if (!category.isGlobal && category.creatorId !== userId && !isAdmin) {
+      throw new ForbiddenException('无权访问此分类');
     }
   }
 
   /**
-   * 获取所有分组
+   * 构建排序条件
    */
-  async findAllGroups(gameId?: string) {
-    try {
-      const where: any = {
-        deletedAt: null,
-      };
-
-      if (gameId) {
-        where.OR = [
-          { gameId },
-          { gameId: null },
-        ];
-      }
-
-      const groups = await this.prisma.quickReplyGroup.findMany({
-        where,
-        include: {
-          game: {
-            select: {
-              id: true,
-              name: true,
-            },
-          },
-          items: {
-            where: {
-              deletedAt: null,
-            },
-            orderBy: [
-              { sortOrder: 'asc' },
-              { usageCount: 'desc' },
-              { createdAt: 'asc' },
-            ],
-          },
-          _count: {
-            select: {
-              items: {
-                where: {
-                  deletedAt: null,
-                },
-              },
-            },
-          },
-        },
-        orderBy: [
-          { sortOrder: 'asc' },
-          { createdAt: 'asc' },
-        ],
-      });
-
-      return groups;
-    } catch (error: any) {
-      console.error('findAllGroups 错误:', error);
-      console.error('错误详情:', {
-        code: error.code,
-        message: error.message,
-        meta: error.meta,
-      });
-      
-      // 如果是 Prisma 错误，提供更友好的错误信息
-      if (error.code === 'P2025' || 
-          error.message?.includes('does not exist') || 
-          error.message?.includes('Unknown table') ||
-          error.message?.includes('Table') && error.message?.includes('doesn\'t exist')) {
-        throw new Error('数据库表不存在，请运行数据库迁移: npx prisma migrate deploy');
-      }
-      
-      // Prisma 连接错误
-      if (error.code === 'P1001' || error.message?.includes('Can\'t reach database')) {
-        throw new Error('无法连接到数据库，请检查数据库服务是否运行');
-      }
-      
-      // 其他 Prisma 错误
-      if (error.code?.startsWith('P')) {
-        throw new Error(`数据库查询失败: ${error.message || '未知错误'}`);
-      }
-      
-      throw error;
-    }
-  }
-
-  /**
-   * 获取单个分组
-   */
-  async findGroupById(id: number) {
-    const group = await this.prisma.quickReplyGroup.findFirst({
-      where: {
-        id,
-        deletedAt: null,
-      },
-      include: {
-        game: {
-          select: {
-            id: true,
-            name: true,
-          },
-        },
-        items: {
-          where: {
-            deletedAt: null,
-          },
-          orderBy: [
-            { sortOrder: 'asc' },
-            { usageCount: 'desc' },
-          ],
-        },
-      },
-    });
-
-    if (!group) {
-      throw new NotFoundException('分组不存在');
-    }
-
-    return group;
-  }
-
-  /**
-   * 更新分组
-   */
-  async updateGroup(id: number, updateDto: UpdateQuickReplyGroupDto) {
-    await this.findGroupById(id); // 检查是否存在
-
-    if (updateDto.gameId) {
-      const game = await this.prisma.game.findFirst({
-        where: {
-          id: updateDto.gameId,
-          deletedAt: null,
-        },
-      });
-
-      if (!game) {
-        throw new NotFoundException('游戏不存在');
-      }
-    }
-
-    return this.prisma.quickReplyGroup.update({
-      where: { id },
-      data: updateDto,
-      include: {
-        game: {
-          select: {
-            id: true,
-            name: true,
-          },
-        },
-      },
-    });
-  }
-
-  /**
-   * 删除分组（软删除）
-   */
-  async removeGroup(id: number) {
-    await this.findGroupById(id);
-
-    return this.prisma.quickReplyGroup.update({
-      where: { id },
-      data: { deletedAt: new Date() },
-    });
-  }
-
-  // ==================== 回复项管理 ====================
-
-  /**
-   * 创建回复项
-   */
-  async createItem(createDto: CreateQuickReplyItemDto) {
-    // 验证分组是否存在
-    const group = await this.prisma.quickReplyGroup.findFirst({
-      where: {
-        id: createDto.groupId,
-        deletedAt: null,
-      },
-    });
-
-    if (!group) {
-      throw new NotFoundException('分组不存在');
-    }
-
-    // 如果指定了快捷键，检查是否在同一分组内重复
-    if (createDto.shortcut) {
-      const existing = await this.prisma.quickReplyItem.findFirst({
-        where: {
-          groupId: createDto.groupId,
-          shortcut: createDto.shortcut,
-          deletedAt: null,
-        },
-      });
-
-      if (existing) {
-        throw new Error('该分组内已存在相同的快捷键');
-      }
-    }
-
-    return this.prisma.quickReplyItem.create({
-      data: {
-        content: createDto.content,
-        groupId: createDto.groupId,
-        shortcut: createDto.shortcut || null,
-        sortOrder: createDto.sortOrder ?? 0,
-      },
-      include: {
-        group: {
-          include: {
-            game: {
-              select: {
-                id: true,
-                name: true,
-              },
-            },
-          },
-        },
-      },
-    });
-  }
-
-  /**
-   * 获取单个回复项
-   */
-  async findItemById(id: number) {
-    const item = await this.prisma.quickReplyItem.findFirst({
-      where: {
-        id,
-        deletedAt: null,
-      },
-      include: {
-        group: {
-          include: {
-            game: {
-              select: {
-                id: true,
-                name: true,
-              },
-            },
-          },
-        },
-      },
-    });
-
-    if (!item) {
-      throw new NotFoundException('回复项不存在');
-    }
-
-    return item;
-  }
-
-  /**
-   * 更新回复项
-   */
-  async updateItem(id: number, updateDto: UpdateQuickReplyItemDto) {
-    const item = await this.findItemById(id);
-
-    // 如果更新了分组，验证新分组是否存在
-    if (updateDto.groupId && updateDto.groupId !== item.groupId) {
-      const group = await this.prisma.quickReplyGroup.findFirst({
-        where: {
-          id: updateDto.groupId,
-          deletedAt: null,
-        },
-      });
-
-      if (!group) {
-        throw new NotFoundException('分组不存在');
-      }
-    }
-
-    // 如果更新了快捷键，检查是否重复
-    if (updateDto.shortcut && updateDto.shortcut !== item.shortcut) {
-      const existing = await this.prisma.quickReplyItem.findFirst({
-        where: {
-          groupId: updateDto.groupId || item.groupId,
-          shortcut: updateDto.shortcut,
-          id: { not: id },
-          deletedAt: null,
-        },
-      });
-
-      if (existing) {
-        throw new Error('该分组内已存在相同的快捷键');
-      }
-    }
-
-    return this.prisma.quickReplyItem.update({
-      where: { id },
-      data: updateDto,
-      include: {
-        group: {
-          include: {
-            game: {
-              select: {
-                id: true,
-                name: true,
-              },
-            },
-          },
-        },
-      },
-    });
-  }
-
-  /**
-   * 删除回复项（软删除）
-   */
-  async removeItem(id: number) {
-    await this.findItemById(id);
-
-    return this.prisma.quickReplyItem.update({
-      where: { id },
-      data: { deletedAt: new Date() },
-    });
-  }
-
-  /**
-   * 初始化系统默认快捷回复
-   */
-  async initSystemDefaultReplies() {
-    // 检查是否已有系统默认分组
-    const existingGroup = await this.prisma.quickReplyGroup.findFirst({
-      where: { name: '问候', gameId: null, deletedAt: null },
-    });
-
-    if (existingGroup) {
-      return; // 如果已有，不重复创建
-    }
-
-    const defaultGroups = [
-      { name: '问候', sortOrder: 10, gameId: null, enabled: true },
-      { name: '问题处理', sortOrder: 20, gameId: null, enabled: true },
-      { name: '结束语', sortOrder: 30, gameId: null, enabled: true },
-      { name: '常见问题', sortOrder: 40, gameId: null, enabled: true },
-      { name: '沟通', sortOrder: 50, gameId: null, enabled: true },
-    ];
-
-    const createdGroups: Array<{ id: number; name: string }> = [];
-    for (const groupData of defaultGroups) {
-      const group = await this.prisma.quickReplyGroup.create({ data: groupData });
-      createdGroups.push({ id: group.id, name: group.name });
-    }
-
-    const findGroup = (name: string) => createdGroups.find(g => g.name === name);
-
-    const defaultItems = [
-      { content: '您好，请问有什么可以帮助您的吗？', shortcut: '/hi', sortOrder: 1, groupName: '问候' },
-      { content: '好的，我明白了，让我为您处理一下。', shortcut: '/ok', sortOrder: 1, groupName: '问题处理' },
-      { content: '为了更好地帮助您，请提供一下您的游戏ID、区服和具体问题描述。', shortcut: '/info', sortOrder: 2, groupName: '问题处理' },
-      { content: '正在为您处理中，请稍候...', shortcut: '/wait', sortOrder: 3, groupName: '问题处理' },
-      { content: '问题已解决，如果还有其他问题，随时联系我。', shortcut: '/done', sortOrder: 1, groupName: '结束语' },
-      { content: '感谢您的反馈，祝您游戏愉快！', shortcut: '/thanks', sortOrder: 2, groupName: '结束语' },
-      { content: '关于充值问题，我来帮您查询一下。请提供您的订单号或充值时间。', shortcut: '/recharge', sortOrder: 1, groupName: '常见问题' },
-      { content: '关于账号问题，为了您的账号安全，请提供您的注册信息进行验证。', shortcut: '/account', sortOrder: 2, groupName: '常见问题' },
-      { content: '关于游戏bug，我会记录并反馈给技术团队。请详细描述一下问题出现的场景。', shortcut: '/bug', sortOrder: 3, groupName: '常见问题' },
-      { content: '请稍等，我正在为您查询相关信息。', shortcut: '/hold', sortOrder: 1, groupName: '沟通' },
-      { content: '非常抱歉给您带来不便，我会尽快为您处理。', shortcut: '/sorry', sortOrder: 2, groupName: '沟通' },
-      { content: '您的问题我已经记录，稍后会有专人联系您，请保持通讯畅通。', shortcut: '/followup', sortOrder: 3, groupName: '沟通' },
-    ];
-
-    for (const itemData of defaultItems) {
-      const group = findGroup(itemData.groupName);
-      if (group) {
-        await this.prisma.quickReplyItem.create({
-          data: {
-            content: itemData.content,
-            shortcut: itemData.shortcut,
-            sortOrder: itemData.sortOrder,
-            groupId: group.id,
-          },
-        });
-      }
+  private buildOrderBy(sortBy?: SortByEnum | string): any {
+    const sortValue = sortBy || SortByEnum.USAGE_COUNT;
+    switch (sortValue) {
+      case SortByEnum.USAGE_COUNT:
+      case 'usageCount':
+        return { usageCount: 'desc' };
+      case SortByEnum.FAVORITE_COUNT:
+      case 'favoriteCount':
+        return { favoriteCount: 'desc' };
+      case SortByEnum.LAST_USED_AT:
+      case 'lastUsedAt':
+        // 对于 lastUsedAt，只按 lastUsedAt 排序
+        // 在 PostgreSQL 中，null 值在降序排序时会自动排在最后
+        // 如果遇到问题，可以在应用层进行二次排序
+        return { lastUsedAt: 'desc' };
+      default:
+        return { usageCount: 'desc' };
     }
   }
 }

@@ -24,6 +24,22 @@ export class HttpExceptionFilter implements ExceptionFilter {
         ? exception.getResponse()
         : 'Internal server error';
 
+    // 记录详细的错误信息
+    if (status === HttpStatus.INTERNAL_SERVER_ERROR) {
+      console.error('=== 服务器内部错误 ===');
+      console.error('路径:', request.url);
+      console.error('方法:', request.method);
+      console.error('错误:', exception);
+      if (exception instanceof Error) {
+        console.error('错误消息:', exception.message);
+        console.error('错误堆栈:', exception.stack);
+        if ((exception as any).code) {
+          console.error('错误代码:', (exception as any).code);
+        }
+      }
+      console.error('==================');
+    }
+
     response.status(status).json({
       statusCode: status,
       timestamp: new Date().toISOString(),

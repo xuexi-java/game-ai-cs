@@ -19,6 +19,7 @@ import { DashboardModule } from './dashboard/dashboard.module';
 import { TicketMessageModule } from './ticket-message/ticket-message.module';
 import { UserModule } from './user/user.module';
 import { IssueTypeModule } from './issue-type/issue-type.module';
+import { QuickReplyModule } from './quick-reply/quick-reply.module';
 import { validate } from './common/config/env.validation';
 
 @Module({
@@ -59,6 +60,8 @@ import { validate } from './common/config/env.validation';
     DashboardModule,
     TicketMessageModule,
     UserModule,
+    IssueTypeModule,
+    QuickReplyModule,
   ],
   controllers: [AppController],
   providers: [AppService, PrismaService],

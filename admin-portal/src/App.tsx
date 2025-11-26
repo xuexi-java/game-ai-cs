@@ -18,6 +18,7 @@ import ActivePage from './pages/Workbench/ActivePage';
 import GamesPage from './pages/Games';
 import UrgencyRulesPage from './pages/Settings/UrgencyRules';
 import UsersPage from './pages/Settings/Users';
+import QuickRepliesPage from './pages/Settings/QuickReplies';
 import ProfilePage from './pages/Profile';
 
 // 布局组件
@@ -140,7 +141,13 @@ function App() {
                   }
                 />
 
-                {/* 系统设置 - 仅管理员 */}
+                {/* 快捷回复 - 所有用户可见 */}
+                <Route
+                  path="quick-replies"
+                  element={<QuickRepliesPage />}
+                />
+
+                {/* 系统设置 */}
                 <Route path="settings">
                   <Route
                     path="urgency-rules"
@@ -157,6 +164,10 @@ function App() {
                         <UsersPage />
                       </ProtectedRoute>
                     }
+                  />
+                  <Route
+                    path="quick-replies"
+                    element={<QuickRepliesPage />}
                   />
                 </Route>
 

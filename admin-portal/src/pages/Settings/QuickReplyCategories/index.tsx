@@ -9,7 +9,6 @@ import {
   Form,
   Input,
   InputNumber,
-  Typography,
   Tag,
   Popconfirm,
   message,
@@ -21,7 +20,6 @@ import {
   EditOutlined,
   DeleteOutlined,
 } from '@ant-design/icons';
-import { useMessage } from '../../../hooks/useMessage';
 import {
   getQuickReplyCategories,
   createQuickReplyCategory,
@@ -31,7 +29,6 @@ import {
 import './index.css';
 
 const { TextArea } = Input;
-const { Text } = Typography;
 
 interface QuickReplyCategory {
   id: string;
@@ -46,20 +43,12 @@ interface QuickReplyCategory {
   };
 }
 
-interface CategoryFormValues {
-  name: string;
-  description?: string;
-  sortOrder: number;
-  enabled: boolean;
-}
-
 const QuickReplyCategoriesPage: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [categories, setCategories] = useState<QuickReplyCategory[]>([]);
   const [modalOpen, setModalOpen] = useState(false);
   const [editingCategory, setEditingCategory] = useState<QuickReplyCategory | null>(null);
   const [form] = Form.useForm();
-  const { showMessage } = useMessage();
 
   // 加载分类列表
   const loadCategories = async () => {
@@ -68,7 +57,7 @@ const QuickReplyCategoriesPage: React.FC = () => {
       const data = await getQuickReplyCategories();
       setCategories(data);
     } catch (error: any) {
-      showMessage('加载分类列表失败', 'error');
+      message.error('加载分类列表失败');
       console.error('加载分类列表失败:', error);
     } finally {
       setLoading(false);
@@ -115,11 +104,11 @@ const QuickReplyCategoriesPage: React.FC = () => {
       if (editingCategory) {
         // 更新
         await updateQuickReplyCategory(editingCategory.id, values);
-        showMessage('更新分类成功', 'success');
+        message.success('更新分类成功');
       } else {
         // 创建
         await createQuickReplyCategory(values);
-        showMessage('创建分类成功', 'success');
+        message.success('创建分类成功');
       }
       
       handleCloseModal();
@@ -129,9 +118,8 @@ const QuickReplyCategoriesPage: React.FC = () => {
         // 表单验证错误
         return;
       }
-      showMessage(
+      message.error(
         editingCategory ? '更新分类失败' : '创建分类失败',
-        'error',
       );
       console.error('保存分类失败:', error);
     }
@@ -153,10 +141,10 @@ const QuickReplyCategoriesPage: React.FC = () => {
           onOk: async () => {
             try {
               await deleteQuickReplyCategory(category.id, true);
-              showMessage('删除分类成功', 'success');
+              message.success('删除分类成功');
               loadCategories();
             } catch (error: any) {
-              showMessage('删除分类失败', 'error');
+              message.error('删除分类失败');
               console.error('删除分类失败:', error);
             }
           },
@@ -164,11 +152,11 @@ const QuickReplyCategoriesPage: React.FC = () => {
       } else {
         // 没有关联的快捷回复，直接删除
         await deleteQuickReplyCategory(category.id, false);
-        showMessage('删除分类成功', 'success');
+        message.success('删除分类成功');
         loadCategories();
       }
     } catch (error: any) {
-      showMessage('删除分类失败', 'error');
+      message.error('删除分类失败');
       console.error('删除分类失败:', error);
     }
   };
@@ -177,10 +165,10 @@ const QuickReplyCategoriesPage: React.FC = () => {
   const handleToggleEnabled = async (category: QuickReplyCategory, enabled: boolean) => {
     try {
       await updateQuickReplyCategory(category.id, { enabled });
-      showMessage(`${enabled ? '启用' : '禁用'}分类成功`, 'success');
+      message.success(`${enabled ? '启用' : '禁用'}分类成功`);
       loadCategories();
     } catch (error: any) {
-      showMessage(`${enabled ? '启用' : '禁用'}分类失败`, 'error');
+      message.error(`${enabled ? '启用' : '禁用'}分类失败`);
       console.error('切换启用状态失败:', error);
     }
   };

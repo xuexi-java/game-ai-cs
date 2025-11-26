@@ -48,6 +48,7 @@ import {
 import { sendTicketMessage, getTicketMessages } from '../../services/ticket.service';
 import { websocketService } from '../../services/websocket.service';
 import { uploadTicketAttachment } from '../../services/upload.service';
+import QuickReplyDrawer from '../../components/QuickReplyDrawer';
 
 const { TextArea } = Input;
 const { Text } = Typography;
@@ -102,6 +103,7 @@ const ActivePage: React.FC = () => {
   const [loadingSessions, setLoadingSessions] = useState(false);
   const [sessionsError, setSessionsError] = useState<string | null>(null);
   const [uploadingFile, setUploadingFile] = useState(false);
+  const [quickReplyDrawerOpen, setQuickReplyDrawerOpen] = useState(false);
   const lastManualInputRef = useRef('');
   const aiOptimizedRef = useRef(false);
   const currentSessionRef = useRef<Session | null>(null);
@@ -1530,6 +1532,7 @@ const ActivePage: React.FC = () => {
                     icon={<ThunderboltOutlined />} 
                     title="快捷回复"
                     disabled={!isJoined}
+                    onClick={() => setQuickReplyDrawerOpen(true)}
                   />
                 </div>
                 <TextArea
@@ -1729,6 +1732,16 @@ const ActivePage: React.FC = () => {
           </div>
         </section>
       </div>
+
+      {/* 快捷回复抽屉 */}
+      <QuickReplyDrawer
+        open={quickReplyDrawerOpen}
+        onClose={() => setQuickReplyDrawerOpen(false)}
+        onSelect={(content) => {
+          setMessageInput(content);
+          setQuickReplyDrawerOpen(false);
+        }}
+      />
     </div>
   );
 };

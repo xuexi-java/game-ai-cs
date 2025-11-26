@@ -1,4 +1,77 @@
-.quick-replies-page {
-  padding: 24px;
+.quick-reply-settings {
+  display: flex;
+  height: 100%;
+  background: #fff;
 }
 
+.quick-reply-settings .categories-sidebar {
+  background: #fafafa;
+  border-right: 1px solid #d9d9d9;
+  overflow-y: auto;
+  max-height: 100vh;
+}
+
+.quick-reply-settings .sidebar-header {
+  padding: 16px;
+  border-bottom: 1px solid #d9d9d9;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.quick-reply-settings .sidebar-header h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.quick-reply-settings .category-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+}
+
+.quick-reply-settings .category-item .count {
+  color: #999;
+  font-size: 12px;
+  margin-left: 8px;
+}
+
+.quick-reply-settings .ant-list-item.active {
+  background: #e6f7ff;
+  border-left: 3px solid #1890ff;
+  padding-left: 13px !important;
+}
+
+.quick-reply-settings .replies-content {
+  flex: 1;
+  padding: 20px;
+  overflow-y: auto;
+}
+
+.quick-reply-settings .content-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.quick-reply-settings .content-header h2 {
+  margin: 0;
+}
+
+.quick-reply-settings .reply-content {
+  line-height: 1.5;
+  word-break: break-word;
+  max-width: 500px;
+}
+
+.quick-reply-settings .ant-list-item {
+  padding: 12px !important;
+  border-bottom: 1px solid #f0f0f0 !important;
+}
+
+.quick-reply-settings .ant-list-item-meta {
+  margin-top: 8px;
+}
