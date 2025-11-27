@@ -173,6 +173,16 @@ export class SessionService {
       throw new NotFoundException('会话不存在');
     }
 
+    // 检查会话状态，如果已关闭则不允许发送消息
+    if (session.status === 'CLOSED') {
+      throw new BadRequestException('会话已结束，无法发送消息');
+    }
+
+    // 检查工单状态，如果工单已解决则不允许发送消息
+    if (session.ticket?.status === 'RESOLVED') {
+      throw new BadRequestException('工单已解决，无法发送消息');
+    }
+
     const playerMessage = await this.messageService.create(
       {
         sessionId,
@@ -316,10 +326,14 @@ export class SessionService {
       status: 'QUEUED',
     };
 
-    // 如果是客服角色，只返回分配给该客服的会话
+    // 如果是客服角色，只返回分配给该客服的会话（包括 agentId 为 null 的未分配会话）
     // 如果是管理员角色，返回所有待接入会话
     if (currentUser && currentUser.role === 'AGENT') {
-      queuedWhere.agentId = currentUser.id;
+      // 客服可以看到：分配给自己的会话 OR 未分配的会话（agentId 为 null）
+      queuedWhere.OR = [
+        { agentId: currentUser.id },
+        { agentId: null },
+      ];
     }
     // 管理员可以看到所有待接入会话，不需要过滤
 
@@ -579,6 +593,20 @@ export class SessionService {
       throw new BadRequestException('会话状态不正确，无法接入');
     }
 
+    // 检查当前用户角色
+    const currentUser = await this.prisma.user.findUnique({
+      where: { id: agentId },
+      select: { role: true },
+    });
+
+    // 检查会话是否已经分配给其他客服
+    if (session.agentId && session.agentId !== agentId) {
+      // 只有管理员可以接入已分配给其他客服的会话
+      if (currentUser?.role !== 'ADMIN') {
+        throw new BadRequestException('该会话已分配给其他客服，您无法接入');
+      }
+    }
+
     // 更新会话状态
     const updatedSession = await this.prisma.session.update({
       where: { id: sessionId },
@@ -586,6 +614,8 @@ export class SessionService {
         agentId,
         status: 'IN_PROGRESS',
         startedAt: new Date(),
+        queuedAt: null, // 清除排队状态
+        queuePosition: null, // 清除排队位置
       },
       include: {
         ticket: {
@@ -624,6 +654,9 @@ export class SessionService {
         // 不抛出错误，避免影响会话接入流程
       }
     }
+
+    // 重新排序队列（移除已接入的会话）
+    await this.reorderQueue();
 
     // 通知 WebSocket 客户端
     this.websocketGateway.notifySessionUpdate(sessionId, normalizedSession);
@@ -774,15 +807,15 @@ export class SessionService {
     });
     const selectedAgent = agentsWithLoad[0].agent;
 
-    const shouldRemainQueued = session.status === 'QUEUED';
-
+    // 自动分配后，会话应该立即变为 IN_PROGRESS，清除排队状态
     const updatedSession = await this.prisma.session.update({
       where: { id: sessionId },
       data: {
         agentId: selectedAgent.id,
-        status: shouldRemainQueued ? 'QUEUED' : 'IN_PROGRESS',
-        startedAt: shouldRemainQueued ? session.startedAt : session.startedAt || new Date(),
-        queuedAt: shouldRemainQueued ? session.queuedAt ?? new Date() : null,
+        status: 'IN_PROGRESS',
+        startedAt: session.startedAt || new Date(),
+        queuedAt: null, // 清除排队状态
+        queuePosition: null, // 清除排队位置
         manuallyAssigned: false,
       },
       include: {
@@ -813,6 +846,10 @@ export class SessionService {
 
     const normalizedSession = this.enrichSession(updatedSession);
 
+    // 重新排序队列（移除已接入的会话）
+    await this.reorderQueue();
+
+    // 通知 WebSocket 客户端会话状态更新
     this.websocketGateway.notifySessionUpdate(sessionId, normalizedSession);
     return normalizedSession;
   }
@@ -1259,6 +1296,26 @@ export class SessionService {
       data: {
         status: 'CLOSED',
         closedAt: new Date(),
+        // 清除排队相关字段
+        queuePosition: null,
+        queuedAt: null,
+      },
+      include: {
+        ticket: {
+          include: {
+            ...TICKET_RELATION_INCLUDE,
+          },
+        },
+        agent: {
+          select: {
+            id: true,
+            username: true,
+            realName: true,
+          },
+        },
+        messages: {
+          orderBy: { createdAt: 'asc' },
+        },
       },
     });
 
@@ -1274,15 +1331,19 @@ export class SessionService {
       console.warn('创建系统消息失败:', error);
     }
 
+    // 重新排序队列（移除已关闭的会话）
+    await this.reorderQueue();
+
     // 通过 WebSocket 通知所有客户端会话已关闭
-    this.websocketGateway.notifySessionUpdate(sessionId, updatedSession);
+    const normalizedSession = this.enrichSession(updatedSession);
+    this.websocketGateway.notifySessionUpdate(sessionId, normalizedSession);
 
     // 检查并更新关联工单的状态
     if (session.ticketId) {
       await this.ticketService.checkAndUpdateTicketStatus(session.ticketId);
     }
 
-    return updatedSession;
+    return normalizedSession;
   }
 
   // 结束会话（玩家端）
@@ -1307,6 +1368,26 @@ export class SessionService {
       data: {
         status: 'CLOSED',
         closedAt: new Date(),
+        // 清除排队相关字段
+        queuePosition: null,
+        queuedAt: null,
+      },
+      include: {
+        ticket: {
+          include: {
+            ...TICKET_RELATION_INCLUDE,
+          },
+        },
+        agent: {
+          select: {
+            id: true,
+            username: true,
+            realName: true,
+          },
+        },
+        messages: {
+          orderBy: { createdAt: 'asc' },
+        },
       },
     });
 
@@ -1322,15 +1403,19 @@ export class SessionService {
       console.warn('创建系统消息失败:', error);
     }
 
+    // 重新排序队列（移除已关闭的会话）
+    await this.reorderQueue();
+
     // 通过 WebSocket 通知所有客户端会话已关闭
-    this.websocketGateway.notifySessionUpdate(sessionId, session);
+    const normalizedSession = this.enrichSession(session);
+    this.websocketGateway.notifySessionUpdate(sessionId, normalizedSession);
 
     // 检查并更新关联工单的状态
     if (existingSession.ticketId) {
       await this.ticketService.checkAndUpdateTicketStatus(existingSession.ticketId);
     }
 
-    return session;
+    return normalizedSession;
   }
 
   // 通过工单ID查找活跃会话
@@ -1342,16 +1427,32 @@ export class SessionService {
           in: ['PENDING', 'QUEUED', 'IN_PROGRESS'],
         },
       },
-      select: {
-        id: true,
-        status: true,
-        agentId: true,
+      include: {
+        ticket: {
+          include: {
+            ...TICKET_RELATION_INCLUDE,
+          },
+        },
+        agent: {
+          select: {
+            id: true,
+            username: true,
+            realName: true,
+          },
+        },
+        messages: {
+          orderBy: { createdAt: 'asc' },
+        },
       },
       orderBy: {
         createdAt: 'desc',
       },
     });
 
-    return session || null;
+    if (!session) {
+      return null;
+    }
+
+    return this.enrichSession(session);
   }
 }

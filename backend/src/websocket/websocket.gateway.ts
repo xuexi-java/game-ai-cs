@@ -138,14 +138,9 @@ export class WebsocketGateway
           });
 
           if (activeSession && (activeSession.status === 'IN_PROGRESS' || activeSession.status === 'QUEUED')) {
-            // 调用 sessionService 的 closeByPlayer 方法
-            const { SessionService } = await import('../session/session.service');
-            const sessionService = new SessionService(
-              this.prisma,
-              this.messageService,
-              this.ticketService,
-            );
-            await sessionService.closeByPlayer(activeSession.id);
+            // 通过 ticketService 调用 sessionService 的 closeByPlayer 方法
+            // 由于循环依赖，需要通过 ticketService 来访问 sessionService
+            await this.ticketService.closeSessionByPlayer(activeSession.id);
           }
         } catch (error) {
           this.logger.error(`处理玩家断开连接失败: ${error.message}`);
