@@ -35,12 +35,15 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", { value: true });
 const client_1 = require("@prisma/client");
 const bcrypt = __importStar(require("bcrypt"));
+// 密码哈希函数
 function hashPassword(password) {
+    // 使用 bcrypt 加密密码
     return bcrypt.hashSync(password, 10);
 }
 const prisma = new client_1.PrismaClient();
 async function main() {
     console.log('开始初始化数据库...');
+    // 1. 创建初始管理员账户
     const adminUsers = [
         {
             username: 'admin',
@@ -75,6 +78,7 @@ async function main() {
         });
         console.log(`✓ 创建管理员账户: ${user.username} (${userData.realName})`);
     }
+    // 2. 创建示例客服账户
     const agentUsers = [
         {
             username: 'agent1',
@@ -117,6 +121,7 @@ async function main() {
         });
         console.log(`✓ 创建客服账户: ${user.username} (${userData.realName})`);
     }
+    // 3. 创建示例游戏配置
     const game1 = await prisma.game.upsert({
         where: { name: '弹弹堂' },
         update: {},
@@ -124,8 +129,8 @@ async function main() {
             name: '弹弹堂',
             icon: null,
             enabled: true,
-            difyApiKey: 'your-dify-api-key-here',
-            difyBaseUrl: 'http://118.89.16.95/v1',
+            difyApiKey: 'your-dify-api-key-here', // 请替换为实际的API Key
+            difyBaseUrl: 'http://118.89.16.95/v1', // 请替换为实际的 Dify 服务器地址
         },
     });
     console.log('✓ 创建游戏配置:', game1.name);
@@ -136,11 +141,12 @@ async function main() {
             name: '神曲',
             icon: null,
             enabled: true,
-            difyApiKey: 'your-dify-api-key-here',
-            difyBaseUrl: 'http://118.89.16.95/v1',
+            difyApiKey: 'your-dify-api-key-here', // 请替换为实际的API Key
+            difyBaseUrl: 'http://118.89.16.95/v1', // 请替换为实际的 Dify 服务器地址
         },
     });
     console.log('✓ 创建游戏配置:', game2.name);
+    // 4. 创建示例紧急排序规则
     const rule1 = await prisma.urgencyRule.create({
         data: {
             name: '充值问题优先',
@@ -166,6 +172,7 @@ async function main() {
         },
     });
     console.log('✓ 创建紧急排序规则:', rule2.name);
+    // 5. 创建快捷回复分类
     const categories = [
         { name: '问候语', isGlobal: true, sortOrder: 1 },
         { name: '问题确认', isGlobal: true, sortOrder: 2 },
@@ -179,12 +186,14 @@ async function main() {
     ];
     const createdCategories = [];
     for (const cat of categories) {
+        // 先查找是否已存在
         let category = await prisma.quickReplyCategory.findFirst({
             where: {
                 name: cat.name,
                 deletedAt: null,
             },
         });
+        // 如果不存在，则创建
         if (!category) {
             category = await prisma.quickReplyCategory.create({
                 data: {
@@ -201,7 +210,9 @@ async function main() {
         }
         createdCategories.push(category);
     }
+    // 6. 创建快捷回复内容
     const replies = [
+        // 问候语
         {
             categoryName: '问候语',
             content: '您好，很高兴为您服务！',
@@ -222,6 +233,7 @@ async function main() {
             content: '您好，感谢您的耐心等待，现在为您服务。',
             sortOrder: 4,
         },
+        // 问题确认
         {
             categoryName: '问题确认',
             content: '好的，我已经了解您的问题，让我为您核实一下。',
@@ -242,6 +254,7 @@ async function main() {
             content: '好的，我理解您的情况，正在为您查询相关信息。',
             sortOrder: 4,
         },
+        // 问题处理中
         {
             categoryName: '问题处理中',
             content: '正在为您处理中，请稍等片刻。',
@@ -262,6 +275,7 @@ async function main() {
             content: '我已经提交了您的申请，正在等待系统处理，请稍等。',
             sortOrder: 4,
         },
+        // 问题已解决
         {
             categoryName: '问题已解决',
             content: '您的问题已经处理完成，请刷新游戏查看。',
@@ -282,6 +296,7 @@ async function main() {
             content: '问题已处理完成，感谢您的配合。',
             sortOrder: 4,
         },
+        // 充值相关
         {
             categoryName: '充值相关',
             content: '关于充值问题，我需要核实一下您的订单信息，请提供订单号。',
@@ -307,6 +322,7 @@ async function main() {
             content: '充值未到账的问题，我已经为您提交了补单申请，请耐心等待处理结果。',
             sortOrder: 5,
         },
+        // 账号相关
         {
             categoryName: '账号相关',
             content: '关于账号问题，为了您的账号安全，需要核实一些信息。',
@@ -327,6 +343,7 @@ async function main() {
             content: '您的账号申诉已提交，我们会在24小时内处理，请耐心等待。',
             sortOrder: 4,
         },
+        // 游戏问题
         {
             categoryName: '游戏问题',
             content: '关于游戏内的问题，我已经记录并提交给技术部门处理。',
@@ -352,6 +369,7 @@ async function main() {
             content: '关于游戏活动的问题，请查看游戏内活动公告，或关注官方公告。',
             sortOrder: 5,
         },
+        // 致歉用语
         {
             categoryName: '致歉用语',
             content: '非常抱歉给您带来不便，我们会尽快为您处理。',
@@ -377,6 +395,7 @@ async function main() {
             content: '非常抱歉，由于我们的疏忽给您造成了不便，我们会立即处理。',
             sortOrder: 5,
         },
+        // 结束语
         {
             categoryName: '结束语',
             content: '感谢您的咨询，如有其他问题随时联系我们，祝您游戏愉快！',
@@ -406,6 +425,7 @@ async function main() {
     for (const reply of replies) {
         const category = createdCategories.find((c) => c.name === reply.categoryName);
         if (category) {
+            // 检查是否已存在相同分类和内容的回复
             const existing = await prisma.quickReply.findFirst({
                 where: {
                     categoryId: category.id,
@@ -455,4 +475,3 @@ main()
     .finally(async () => {
     await prisma.$disconnect();
 });
-//# sourceMappingURL=seed.js.map
