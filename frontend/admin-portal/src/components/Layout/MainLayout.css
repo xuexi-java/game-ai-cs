@@ -5,13 +5,22 @@
 .layout-sider {
     background: #001529;
     box-shadow: 2px 0 8px rgba(0, 0, 0, 0.15);
-    position: fixed;
-    left: 0;
-    top: 0;
-    bottom: 0;
-    height: 100vh;
-    overflow: auto;
+    position: fixed !important;
+    left: 0 !important;
+    top: 0 !important;
+    bottom: 0 !important;
+    height: 100vh !important;
+    overflow-y: auto;
+    overflow-x: hidden;
     z-index: 100;
+}
+
+/* 确保 Ant Design Sider 组件不覆盖固定定位 */
+.ant-layout-sider.layout-sider {
+    position: fixed !important;
+    left: 0 !important;
+    top: 0 !important;
+    height: 100vh !important;
 }
 
 .logo {
@@ -88,6 +97,64 @@
     background-color: #f5f5f5;
 }
 
+/* 侧边栏菜单未读徽章美化 */
+.ant-menu-item .ant-badge {
+  margin-left: 8px;
+  vertical-align: middle;
+}
+
+.ant-menu-item .ant-badge-count {
+  background: linear-gradient(135deg, #ff4d4f 0%, #ff7875 100%);
+  box-shadow: 
+    0 2px 8px rgba(255, 77, 79, 0.5),
+    0 0 0 2px rgba(255, 255, 255, 0.2),
+    0 0 0 4px rgba(255, 77, 79, 0.15);
+  font-size: 11px;
+  font-weight: 600;
+  min-width: 18px;
+  height: 18px;
+  line-height: 18px;
+  padding: 0 6px;
+  border-radius: 9px;
+  animation: menu-badge-appear 0.5s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+}
+
+.ant-menu-item:hover .ant-badge-count {
+  animation: menu-badge-pulse 1.5s ease-in-out infinite;
+  transform: scale(1.1);
+}
+
+@keyframes menu-badge-appear {
+  0% {
+    transform: scale(0) rotate(-180deg);
+    opacity: 0;
+  }
+  60% {
+    transform: scale(1.2) rotate(10deg);
+  }
+  100% {
+    transform: scale(1) rotate(0deg);
+    opacity: 1;
+  }
+}
+
+@keyframes menu-badge-pulse {
+  0%, 100% {
+    transform: scale(1.1);
+    box-shadow: 
+      0 2px 8px rgba(255, 77, 79, 0.5),
+      0 0 0 2px rgba(255, 255, 255, 0.2),
+      0 0 0 4px rgba(255, 77, 79, 0.15);
+  }
+  50% {
+    transform: scale(1.15);
+    box-shadow: 
+      0 4px 12px rgba(255, 77, 79, 0.7),
+      0 0 0 2px rgba(255, 255, 255, 0.3),
+      0 0 0 6px rgba(255, 77, 79, 0.25);
+  }
+}
+
 .header-user-details {
     display: flex;
     flex-direction: column;
@@ -142,6 +209,13 @@
     border-radius: 8px;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
     min-height: calc(100vh - 112px);
+    overflow-y: auto;
+}
+
+/* 确保右侧布局区域正确偏移 */
+.site-layout {
+    position: relative;
+    min-height: 100vh;
 }
 
 
@@ -163,15 +237,56 @@
 
 /* 响应式设计 */
 
+/* 移动端侧边栏优化 */
 @media (max-width: 768px) {
+    .layout-sider {
+        position: fixed;
+        left: -200px; /* 默认隐藏 */
+        transition: left 0.3s ease;
+        z-index: 1000;
+    }
+    
+    .layout-sider.mobile-open {
+        left: 0;
+    }
+    
+    .site-layout {
+        margin-left: 0 !important;
+    }
+    
     .layout-header {
         padding: 0 16px;
     }
+    
     .layout-content {
-        margin: 16px;
+        margin: 16px 8px;
         padding: 16px;
     }
+    
     .username {
         display: none;
+    }
+    
+    /* 添加遮罩层 */
+    .layout-sider.mobile-open::before {
+        content: '';
+        position: fixed;
+        top: 0;
+        left: 200px;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.5);
+        z-index: -1;
+    }
+}
+
+@media (max-width: 576px) {
+    .layout-header {
+        padding: 0 12px;
+    }
+    
+    .layout-content {
+        margin: 12px 4px;
+        padding: 12px;
     }
 }

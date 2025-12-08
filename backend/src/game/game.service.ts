@@ -2,10 +2,14 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateGameDto, UpdateGameDto } from './dto/create-game.dto';
 import { CreateServerDto, UpdateServerDto } from './dto/create-server.dto';
+import { EncryptionService } from '../common/encryption/encryption.service';
 
 @Injectable()
 export class GameService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private encryptionService: EncryptionService,
+  ) {}
 
   // 游戏管理
   async findAll() {
@@ -57,8 +61,14 @@ export class GameService {
   }
 
   async create(createGameDto: CreateGameDto) {
+    // 加密 API Key
+    const encryptedApiKey = this.encryptionService.encrypt(createGameDto.difyApiKey);
+    
     return this.prisma.game.create({
-      data: createGameDto,
+      data: {
+        ...createGameDto,
+        difyApiKey: encryptedApiKey,
+      },
       include: {
         servers: true,
       },
@@ -67,9 +77,16 @@ export class GameService {
 
   async update(id: string, updateGameDto: UpdateGameDto) {
     await this.findOne(id);
+    
+    // 如果更新了 API Key，需要加密
+    const updateData: any = { ...updateGameDto };
+    if (updateGameDto.difyApiKey) {
+      updateData.difyApiKey = this.encryptionService.encrypt(updateGameDto.difyApiKey);
+    }
+    
     return this.prisma.game.update({
       where: { id },
-      data: updateGameDto,
+      data: updateData,
       include: {
         servers: true,
       },

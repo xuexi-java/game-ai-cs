@@ -1,4 +1,5 @@
 # 多阶段构建 - 构建阶段
+# 使用国内镜像源以避免网络问题
 FROM node:20.19.5-alpine AS builder
 
 # ✅ 安装 OpenSSL 和必要的构建工具（Prisma 需要）
@@ -36,6 +37,15 @@ RUN echo "Current directory: $(pwd)" && \
 
 # 复制后端源代码
 COPY . .
+
+# 编译 seed.ts 文件（确保 seed.js 存在）
+RUN echo "编译 seed.ts 文件..." && \
+    if [ -f prisma/seed.ts ]; then \
+      npx tsc prisma/seed.ts --outDir prisma --module commonjs --esModuleInterop --resolveJsonModule --skipLibCheck && \
+      echo "✓ seed.ts 编译完成"; \
+    else \
+      echo "⚠️  prisma/seed.ts 不存在，跳过编译"; \
+    fi
 
 # 构建应用（添加错误处理和验证）
 RUN echo "Starting build process..." && \
@@ -98,6 +108,7 @@ RUN echo "Starting build process..." && \
     ls -lh "$MAIN_JS"
 
 # --- 生产阶段 ---
+# 使用国内镜像源以避免网络问题
 FROM node:20.19.5-alpine AS production
 
 # ✅ 安装 OpenSSL（运行时也需要）
@@ -117,8 +128,13 @@ RUN npm ci --only=production --legacy-peer-deps && npm cache clean --force
 # 安装 Prisma CLI（用于迁移和生成）
 RUN npm install -g prisma@5.7.0
 
-# 从构建阶段复制构建产物
+# 安装 ts-node（用于运行测试脚本）
+RUN npm install -g ts-node@^10.9.2 typescript@^5.3.3
+
+# 从构建阶段复制构建产物、脚本和配置文件
 COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/scripts ./scripts
+COPY --from=builder /app/tsconfig.json ./tsconfig.json
 
 # 验证构建产物已成功复制
 RUN echo "Verifying build artifacts..." && \
@@ -141,4 +157,9 @@ EXPOSE 21101
 # 启动应用（直接使用 CMD，依赖健康检查确保数据库就绪）
 # 注意：由于使用了 depends_on 的 condition: service_healthy，数据库已经就绪
 # prisma 会自动查找 ./prisma/schema.prisma
-CMD ["sh", "-c", "prisma generate && prisma migrate deploy && MAIN_JS=$(find dist -name 'main.js' -type f 2>/dev/null | head -1) && node \"$MAIN_JS\""]
+# 运行数据库迁移和种子数据初始化
+# 种子数据初始化逻辑：
+#   - 首次部署：自动检测新数据库并初始化种子数据
+#   - 后续更新：检测到数据库已初始化，自动跳过（通过检查 admin 用户是否存在）
+#   - 强制跳过：设置环境变量 SKIP_SEED=true
+CMD ["sh", "-c", "echo '🔧 生成 Prisma Client...' && prisma generate && echo '📊 运行数据库迁移...' && prisma migrate deploy && echo '🌱 检查并初始化种子数据...' && (npx prisma db seed || echo '⚠️  种子数据初始化失败或已存在，继续启动服务...') && echo '🚀 启动应用...' && MAIN_JS=$(find dist -name 'main.js' -type f 2>/dev/null | head -1) && if [ -z \"$MAIN_JS\" ]; then echo '❌ 错误: 找不到 main.js 文件'; exit 1; fi && node \"$MAIN_JS\""]

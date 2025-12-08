@@ -314,28 +314,96 @@ const DashboardPage: React.FC = () => {
 
   // 客服统计图表配置
   const getAgentStatsChartOption = () => {
-    if (!metrics?.agentStats) return {};
+    if (!metrics?.agentStats || metrics.agentStats.length === 0) return {};
+
+    const agentCount = metrics.agentStats.length;
+    // 根据客服数量动态调整柱状图宽度
+    const barWidth = agentCount === 1 ? '30%' : agentCount === 2 ? '40%' : agentCount <= 3 ? '50%' : agentCount <= 5 ? '45%' : '35%';
 
     return {
       title: {
-        text: '客服工作统计',
-        left: 'center',
+        show: false, // 移除标题，使用 Card 的 title
       },
       tooltip: {
         trigger: 'axis',
         axisPointer: {
           type: 'shadow',
+          shadowStyle: {
+            color: 'rgba(114, 46, 209, 0.1)',
+          },
+        },
+        backgroundColor: 'rgba(255, 255, 255, 0.98)',
+        borderColor: '#d9d9d9',
+        borderWidth: 1,
+        borderRadius: 8,
+        padding: [12, 16],
+        textStyle: {
+          color: '#333',
+          fontSize: 13,
+        },
+        formatter: (params: any) => {
+          let result = `<div style="font-weight: 600; margin-bottom: 8px; color: #333; font-size: 14px;">${params[0].axisValue}</div>`;
+          params.forEach((param: any) => {
+            const icon = param.seriesName === '处理工单' ? '📋' : '⭐';
+            const unit = param.seriesName === '处理工单' ? '单' : '分';
+            const value = param.seriesName === '处理工单' 
+              ? param.value 
+              : param.value > 0 ? param.value.toFixed(1) : '0.0';
+            result += `<div style="display: flex; align-items: center; margin: 6px 0;">
+              <span style="display:inline-block;width:12px;height:12px;background:${param.color};border-radius:2px;margin-right:8px;"></span>
+              <span style="margin-right: 4px;">${icon}</span>
+              <span style="color: #666;">${param.seriesName}:</span>
+              <span style="font-weight: 600; color: #333; margin-left: 8px;">${value}${unit}</span>
+            </div>`;
+          });
+          return result;
         },
       },
       legend: {
         data: ['处理工单', '平均评分'],
-        bottom: 0,
+        bottom: 8,
+        itemGap: 24,
+        itemWidth: 14,
+        itemHeight: 14,
+        textStyle: {
+          fontSize: 12,
+          color: '#666',
+          fontWeight: 500,
+        },
+        icon: 'roundRect',
+      },
+      grid: {
+        left: '8%',
+        right: '8%',
+        bottom: agentCount > 5 ? '18%' : '15%',
+        top: '12%',
+        containLabel: true,
       },
       xAxis: {
         type: 'category',
         data: metrics.agentStats.map(item => item.agentName),
         axisLabel: {
-          rotate: 45,
+          rotate: agentCount > 5 ? 45 : 0,
+          fontSize: 12,
+          color: '#666',
+          interval: 0,
+          margin: 12,
+          fontWeight: 500,
+        },
+        axisLine: {
+          show: true,
+          lineStyle: {
+            color: '#e8e8e8',
+            width: 1,
+          },
+        },
+        axisTick: {
+          show: true,
+          alignWithLabel: true,
+          length: 4,
+          lineStyle: {
+            color: '#e8e8e8',
+          },
         },
       },
       yAxis: [
@@ -343,6 +411,34 @@ const DashboardPage: React.FC = () => {
           type: 'value',
           name: '工单数量',
           position: 'left',
+          nameLocation: 'middle',
+          nameGap: 50,
+          nameTextStyle: {
+            color: '#722ed1',
+            fontSize: 12,
+            fontWeight: 600,
+          },
+          axisLabel: {
+            color: '#8c8c8c',
+            fontSize: 11,
+            fontWeight: 500,
+          },
+          axisLine: {
+            show: true,
+            lineStyle: {
+              color: '#722ed1',
+              width: 2,
+            },
+          },
+          splitLine: {
+            show: true,
+            lineStyle: {
+              color: '#f5f5f5',
+              type: 'solid',
+              width: 1,
+            },
+          },
+          splitNumber: 4,
         },
         {
           type: 'value',
@@ -350,6 +446,30 @@ const DashboardPage: React.FC = () => {
           position: 'right',
           min: 0,
           max: 5,
+          nameLocation: 'middle',
+          nameGap: 50,
+          nameTextStyle: {
+            color: '#eb2f96',
+            fontSize: 12,
+            fontWeight: 600,
+          },
+          axisLabel: {
+            color: '#8c8c8c',
+            fontSize: 11,
+            fontWeight: 500,
+            formatter: '{value}',
+          },
+          axisLine: {
+            show: true,
+            lineStyle: {
+              color: '#eb2f96',
+              width: 2,
+            },
+          },
+          splitLine: {
+            show: false,
+          },
+          splitNumber: 5,
         },
       ],
       series: [
@@ -357,20 +477,97 @@ const DashboardPage: React.FC = () => {
           name: '处理工单',
           type: 'bar',
           data: metrics.agentStats.map(item => item.handledTickets),
+          barWidth: barWidth,
+          barMaxWidth: 80,
           itemStyle: {
-            color: '#722ed1',
+            color: {
+              type: 'linear',
+              x: 0,
+              y: 0,
+              x2: 0,
+              y2: 1,
+              colorStops: [
+                {
+                  offset: 0,
+                  color: '#b37feb', // 更浅的紫色
+                },
+                {
+                  offset: 0.5,
+                  color: '#9254de', // 中等紫色
+                },
+                {
+                  offset: 1,
+                  color: '#722ed1', // 深紫色
+                },
+              ],
+            },
+            borderRadius: [6, 6, 0, 0],
+            shadowBlur: 12,
+            shadowColor: 'rgba(114, 46, 209, 0.25)',
+            shadowOffsetY: 4,
           },
+          emphasis: {
+            itemStyle: {
+              shadowBlur: 18,
+              shadowColor: 'rgba(114, 46, 209, 0.4)',
+              shadowOffsetY: 6,
+            },
+            focus: 'series',
+          },
+          label: {
+            show: true,
+            position: 'top',
+            color: '#722ed1',
+            fontSize: 12,
+            fontWeight: 600,
+            formatter: '{c}',
+            offset: [0, -4],
+          },
+          animationDelay: (idx: number) => idx * 100,
         },
         {
           name: '平均评分',
           type: 'line',
           yAxisIndex: 1,
           data: metrics.agentStats.map(item => item.averageRating),
-          itemStyle: {
-            color: '#eb2f96',
+          smooth: true,
+          lineStyle: {
+            color: '#ff4d9a',
+            width: 3,
+            type: 'solid',
           },
+          itemStyle: {
+            color: '#ff4d9a',
+            borderWidth: 3,
+            borderColor: '#fff',
+          },
+          symbol: 'circle',
+          symbolSize: (value: number) => value > 0 ? 10 : 0,
+          label: {
+            show: true,
+            position: 'top',
+            color: '#ff4d9a',
+            fontSize: 12,
+            fontWeight: 600,
+            formatter: (params: any) => {
+              return params.value > 0 ? params.value.toFixed(1) : '';
+            },
+            offset: [0, -8],
+            backgroundColor: 'rgba(255, 255, 255, 0.9)',
+            borderColor: '#ff4d9a',
+            borderWidth: 1,
+            borderRadius: 4,
+            padding: [2, 6],
+          },
+          areaStyle: {
+            show: false, // 移除面积填充，让图表更简洁
+          },
+          animationDelay: (idx: number) => idx * 100 + 50,
         },
       ],
+      animation: true,
+      animationDuration: 1000,
+      animationEasing: 'cubicOut',
     };
   };
 

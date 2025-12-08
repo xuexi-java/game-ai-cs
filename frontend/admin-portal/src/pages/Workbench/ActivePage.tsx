@@ -9,6 +9,8 @@ import {
   message,
   Spin,
   Upload,
+  Badge,
+  Empty,
 } from 'antd';
 import {
   MessageOutlined,
@@ -22,6 +24,7 @@ import {
   UserOutlined,
   CustomerServiceOutlined,
   CaretRightOutlined,
+  TranslationOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { useSessionStore } from '../../stores/sessionStore';
@@ -54,6 +57,7 @@ const getWebSocketService = async () => {
   return websocketService;
 };
 import QuickReplyDrawer from '../../components/QuickReplyDrawer';
+import { notificationService } from '../../services/notification.service';
 
 const { TextArea } = Input;
 const { Text } = Typography;
@@ -112,7 +116,11 @@ const ActivePage: React.FC = () => {
   const lastManualInputRef = useRef('');
   const aiOptimizedRef = useRef(false);
   const currentSessionRef = useRef<Session | null>(null);
-  
+
+  // 翻译相关状态
+  const [translatingMessageIds, setTranslatingMessageIds] = useState<Set<string>>(new Set());
+  const [translatedMessages, setTranslatedMessages] = useState<Record<string, string>>({});
+
   // 布局调整相关状态
   const [leftPanelWidth, setLeftPanelWidth] = useState(320);
   const [rightPanelWidth, setRightPanelWidth] = useState(360);
@@ -152,6 +160,8 @@ const ActivePage: React.FC = () => {
     sessionMessages,
     setSessionMessages,
     updateSession,
+    unreadCounts,
+    clearUnread,
   } = useSessionStore();
   const onlineAgents = useAgentStore((state) => state.onlineAgents);
   const setOnlineAgents = useAgentStore((state) => state.setOnlineAgents);
@@ -160,15 +170,15 @@ const ActivePage: React.FC = () => {
   const attachmentList = ticketInfo?.attachments ?? [];
   const sessionStatusMeta = currentSession
     ? SESSION_STATUS_META[currentSession.status] || {
-        label: currentSession.status,
-        color: 'default',
-      }
+      label: currentSession.status,
+      color: 'default',
+    }
     : null;
   const ticketStatusMeta = ticketInfo?.status
     ? TICKET_STATUS_META[ticketInfo.status] || {
-        label: ticketInfo.status,
-        color: 'default',
-      }
+      label: ticketInfo.status,
+      color: 'default',
+    }
     : null;
   const fallbackIssueTypes =
     ticketInfo?.ticketIssueTypes
@@ -176,7 +186,7 @@ const ActivePage: React.FC = () => {
       .filter((name): name is string => Boolean(name)) ?? [];
 
   // 获取问题类型：优先使用 issueTypes，如果没有则使用 ticketIssueTypes
-  const ticketIssueTypes = ticketInfo?.issueTypes?.map((it) => it.name) ?? 
+  const ticketIssueTypes = ticketInfo?.issueTypes?.map((it) => it.name) ??
     (ticketInfo?.ticketIssueTypes?.map((item: any) => item.issueType?.name).filter(Boolean) ?? []) ??
     fallbackIssueTypes;
 
@@ -292,15 +302,29 @@ const ActivePage: React.FC = () => {
   }, [isResizingLeft.current, isResizingRight.current]);
 
   useEffect(() => {
+    // 初始化通知服务
+    notificationService.init();
+
     loadSessions();
-    
+
     // 定时刷新待接入队列（每30秒）
     const refreshInterval = setInterval(() => {
       loadSessions();
     }, AGENT_STATUS_POLL_INTERVAL);
-    
+
+    // 监听页面可见性变化
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        // 页面可见时，可以清除所有未读数（可选，根据需求决定）
+        // 或者只清除当前会话的未读数
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
     return () => {
       clearInterval(refreshInterval);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [loadSessions]);
 
@@ -333,7 +357,7 @@ const ActivePage: React.FC = () => {
 
   useEffect(() => {
     currentSessionRef.current = currentSession || null;
-    
+
     // 当切换会话时，确保加载消息
     if (currentSession && currentSession.id) {
       const cachedMessages = sessionMessages[currentSession.id];
@@ -353,10 +377,10 @@ const ActivePage: React.FC = () => {
       // 先设置会话，即使加载失败也能显示基本信息
       setCurrentSession(session);
       currentSessionRef.current = session;
-      
+
       // 检查是否为虚拟会话（工单）
       const isVirtual = (session as any).isVirtual || session.id.startsWith('ticket-');
-      
+
       if (isVirtual) {
         // 虚拟会话（工单）：加载工单消息
         const ticketId = session.ticketId;
@@ -367,7 +391,7 @@ const ActivePage: React.FC = () => {
 
         try {
           const ticketMessages = await getTicketMessages(ticketId);
-          
+
           // 将工单消息转换为会话消息格式
           const convertedMessages: Message[] = (Array.isArray(ticketMessages) ? ticketMessages : []).map((msg: any) => ({
             id: msg.id,
@@ -383,7 +407,7 @@ const ActivePage: React.FC = () => {
           const sortedMessages = convertedMessages.sort(
             (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
           );
-          
+
           // 标记虚拟会话已加载消息，允许发送
           const updatedSession = {
             ...session,
@@ -399,23 +423,26 @@ const ActivePage: React.FC = () => {
         }
         return;
       }
-      
+
       // 正常会话：总是重新加载消息，确保获取最新的完整消息列表
       try {
         const detail = await getSessionById(session.id);
         console.log('加载会话详情:', detail.id, '消息数量:', detail.messages?.length || 0);
-        
+
         // 更新会话信息
         setCurrentSession(detail);
         currentSessionRef.current = detail;
-        
+
+        // 清除未读数
+        clearUnread(session.id);
+
         // 确保消息按时间排序
         const sortedMessages = (detail.messages ?? []).sort(
           (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
         );
         console.log('设置消息列表，数量:', sortedMessages.length);
         setSessionMessages(session.id, sortedMessages);
-        
+
         // 如果会话已接入，加入WebSocket房间以接收实时消息
         if (detail.status === 'IN_PROGRESS' && detail.agentId === authUser?.id) {
           const wsService = await getWebSocketService();
@@ -433,7 +460,7 @@ const ActivePage: React.FC = () => {
         }
       }
     },
-    [setCurrentSession, setSessionMessages, authUser?.id],
+    [setCurrentSession, setSessionMessages, authUser?.id, clearUnread],
   );
 
   const handleInputChange = (value: string) => {
@@ -448,7 +475,7 @@ const ActivePage: React.FC = () => {
 
     // 检查是否为虚拟会话（工单）
     const isVirtual = (currentSession as any).isVirtual || currentSession.id.startsWith('ticket-');
-    
+
     if (isVirtual) {
       // 虚拟会话（工单）：发送工单消息
       const ticketId = currentSession.ticketId;
@@ -464,7 +491,7 @@ const ActivePage: React.FC = () => {
       try {
         // 发送工单消息
         const newMessage = await sendTicketMessage(ticketId, content) as any;
-        
+
         // 将工单消息转换为会话消息格式并添加到消息列表
         const convertedMessage: Message = {
           id: newMessage.id,
@@ -474,12 +501,12 @@ const ActivePage: React.FC = () => {
           content: newMessage.content,
           createdAt: newMessage.createdAt,
         };
-        
+
         setSessionMessages(currentSession.id, [
           ...(sessionMessages[currentSession.id] || []),
           convertedMessage,
         ]);
-        
+
         message.success('消息已发送');
       } catch (error: any) {
         console.error('发送工单消息失败:', error);
@@ -493,8 +520,8 @@ const ActivePage: React.FC = () => {
     // 正常会话：检查会话是否已接入（状态为 IN_PROGRESS 且 agentId 匹配当前用户）
     // 使用 ref 中的最新会话信息，如果 ref 中没有则使用 currentSession
     let sessionToUse = currentSessionRef.current || currentSession;
-    let isJoined = 
-      sessionToUse.status === 'IN_PROGRESS' && 
+    let isJoined =
+      sessionToUse.status === 'IN_PROGRESS' &&
       sessionToUse.agentId === authUser?.id;
 
     // 如果检查失败，尝试重新获取会话信息（可能状态还没有更新）
@@ -517,7 +544,7 @@ const ActivePage: React.FC = () => {
         return;
       }
     }
-    
+
     if (!isJoined) {
       message.warning('请先接入会话后才能发送消息');
       return;
@@ -576,8 +603,8 @@ const ActivePage: React.FC = () => {
       return false;
     }
 
-    const isJoined = 
-      currentSession.status === 'IN_PROGRESS' && 
+    const isJoined =
+      currentSession.status === 'IN_PROGRESS' &&
       currentSession.agentId === authUser?.id;
 
     if (!isJoined) {
@@ -593,9 +620,9 @@ const ActivePage: React.FC = () => {
       });
 
       // 判断文件类型
-      const isImage = file.type.startsWith('image/') || 
+      const isImage = file.type.startsWith('image/') ||
         /\.(png|jpe?g|gif|webp|bmp)$/i.test(file.name);
-      
+
       // 先添加临时消息（乐观更新）
       const tempMessage: Message = {
         id: `temp-${Date.now()}`,
@@ -610,11 +637,11 @@ const ActivePage: React.FC = () => {
         ...(sessionMessages[currentSession.id] || []),
         tempMessage,
       ]);
-      
+
       // 通过WebSocket发送消息
       const wsService = await getWebSocketService();
       const result = await wsService.sendAgentMessage(
-        currentSession.id, 
+        currentSession.id,
         uploadResult.fileUrl,
         isImage ? 'IMAGE' : 'TEXT'
       );
@@ -646,7 +673,7 @@ const ActivePage: React.FC = () => {
 
     // 检查是否为虚拟会话（工单）
     const isVirtual = (session as any).isVirtual || session.id.startsWith('ticket-');
-    
+
     if (isVirtual) {
       // 虚拟会话（工单）：直接加载工单消息，不需要接入会话
       const ticketId = session.ticketId;
@@ -658,7 +685,7 @@ const ActivePage: React.FC = () => {
       try {
         // 加载工单消息
         const ticketMessages = await getTicketMessages(ticketId);
-        
+
         // 将工单消息转换为会话消息格式
         const convertedMessages: Message[] = (Array.isArray(ticketMessages) ? ticketMessages : []).map((msg: any) => ({
           id: msg.id,
@@ -680,7 +707,7 @@ const ActivePage: React.FC = () => {
         setCurrentSession(updatedSession);
         currentSessionRef.current = updatedSession;
         setSessionMessages(session.id, convertedMessages);
-        
+
         message.success('已加载工单消息');
       } catch (error: any) {
         console.error('加载工单消息失败:', error);
@@ -693,7 +720,7 @@ const ActivePage: React.FC = () => {
     try {
       const updatedSession = await joinSession(session.id);
       message.success('接入会话成功');
-      
+
       // 立即更新当前会话（如果当前选中的是这个会话）
       if (currentSession?.id === session.id) {
         // 直接使用返回的更新后的会话信息
@@ -704,7 +731,7 @@ const ActivePage: React.FC = () => {
         };
         setCurrentSession(enrichedSession);
         currentSessionRef.current = enrichedSession;
-        
+
         // 更新会话列表中的会话（包含 agent 信息）
         updateSession(session.id, {
           status: 'IN_PROGRESS',
@@ -715,18 +742,18 @@ const ActivePage: React.FC = () => {
             realName: authUser.realName,
           } : null),
         });
-        
+
         // 加载消息
         const sortedMessages = (updatedSession.messages ?? []).sort(
           (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
         );
         setSessionMessages(session.id, sortedMessages);
       }
-      
+
       // 加入WebSocket会话房间
       const wsService = await getWebSocketService();
       await wsService.joinSession(session.id);
-      
+
       // 刷新会话列表（在更新当前会话之后）
       await loadSessions();
     } catch (error: any) {
@@ -756,6 +783,33 @@ const ActivePage: React.FC = () => {
     }
   };
 
+  const handleTranslate = useCallback((messageId: string) => {
+    // 如果已经翻译过，就不再翻译
+    if (translatedMessages[messageId]) {
+      return;
+    }
+
+    setTranslatingMessageIds((prev) => {
+      const next = new Set(prev);
+      next.add(messageId);
+      return next;
+    });
+
+    // 模拟假数据 1s 延迟
+    setTimeout(() => {
+      setTranslatedMessages((prev) => ({
+        ...prev,
+        [messageId]: 'Hello World',
+      }));
+
+      setTranslatingMessageIds((prev) => {
+        const next = new Set(prev);
+        next.delete(messageId);
+        return next;
+      });
+    }, 1000);
+  }, [translatedMessages]);
+
   const handleUndoAiOptimization = useCallback(() => {
     if (!aiOptimizedRef.current) return;
     setMessageInput(lastManualInputRef.current);
@@ -769,19 +823,19 @@ const ActivePage: React.FC = () => {
       message.warning('请输入需要优化的内容');
       return;
     }
-    
+
     // 强制使用最新的配置值（避免缓存问题）
     // 直接硬编码最新的API Key，确保不会被缓存影响
     const currentApiKey = 'app-mHw0Fsjq0pzuYZwrqDxoYLA6';
     const currentBaseUrl = 'http://118.89.16.95/v1';
     const currentAppMode = 'chat' as 'chat' | 'workflow';
-    
+
     // 验证API Key格式
     if (!currentApiKey || !currentApiKey.startsWith('app-')) {
       message.error('Dify API Key 格式错误，无法执行AI优化');
       return;
     }
-    
+
     if (!currentBaseUrl) {
       message.error('Dify Base URL 缺失，无法执行AI优化');
       return;
@@ -816,7 +870,7 @@ const ActivePage: React.FC = () => {
       // 根据公共访问URL是 /chat/ 开头，直接使用chat API
       // 因为API Key是app-开头，已经关联了chat应用，不需要额外配置
       let useChatAPI = true;
-      
+
       // 直接使用chat API（与后端sendChatMessage方法保持一致）
       apiEndpoint = `${normalizedBase}/chat-messages`;
       payload = {
@@ -825,7 +879,7 @@ const ActivePage: React.FC = () => {
         response_mode: 'blocking',
         user: difyUser,
       };
-      
+
       // 开发环境显示实际请求信息
       if (import.meta.env.DEV) {
         console.log('实际发送的Dify请求:', {
@@ -837,14 +891,14 @@ const ActivePage: React.FC = () => {
           payload,
         });
       }
-      
+
 
       let response = await fetch(apiEndpoint, {
         method: 'POST',
         headers,
         body: JSON.stringify(payload),
       });
-      
+
       // 开发环境：记录响应状态和错误详情
       if (import.meta.env.DEV) {
         console.log('Dify API响应状态:', {
@@ -870,7 +924,7 @@ const ActivePage: React.FC = () => {
       if (!response.ok) {
         let errorMessage = 'AI优化请求失败';
         let errorDetails: any = null;
-        
+
         try {
           const errorData = await response.json();
           errorDetails = errorData;
@@ -883,9 +937,9 @@ const ActivePage: React.FC = () => {
           const errorText = await response.text();
           if (errorText) {
             errorMessage = errorText;
+          }
         }
-        }
-        
+
         // 如果是401错误，提供更详细的错误信息和解决方案
         if (response.status === 401) {
           if (import.meta.env.DEV) {
@@ -898,15 +952,15 @@ const ActivePage: React.FC = () => {
               errorDetails,
             });
           }
-          
+
           // 401错误：认证失败
-          const apiKeyPreview = currentApiKey 
-            ? `${currentApiKey.substring(0, 15)}...` 
+          const apiKeyPreview = currentApiKey
+            ? `${currentApiKey.substring(0, 15)}...`
             : '未配置';
           const errorMsg = `认证失败 (401): ${errorMessage}。\n\n请检查：\n1. Dify API Key (${apiKeyPreview}) 是否正确\n2. API Key 是否已启用并具有访问权限\n3. Dify Base URL (${currentBaseUrl}) 是否正确\n4. 应用是否已发布`;
           throw new Error(errorMsg);
         }
-        
+
         throw new Error(errorMessage);
       }
 
@@ -914,7 +968,7 @@ const ActivePage: React.FC = () => {
 
       // 解析API的响应（参考后端parseDifyResult逻辑）
       let optimizedText = '';
-      
+
       if (useChatAPI) {
         // chat API返回格式：data.answer 或 data.text
         optimizedText =
@@ -926,7 +980,7 @@ const ActivePage: React.FC = () => {
       } else if (DIFY_APP_MODE === 'workflow' && DIFY_WORKFLOW_ID) {
         // workflow API返回格式：data.outputs 或 data.data.outputs
         const output = data.outputs || data.data?.outputs || data;
-        
+
         // 尝试从output中提取文本
         optimizedText =
           output.text ||
@@ -934,23 +988,23 @@ const ActivePage: React.FC = () => {
           output.output ||
           output.initial_reply ||
           output.content ||
-        '';
+          '';
 
         // 如果output是数组，查找文本类型的输出
         if (!optimizedText && Array.isArray(output)) {
           const textOutput = output.find((item: any) => {
-          if (typeof item === 'string') return true;
-          if (item?.type === 'text' && typeof item?.text === 'string') {
-            return true;
+            if (typeof item === 'string') return true;
+            if (item?.type === 'text' && typeof item?.text === 'string') {
+              return true;
+            }
+            return false;
+          });
+          if (typeof textOutput === 'string') {
+            optimizedText = textOutput.trim();
+          } else if (textOutput?.text) {
+            optimizedText = String(textOutput.text).trim();
           }
-          return false;
-        });
-        if (typeof textOutput === 'string') {
-          optimizedText = textOutput.trim();
-        } else if (textOutput?.text) {
-          optimizedText = String(textOutput.text).trim();
         }
-      }
 
         // 如果output是对象，尝试从各种字段获取
         if (!optimizedText && typeof output === 'object' && !Array.isArray(output)) {
@@ -1116,7 +1170,7 @@ const ActivePage: React.FC = () => {
   return (
     <div className="workbench-page">
       <div className="workbench-layout">
-        <section 
+        <section
           className="workbench-list-panel"
           ref={leftPanelRef}
           style={{ width: `${leftPanelWidth}px` }}
@@ -1186,8 +1240,11 @@ const ActivePage: React.FC = () => {
                     <Spin />
                   </div>
                 ) : queuedSessions.length === 0 ? (
-                  <div className="session-empty">
-                    暂无待接入会话，等待玩家请求转人工
+                  <div className="session-empty-container">
+                    <Empty
+                      image={Empty.PRESENTED_IMAGE_SIMPLE}
+                      description={<span style={{ color: '#999' }}>暂无待接入会话</span>}
+                    />
                   </div>
                 ) : (
                   queuedSessions.map((session) => {
@@ -1198,12 +1255,13 @@ const ActivePage: React.FC = () => {
                     const assignedLabel = getAssignedLabel(session);
                     const queueSummary = getQueueSummary(session);
                     const joinable = canJoinQueuedSession(session);
+                    const unreadCount = unreadCounts[session.id] || 0;
+                    const hasUnread = unreadCount > 0;
                     return (
                       <div
                         key={session.id}
-                        className={`session-card ${
-                          currentSession?.id === session.id ? 'active' : ''
-                        }`}
+                        className={`session-card ${currentSession?.id === session.id ? 'active' : ''
+                          } ${hasUnread ? 'session-card-unread' : ''}`}
                       >
                         <div
                           className="session-card-content"
@@ -1211,7 +1269,15 @@ const ActivePage: React.FC = () => {
                         >
                           <div className="session-meta">
                             <div className="session-name">
-                              {session.ticket?.playerIdOrName || '未知玩家'}
+                              <span>{session.ticket?.playerIdOrName || '未知玩家'}</span>
+                              {hasUnread && (
+                                <Badge
+                                  count={unreadCount}
+                                  size="small"
+                                  style={{ marginLeft: 10 }}
+                                  overflowCount={99}
+                                />
+                              )}
                             </div>
                             <Tag color={statusMeta.color}>{statusMeta.label}</Tag>
                           </div>
@@ -1293,24 +1359,36 @@ const ActivePage: React.FC = () => {
                     <Spin />
                   </div>
                 ) : activeSessions.length === 0 ? (
-                  <div className="session-empty">
-                    暂无进行中的会话，等待客服接入
+                  <div className="session-empty-container">
+                    <Empty
+                      image={Empty.PRESENTED_IMAGE_SIMPLE}
+                      description={<span style={{ color: '#999' }}>暂无进行中的会话</span>}
+                    />
                   </div>
                 ) : (
                   activeSessions.map((session) => {
                     const statusMeta =
                       SESSION_STATUS_META[session.status] || SESSION_STATUS_META.PENDING;
+                    const unreadCount = unreadCounts[session.id] || 0;
+                    const hasUnread = unreadCount > 0;
                     return (
                       <div
                         key={session.id}
-                        className={`session-card ${
-                          currentSession?.id === session.id ? 'active' : ''
-                        }`}
+                        className={`session-card ${currentSession?.id === session.id ? 'active' : ''
+                          } ${hasUnread ? 'session-card-unread' : ''}`}
                         onClick={() => handleOpenChat(session)}
                       >
                         <div className="session-meta">
                           <div className="session-name">
-                            {session.ticket.playerIdOrName}
+                            <span>{session.ticket.playerIdOrName}</span>
+                            {hasUnread && (
+                              <Badge
+                                count={unreadCount}
+                                size="small"
+                                style={{ marginLeft: 10 }}
+                                overflowCount={99}
+                              />
+                            )}
                           </div>
                           <Tag color={statusMeta.color}>{statusMeta.label}</Tag>
                         </div>
@@ -1414,13 +1492,12 @@ const ActivePage: React.FC = () => {
                           return (
                             <div
                               key={msg.id}
-                              className={`message-item-wechat ${
-                                isPlayer
-                                  ? 'message-player-wechat'
-                                  : isAI
-                                    ? 'message-ai-wechat'
-                                    : 'message-agent-wechat'
-                              }`}
+                              className={`message-item-wechat ${isPlayer
+                                ? 'message-player-wechat'
+                                : isAI
+                                  ? 'message-ai-wechat'
+                                  : 'message-agent-wechat'
+                                }`}
                             >
                               {/* 客服端：只显示玩家头像，不显示自己和AI的头像 */}
                               {isPlayer && (
@@ -1448,21 +1525,20 @@ const ActivePage: React.FC = () => {
                                   </span>
                                 )}
                                 <div
-                                  className={`message-bubble-wechat ${
-                                    isAgent
-                                      ? 'bubble-agent-wechat'
-                                      : isAI
-                                        ? 'bubble-ai-wechat'
-                                        : 'bubble-player-wechat'
-                                  }`}
+                                  className={`message-bubble-wechat ${isAgent
+                                    ? 'bubble-agent-wechat'
+                                    : isAI
+                                      ? 'bubble-ai-wechat'
+                                      : 'bubble-player-wechat'
+                                    }`}
                                 >
                                   {msg.messageType === 'IMAGE' ? (
                                     <Image
                                       src={resolveMediaUrl(msg.content)}
                                       alt="消息图片"
                                       width={200}
-                                      style={{ 
-                                        maxWidth: '200px', 
+                                      style={{
+                                        maxWidth: '200px',
                                         maxHeight: '300px',
                                         borderRadius: 4,
                                         display: 'block'
@@ -1474,22 +1550,52 @@ const ActivePage: React.FC = () => {
                                   ) : (
                                     <div className="message-text-wechat">
                                       {isFileUrl(msg.content) ? (
-                                        <a 
-                                          href={resolveMediaUrl(msg.content)} 
-                                          target="_blank" 
+                                        <a
+                                          href={resolveMediaUrl(msg.content)}
+                                          target="_blank"
                                           rel="noopener noreferrer"
                                           style={{ color: '#1890ff', textDecoration: 'underline' }}
                                         >
                                           📎 {getFileName(msg.content)}
                                         </a>
                                       ) : (
-                                        msg.content
+                                        <>
+                                          {msg.content}
+                                          {/* 翻译结果显示 */}
+                                          {translatedMessages[msg.id] && (
+                                            <div className="translation-result">
+                                              <div className="translation-divider" />
+                                              <div className="translation-content">
+                                                {translatedMessages[msg.id]}
+                                              </div>
+                                            </div>
+                                          )}
+                                        </>
                                       )}
                                     </div>
                                   )}
-                                  <span className="message-time-wechat">
-                                    {dayjs(msg.createdAt).format('HH:mm')}
-                                  </span>
+                                  <div className="message-footer-row">
+                                    <span className="message-time-wechat">
+                                      {dayjs(msg.createdAt).format('HH:mm')}
+                                    </span>
+                                    {/* 翻译按钮：仅针对文本类型的玩家消息 */}
+                                    {msg.messageType === 'TEXT' && isPlayer && (
+                                      <span
+                                        className="translate-action"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handleTranslate(msg.id);
+                                        }}
+                                        title="翻译"
+                                      >
+                                        {translatingMessageIds.has(msg.id) ? (
+                                          <Spin size="small" />
+                                        ) : (
+                                          <TranslationOutlined style={{ fontSize: '14px', marginLeft: '6px', cursor: 'pointer', color: '#666' }} />
+                                        )}
+                                      </span>
+                                    )}
+                                  </div>
                                 </div>
                               </div>
                               {/* AI和客服消息不显示头像 */}
@@ -1511,31 +1617,31 @@ const ActivePage: React.FC = () => {
           {currentSession && (() => {
             // 检查是否为虚拟会话（工单）
             const isVirtual = (currentSession as any).isVirtual || currentSession.id.startsWith('ticket-');
-            
+
             // 检查会话是否已接入（状态为 IN_PROGRESS 且 agentId 匹配当前用户）
             // 对于虚拟会话，如果已加载消息（messagesLoaded标记），则认为可以发送
-            const isJoined = isVirtual 
+            const isJoined = isVirtual
               ? ((currentSession as any).messagesLoaded || (sessionMessages[currentSession.id]?.length ?? 0) > 0)
               : (currentSession.status === 'IN_PROGRESS' && currentSession.agentId === authUser?.id);
-            
+
             return (
               <div className="chat-input-bar">
                 {!isJoined && (currentSession.status === 'QUEUED' || isVirtual) && (
-                  <div style={{ 
-                    padding: '16px', 
-                    textAlign: 'center', 
-                    background: '#fff3cd', 
+                  <div style={{
+                    padding: '16px',
+                    textAlign: 'center',
+                    background: '#fff3cd',
                     border: '1px solid #ffc107',
                     borderRadius: '4px',
                     marginBottom: '8px'
                   }}>
                     <div style={{ marginBottom: '8px', color: '#856404' }}>
-                      {isVirtual 
+                      {isVirtual
                         ? '这是工单，点击"加载工单消息"查看并回复'
                         : '请先点击"接入会话"按钮才能开始聊天'}
                     </div>
-                    <Button 
-                      type="primary" 
+                    <Button
+                      type="primary"
                       onClick={() => handleJoinSession(currentSession)}
                     >
                       {isVirtual ? '加载工单消息' : '接入会话'}
@@ -1551,17 +1657,17 @@ const ActivePage: React.FC = () => {
                     showUploadList={false}
                     accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt"
                   >
-                  <Button 
-                    type="text" 
-                    icon={<PaperClipOutlined />} 
-                    title="附件"
+                    <Button
+                      type="text"
+                      icon={<PaperClipOutlined />}
+                      title="附件"
                       disabled={!isJoined || uploadingFile}
                       loading={uploadingFile}
-                  />
+                    />
                   </Upload>
-                  <Button 
-                    type="text" 
-                    icon={<ThunderboltOutlined />} 
+                  <Button
+                    type="text"
+                    icon={<ThunderboltOutlined />}
                     title="快捷回复"
                     disabled={!isJoined}
                     onClick={() => setQuickReplyDrawerOpen(true)}
@@ -1573,7 +1679,7 @@ const ActivePage: React.FC = () => {
                   placeholder={isJoined ? "输入回复…（Shift+Enter 换行）" : (isVirtual ? "请先加载工单消息" : "请先接入会话后才能发送消息")}
                   autoSize={{ minRows: 1, maxRows: 4 }}
                   disabled={!isJoined}
-                  style={{ 
+                  style={{
                     resize: 'vertical',
                     maxHeight: '120px',
                     minHeight: '32px'
@@ -1621,7 +1727,7 @@ const ActivePage: React.FC = () => {
           })()}
         </section>
 
-        <section 
+        <section
           className="workbench-info-panel"
           ref={rightPanelRef}
           style={{ width: `${rightPanelWidth}px` }}

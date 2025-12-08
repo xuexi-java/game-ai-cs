@@ -166,6 +166,7 @@ model Session {
   manuallyAssigned Boolean @default(false) // 是否手动分配过
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
+  metadata      Json?         // 存储会话级元数据，如：{ "playerLanguage": "en", "detectionHistory": [...] }
 
   // 关系
   ticket            Ticket              @relation(fields: [ticketId], references: [id], onDelete: Cascade)

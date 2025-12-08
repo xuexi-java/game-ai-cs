@@ -71,14 +71,60 @@ export class WebsocketGateway
   ) {}
 
   async onModuleInit() {
-    // 服务启动时恢复状态
-    await this.restoreStateFromRedis();
+    // 服务启动时恢复状态（延迟执行，等待 Redis 连接就绪）
+    setTimeout(() => {
+      this.restoreStateFromRedis();
+    }, 2000); // 延迟 2 秒，确保 Redis 连接就绪
+  }
+
+  // 检查 Redis 是否可用
+  private async isRedisAvailable(): Promise<boolean> {
+    try {
+      const result = await Promise.race([
+        this.redis.ping(),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Redis ping timeout')), 2000),
+        ),
+      ]);
+      return result === 'PONG';
+    } catch (error) {
+      this.logger.warn(`Redis 不可用: ${error instanceof Error ? error.message : String(error)}`);
+      return false;
+    }
   }
 
   // 从 Redis 恢复状态
   private async restoreStateFromRedis() {
     try {
       this.logger.log('开始从 Redis 恢复 WebSocket 状态...');
+
+      // 检查 Redis 是否可用
+      const isAvailable = await this.isRedisAvailable();
+      if (!isAvailable) {
+        this.logger.warn('Redis 不可用，跳过状态恢复');
+        return;
+      }
+
+      // 检查 Redis 连接状态（使用 ping 而不是 status，因为 status 类型不包含 'ready'）
+      const pingResult = await this.isRedisAvailable();
+      if (!pingResult) {
+        this.logger.warn(`Redis 连接未就绪 (状态: ${this.redis.status})，等待连接...`);
+        // 等待连接就绪，最多等待 5 秒
+        let retries = 0;
+        while (retries < 10) {
+          await new Promise((resolve) => setTimeout(resolve, 500));
+          const available = await this.isRedisAvailable();
+          if (available) {
+            break;
+          }
+          retries++;
+        }
+        const finalCheck = await this.isRedisAvailable();
+        if (!finalCheck) {
+          this.logger.warn('Redis 连接超时，跳过状态恢复');
+          return;
+        }
+      }
 
       // 恢复在线客服状态
       const onlineAgentKeys = await this.redis.keys(`${this.REDIS_PREFIX.AGENT_ONLINE}*`);
@@ -112,7 +158,12 @@ export class WebsocketGateway
 
       this.logger.log('WebSocket 状态恢复完成');
     } catch (error) {
-      this.logger.error(`恢复状态失败: ${error.message}`, error.stack);
+      // 如果是连接错误，只记录警告，不阻止应用启动
+      if (error instanceof Error && error.message.includes('enableOfflineQueue')) {
+        this.logger.warn('Redis 连接未就绪，跳过状态恢复（这是正常的，应用将继续启动）');
+      } else {
+        this.logger.error(`恢复状态失败: ${error instanceof Error ? error.message : String(error)}`, error instanceof Error ? error.stack : undefined);
+      }
     }
   }
 

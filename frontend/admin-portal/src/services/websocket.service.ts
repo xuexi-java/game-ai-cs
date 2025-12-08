@@ -4,6 +4,66 @@ import { message } from 'antd';
 import { useSessionStore } from '../stores/sessionStore';
 import { useAgentStore } from '../stores/agentStore';
 import type { Session, Message } from '../types';
+import { notificationService } from './notification.service';
+
+// 页面标题更新函数
+let titleBlinkInterval: NodeJS.Timeout | null = null;
+let baseTitle = '';
+
+// 获取基础标题（去除未读数）
+function getBaseTitle(): string {
+  if (!baseTitle) {
+    baseTitle = document.title.replace(/^\(\d+\)\s*/, '') || 'AI客服管理';
+  }
+  return baseTitle;
+}
+
+function updatePageTitle(unreadCount: number) {
+  const title = getBaseTitle();
+  
+  if (unreadCount > 0) {
+    // 清除之前的闪烁定时器
+    if (titleBlinkInterval) {
+      clearInterval(titleBlinkInterval);
+    }
+    
+    // 优雅的标题闪烁效果（更平滑的过渡）
+    let showCount = true;
+    let fadeStep = 0;
+    
+    const updateTitle = () => {
+      if (showCount) {
+        // 显示未读数，使用更醒目的格式
+        document.title = `🔔 (${unreadCount}) ${title}`;
+      } else {
+        // 隐藏未读数，但保留提示
+        document.title = `● ${title}`;
+      }
+      showCount = !showCount;
+    };
+    
+    // 初始显示
+    document.title = `🔔 (${unreadCount}) ${title}`;
+    
+    // 每 2 秒切换一次（更优雅的节奏）
+    titleBlinkInterval = setInterval(updateTitle, 2000);
+  } else {
+    document.title = title;
+    if (titleBlinkInterval) {
+      clearInterval(titleBlinkInterval);
+      titleBlinkInterval = null;
+    }
+  }
+}
+
+// 初始化时更新标题（显示当前未读数）
+if (typeof window !== 'undefined') {
+  const { getTotalUnread } = useSessionStore.getState();
+  const totalUnread = getTotalUnread();
+  if (totalUnread > 0) {
+    updatePageTitle(totalUnread);
+  }
+}
 
 class WebSocketService {
   private socket: Socket | null = null;
@@ -114,7 +174,7 @@ class WebSocketService {
 
     // 接收消息
     this.socket.on('message', (data: { sessionId: string; message: Message } | Message) => {
-      const { addMessage, setSessionMessages } = useSessionStore.getState();
+      const { addMessage, setSessionMessages, currentSession, getTotalUnread } = useSessionStore.getState();
       
       let sessionId: string | undefined;
       let messageData: Message;
@@ -158,8 +218,39 @@ class WebSocketService {
         );
         setSessionMessages(sessionId, newMessages);
       } else {
-        // 直接添加消息（addMessage 会自动去重和排序）
+        // 直接添加消息（addMessage 会自动去重和排序，并处理未读数）
         addMessage(sessionId, messageData);
+      }
+      
+      // 如果消息不是来自当前用户，且不在当前查看的会话中，触发通知
+      const isCurrentSession = currentSession?.id === sessionId;
+      const isFromCurrentUser = messageData.senderType === 'AGENT';
+      const shouldNotify = !isCurrentSession && !isFromCurrentUser;
+      
+      if (shouldNotify) {
+        // 播放提示音
+        notificationService.playSound();
+        
+        // 获取会话信息用于通知
+        const state = useSessionStore.getState();
+        const session = [...state.activeSessions, ...state.queuedSessions].find(
+          s => s.id === sessionId
+        );
+        const sessionName = session?.ticket?.playerIdOrName || '未知玩家';
+        const messagePreview = messageData.content.substring(0, 50);
+        
+        // 显示浏览器通知
+        notificationService.showNotification(
+          `新消息 - ${sessionName}`,
+          {
+            body: messagePreview,
+            tag: `session-${sessionId}`, // 每个会话独立通知
+          }
+        );
+        
+        // 更新页面标题显示未读数
+        const totalUnread = getTotalUnread();
+        updatePageTitle(totalUnread);
       }
     });
   }

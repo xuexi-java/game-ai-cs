@@ -5,6 +5,7 @@ import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { TransformInterceptor } from './common/interceptors/transform.interceptor';
 import { LoggerService } from './common/logger/logger.service';
+import { QueueService } from './queue/queue.service';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
@@ -102,6 +103,14 @@ async function bootstrap() {
   const baseUrl = `${protocol}://${host}:${port}`;
   logger.log(`🚀 后端服务运行在 ${baseUrl}`, 'Bootstrap');
   logger.log(`📚 Swagger API在线文档: ${baseUrl}/api/v1/docs`, 'Bootstrap');
+
+  // 恢复队列数据到 Redis（如果 Redis 可用）
+  try {
+    const queueService = app.get(QueueService);
+    await queueService.recoverQueueFromDatabase();
+  } catch (error) {
+    logger.warn(`恢复队列数据失败: ${error.message}`, 'Bootstrap');
+  }
 }
 
 bootstrap();

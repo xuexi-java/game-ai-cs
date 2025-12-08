@@ -82,6 +82,7 @@ const MessageList = ({ messages, aiTyping = false, onRetryUpload }: MessageListP
           uploadStatus?: UploadStatus;
           pendingUploadId?: string;
           isLocalPreview?: boolean;
+          translatedContent?: string;
         };
         const uploadStatus = metadata.uploadStatus;
         const isSending = uploadStatus === 'UPLOADING' || isTempMessage;
@@ -115,9 +116,8 @@ const MessageList = ({ messages, aiTyping = false, onRetryUpload }: MessageListP
                 {formattedTime && <span className="message-time-v3">{formattedTime}</span>}
               </div>
               <div
-                className={`message-bubble-v3 ${isPlayer ? 'bubble-player-v3' : isAI ? 'bubble-ai-v3' : 'bubble-agent-v3'} ${
-                  isSending ? 'bubble-sending' : ''
-                } ${isFailed ? 'bubble-failed' : ''}`}
+                className={`message-bubble-v3 ${isPlayer ? 'bubble-player-v3' : isAI ? 'bubble-ai-v3' : 'bubble-agent-v3'} ${isSending ? 'bubble-sending' : ''
+                  } ${isFailed ? 'bubble-failed' : ''}`}
               >
                 {message.messageType === 'IMAGE' ? (
                   <img
@@ -133,8 +133,17 @@ const MessageList = ({ messages, aiTyping = false, onRetryUpload }: MessageListP
                 ) : (
                   <div className="message-text-v3">
                     <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                      {parseContent(message.content)}
+                      {metadata.translatedContent
+                        ? metadata.translatedContent
+                        : parseContent(message.content)}
                     </ReactMarkdown>
+                    {metadata.translatedContent && (
+                      <div className="translation-indicator">
+                        <small style={{ color: '#8c8c8c', fontSize: '12px', marginTop: '4px', display: 'block' }}>
+                          [已翻译] 原文: {parseContent(message.content)}
+                        </small>
+                      </div>
+                    )}
                   </div>
                 )}
                 {isSending && (

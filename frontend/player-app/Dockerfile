@@ -1,4 +1,5 @@
 # 多阶段构建 - 构建阶段
+# 使用国内镜像源以避免网络问题
 FROM node:20.19.5-alpine AS builder
 
 WORKDIR /app
@@ -16,6 +17,7 @@ COPY . .
 RUN npx vite build
 
 # 生产阶段 - 使用 nginx
+# 使用国内镜像源以避免网络问题
 FROM nginx:alpine
 
 # 复制构建产物到 nginx

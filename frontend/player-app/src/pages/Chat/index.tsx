@@ -4,7 +4,7 @@
 import { useEffect, useState, useRef, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Input, Button, Spin, Modal, Rate, Tag } from 'antd';
-import { SendOutlined, CustomerServiceOutlined, PoweroffOutlined, CloseOutlined, HomeOutlined } from '@ant-design/icons';
+import { SendOutlined, CustomerServiceOutlined, PoweroffOutlined, CloseOutlined, HomeOutlined, CopyOutlined } from '@ant-design/icons';
 import { io } from 'socket.io-client';
 import { getSession, transferToAgent, closeSession, submitRating } from '../../services/session.service';
 import type { TransferToAgentPayload } from '../../services/session.service';
@@ -73,6 +73,38 @@ const ChatPage = () => {
 
     loadSession();
   }, [sessionId, setSession, addMessage, messageApi]);
+
+  // 软键盘检测和处理
+  useEffect(() => {
+    if (typeof window !== 'undefined' && 'visualViewport' in window) {
+      const viewport = window.visualViewport;
+      const container = document.querySelector('.chat-container-v3');
+      
+      const handleViewportChange = () => {
+        if (container) {
+          const heightDiff = window.innerHeight - viewport.height;
+          // 如果高度差大于 150px，认为软键盘已弹出
+          if (heightDiff > 150) {
+            container.classList.add('keyboard-open');
+            // 滚动到底部
+            setTimeout(() => {
+              messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+            }, 100);
+          } else {
+            container.classList.remove('keyboard-open');
+          }
+        }
+      };
+      
+      viewport.addEventListener('resize', handleViewportChange);
+      viewport.addEventListener('scroll', handleViewportChange);
+      
+      return () => {
+        viewport.removeEventListener('resize', handleViewportChange);
+        viewport.removeEventListener('scroll', handleViewportChange);
+      };
+    }
+  }, []);
 
   // 连接 WebSocket
   useEffect(() => {
@@ -309,6 +341,28 @@ const ChatPage = () => {
     await uploadPendingFile(pending);
   };
 
+  // 复制工单号函数
+  const handleCopyTicketNo = (ticketNo: string) => {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(ticketNo)
+        .then(() => messageApi.success('工单号已复制到剪贴板'))
+        .catch(() => messageApi.error('复制失败，请手动复制'));
+    } else {
+      // 降级方案：使用 document.execCommand
+      const textArea = document.createElement('textarea');
+      textArea.value = ticketNo;
+      document.body.appendChild(textArea);
+      textArea.select();
+      try {
+        document.execCommand('copy');
+        messageApi.success('工单号已复制到剪贴板');
+      } catch {
+        messageApi.error('复制失败，请手动复制');
+      }
+      document.body.removeChild(textArea);
+    }
+  };
+
   const submitTransferRequest = async (payload: TransferToAgentPayload) => {
     if (!sessionId) return;
     setTransferring(true);
@@ -346,9 +400,19 @@ const ChatPage = () => {
                   已经接到您的反馈，我们会尽快处理，目前暂时没有人工客服在线。
                 </p>
                 {result.ticketNo && (
-                  <p style={{ marginBottom: 12, fontWeight: 'bold', fontSize: '16px' }}>
-                    工单号：{result.ticketNo}
-                  </p>
+                  <div style={{ marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontWeight: 'bold', fontSize: '16px' }}>
+                      工单号：{result.ticketNo}
+                    </span>
+                    <Button
+                      type="text"
+                      size="small"
+                      icon={<CopyOutlined />}
+                      onClick={() => handleCopyTicketNo(result.ticketNo!)}
+                    >
+                      复制
+                    </Button>
+                  </div>
                 )}
                 
                 {/* 工单状态 */}
@@ -431,9 +495,19 @@ const ChatPage = () => {
               <div>
                 <p>已经接到您的反馈，我们会尽快处理，目前暂时没有人工客服在线。</p>
                 {result.ticketNo && (
-                  <p style={{ marginTop: 8, fontWeight: 'bold' }}>
-                    工单号：{result.ticketNo}
-                  </p>
+                  <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontWeight: 'bold' }}>
+                      工单号：{result.ticketNo}
+                    </span>
+                    <Button
+                      type="text"
+                      size="small"
+                      icon={<CopyOutlined />}
+                      onClick={() => handleCopyTicketNo(result.ticketNo!)}
+                    >
+                      复制
+                    </Button>
+                  </div>
                 )}
                 <p style={{ marginTop: 8, color: '#666' }}>
                   客服上线后会优先处理您的工单，请耐心等待。

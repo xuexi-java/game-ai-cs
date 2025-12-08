@@ -9,6 +9,7 @@ import { TicketMessageModule } from '../ticket-message/ticket-message.module';
 import { MessageModule } from '../message/message.module';
 import { WebsocketModule } from '../websocket/websocket.module';
 import { SessionModule } from '../session/session.module';
+import { QueueModule } from '../queue/queue.module';
 import { ScheduleModule } from '@nestjs/schedule';
 
 @Module({
@@ -18,6 +19,7 @@ import { ScheduleModule } from '@nestjs/schedule';
     MessageModule,
     forwardRef(() => WebsocketModule),
     forwardRef(() => SessionModule),
+    QueueModule,
     ScheduleModule.forRoot(),
   ],
   controllers: [TicketController],

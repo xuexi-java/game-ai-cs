@@ -20,6 +20,36 @@ export interface CheckOpenTicketResponse {
   } | null;
 }
 
+export interface QueryOpenTicketsRequest {
+  gameId: string;
+  serverId?: string;
+  serverName?: string;
+  playerIdOrName: string;
+}
+
+export interface QueryOpenTicketsResponse {
+  id: string;
+  ticketNo: string;
+  token: string;
+  status: string;
+  description: string;
+  createdAt: string;
+  updatedAt: string;
+  game: {
+    id: string;
+    name: string;
+  };
+  server: {
+    id: string;
+    name: string;
+  } | null;
+  serverName: string | null;
+  issueTypes: Array<{
+    id: string;
+    name: string;
+  }>;
+}
+
 export interface CreateTicketRequest {
   gameId: string;
   serverId?: string;
@@ -39,6 +69,15 @@ export interface CreateTicketResponse {
   token: string;
   hasOnlineAgents?: boolean; // 是否有在线客服（仅直接转人工时返回）
 }
+
+/**
+ * 查询玩家未完成工单列表
+ */
+export const queryOpenTickets = async (
+  data: QueryOpenTicketsRequest
+): Promise<QueryOpenTicketsResponse[]> => {
+  return apiClient.post('/tickets/query-open-tickets', data);
+};
 
 /**
  * 检查是否有未关闭的工单
