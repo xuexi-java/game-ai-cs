@@ -477,7 +477,14 @@ JWT_EXPIRES_IN="8h"
 PORT=21101
 NODE_ENV="development"
 FRONTEND_URL="http://localhost:20101,http://localhost:20102"
+REDIS_HOST=localhost
+REDIS_PORT=6379
+ENCRYPTION_SECRET_KEY="your-32-char-secret-key-here-change-in-production"
 ```
+
+⚠️ **重要**: 
+- `ENCRYPTION_SECRET_KEY`: 用于加密敏感数据（如 Dify API Key），生产环境必须设置为至少32字符的强随机字符串
+- 如果修改了 `ENCRYPTION_SECRET_KEY`，数据库中已加密的数据将无法解密，需要重新加密
 
 ### 玩家端 (.env) - 仅本地开发需要
 

@@ -9,8 +9,58 @@ function hashPassword(password: string): string {
 
 const prisma = new PrismaClient();
 
+// 重试函数
+async function retry<T>(
+  fn: () => Promise<T>,
+  maxRetries: number = 3,
+  delay: number = 1000,
+): Promise<T> {
+  let lastError: Error;
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      return await fn();
+    } catch (error) {
+      lastError = error as Error;
+      if (i < maxRetries - 1) {
+        console.warn(`⚠️  操作失败，${delay}ms 后重试 (${i + 1}/${maxRetries})...`);
+        await new Promise((resolve) => setTimeout(resolve, delay));
+      }
+    }
+  }
+  throw lastError!;
+}
+
 async function main() {
-  console.log('开始初始化数据库...');
+  console.log('🌱 开始初始化数据库...\n');
+
+  // 检查必要的环境变量
+  if (!process.env.DATABASE_URL) {
+    console.error('❌ 错误: DATABASE_URL 环境变量未设置');
+    process.exit(1);
+  }
+
+  try {
+    // 如果设置了 SKIP_SEED 环境变量，直接跳过
+    if (process.env.SKIP_SEED === 'true') {
+      console.log('⏭️  跳过种子数据初始化 (SKIP_SEED=true)');
+      return;
+    }
+
+    // 检查数据库是否已初始化（通过检查是否存在管理员账户）
+    const existingAdmin = await prisma.user.findFirst({
+      where: {
+        role: 'ADMIN',
+        username: 'admin',
+      },
+    });
+
+    if (existingAdmin) {
+      console.log('✅ 数据库已初始化，跳过种子数据创建');
+      console.log('💡 提示: 如需重新初始化，请设置 SKIP_SEED=false 或删除管理员账户');
+      return;
+    }
+
+    console.log('📝 检测到新数据库，开始初始化种子数据...\n');
 
   // 1. 创建初始管理员账户
   const adminUsers = [
@@ -32,25 +82,34 @@ async function main() {
     },
   ];
 
-  for (const userData of adminUsers) {
-    const hashedPassword = hashPassword(userData.password);
-    const user = await prisma.user.upsert({
-      where: { username: userData.username },
-      update: {},
-      create: {
-        username: userData.username,
-        password: hashedPassword,
-        role: userData.role,
-        realName: userData.realName,
-        email: userData.email,
-        phone: userData.phone,
-      },
-    });
-    console.log(`✓ 创建管理员账户: ${user.username} (${userData.realName})`);
-  }
+    // 1. 创建初始管理员账户（幂等性：使用 upsert）
+    for (const userData of adminUsers) {
+      await retry(async () => {
+        const hashedPassword = hashPassword(userData.password);
+        const user = await prisma.user.upsert({
+          where: { username: userData.username },
+          update: {
+            // 如果用户已存在，更新密码（确保密码是最新的）
+            password: hashedPassword,
+            realName: userData.realName,
+            email: userData.email,
+            phone: userData.phone,
+          },
+          create: {
+            username: userData.username,
+            password: hashedPassword,
+            role: userData.role,
+            realName: userData.realName,
+            email: userData.email,
+            phone: userData.phone,
+          },
+        });
+        console.log(`✓ 管理员账户: ${user.username} (${userData.realName})`);
+      });
+    }
 
-  // 2. 创建示例客服账户
-  const agentUsers = [
+    // 2. 创建示例客服账户（幂等性：使用 upsert）
+    const agentUsers = [
     {
       username: 'agent1',
       password: 'agent123',
@@ -77,80 +136,111 @@ async function main() {
     },
   ];
 
-  for (const userData of agentUsers) {
-    const hashedPassword = hashPassword(userData.password);
-    const user = await prisma.user.upsert({
-      where: { username: userData.username },
-      update: {},
-      create: {
-        username: userData.username,
-        password: hashedPassword,
-        role: userData.role,
-        realName: userData.realName,
-        email: userData.email,
-        phone: userData.phone,
+    for (const userData of agentUsers) {
+      await retry(async () => {
+        const hashedPassword = hashPassword(userData.password);
+        const user = await prisma.user.upsert({
+          where: { username: userData.username },
+          update: {
+            password: hashedPassword,
+            realName: userData.realName,
+            email: userData.email,
+            phone: userData.phone,
+          },
+          create: {
+            username: userData.username,
+            password: hashedPassword,
+            role: userData.role,
+            realName: userData.realName,
+            email: userData.email,
+            phone: userData.phone,
+          },
+        });
+        console.log(`✓ 客服账户: ${user.username} (${userData.realName})`);
+      });
+    }
+
+    // 3. 创建示例游戏配置（幂等性：使用 upsert，更新时不覆盖已存在的 API Key）
+    const games = [
+      {
+        name: '弹弹堂',
+        difyApiKey: 'your-dify-api-key-here', // 请替换为实际的API Key
+        difyBaseUrl: 'http://118.89.16.95/v1',
       },
-    });
-    console.log(`✓ 创建客服账户: ${user.username} (${userData.realName})`);
-  }
-
-  // 3. 创建示例游戏配置
-  const game1 = await prisma.game.upsert({
-    where: { name: '弹弹堂' },
-    update: {},
-    create: {
-      name: '弹弹堂',
-      icon: null,
-      enabled: true,
-      difyApiKey: 'your-dify-api-key-here', // 请替换为实际的API Key
-      difyBaseUrl: 'http://118.89.16.95/v1', // 请替换为实际的 Dify 服务器地址
-    },
-  });
-  console.log('✓ 创建游戏配置:', game1.name);
-
-  const game2 = await prisma.game.upsert({
-    where: { name: '神曲' },
-    update: {},
-    create: {
-      name: '神曲',
-      icon: null,
-      enabled: true,
-      difyApiKey: 'your-dify-api-key-here', // 请替换为实际的API Key
-      difyBaseUrl: 'http://118.89.16.95/v1', // 请替换为实际的 Dify 服务器地址
-    },
-  });
-  console.log('✓ 创建游戏配置:', game2.name);
-
-  // 4. 创建示例紧急排序规则
-  const rule1 = await prisma.urgencyRule.create({
-    data: {
-      name: '充值问题优先',
-      enabled: true,
-      priorityWeight: 80,
-      description: '充值相关问题的优先级规则',
-      conditions: {
-        keywords: ['充值', '支付', '付款'],
-        identityStatus: 'VERIFIED_PAYMENT',
+      {
+        name: '神曲',
+        difyApiKey: 'your-dify-api-key-here', // 请替换为实际的API Key
+        difyBaseUrl: 'http://118.89.16.95/v1',
       },
-    },
-  });
-  console.log('✓ 创建紧急排序规则:', rule1.name);
+    ];
 
-  const rule2 = await prisma.urgencyRule.create({
-    data: {
-      name: '紧急工单优先',
-      enabled: true,
-      priorityWeight: 90,
-      description: '标记为紧急的工单优先处理',
-      conditions: {
-        priority: 'URGENT',
+    for (const gameData of games) {
+      await retry(async () => {
+        // 检查游戏是否已存在
+        const existing = await prisma.game.findUnique({
+          where: { name: gameData.name },
+        });
+
+        const game = await prisma.game.upsert({
+          where: { name: gameData.name },
+          update: {
+            // 如果游戏已存在，不更新 API Key（避免覆盖已配置的密钥）
+            difyBaseUrl: gameData.difyBaseUrl,
+          },
+          create: {
+            name: gameData.name,
+            icon: null,
+            enabled: true,
+            difyApiKey: gameData.difyApiKey,
+            difyBaseUrl: gameData.difyBaseUrl,
+          },
+        });
+        console.log(`✓ 游戏配置: ${game.name}`);
+      });
+    }
+
+    // 4. 创建示例紧急排序规则（幂等性：检查是否存在）
+    const rules = [
+      {
+        name: '充值问题优先',
+        enabled: true,
+        priorityWeight: 80,
+        description: '充值相关问题的优先级规则',
+        conditions: {
+          keywords: ['充值', '支付', '付款'],
+          identityStatus: 'VERIFIED_PAYMENT',
+        },
       },
-    },
-  });
-  console.log('✓ 创建紧急排序规则:', rule2.name);
+      {
+        name: '紧急工单优先',
+        enabled: true,
+        priorityWeight: 90,
+        description: '标记为紧急的工单优先处理',
+        conditions: {
+          priority: 'URGENT',
+        },
+      },
+    ];
 
-  // 5. 创建快捷回复分类
-  const categories = [
+    for (const ruleData of rules) {
+      await retry(async () => {
+        const existing = await prisma.urgencyRule.findFirst({
+          where: { name: ruleData.name },
+        });
+
+        if (!existing) {
+          const rule = await prisma.urgencyRule.create({
+            data: ruleData,
+          });
+          console.log(`✓ 紧急排序规则: ${rule.name}`);
+        } else {
+          console.log(`✓ 紧急排序规则已存在: ${ruleData.name}`);
+        }
+      });
+    }
+
+    // 5. 创建快捷回复分类（幂等性：已实现）
+    const categories = [
     { name: '问候语', isGlobal: true, sortOrder: 1 },
     { name: '问题确认', isGlobal: true, sortOrder: 2 },
     { name: '问题处理中', isGlobal: true, sortOrder: 3 },
@@ -162,35 +252,37 @@ async function main() {
     { name: '结束语', isGlobal: true, sortOrder: 9 },
   ];
 
-  const createdCategories: { id: string; name: string }[] = [];
-  for (const cat of categories) {
-    // 先查找是否已存在
-    let category = await prisma.quickReplyCategory.findFirst({
-      where: {
-        name: cat.name,
-        deletedAt: null,
-      },
-    });
+    const createdCategories: { id: string; name: string }[] = [];
+    for (const cat of categories) {
+      await retry(async () => {
+        // 先查找是否已存在
+        let category = await prisma.quickReplyCategory.findFirst({
+          where: {
+            name: cat.name,
+            deletedAt: null,
+          },
+        });
 
-    // 如果不存在，则创建
-    if (!category) {
-      category = await prisma.quickReplyCategory.create({
-        data: {
-          name: cat.name,
-          isGlobal: cat.isGlobal,
-          sortOrder: cat.sortOrder,
-          isActive: true,
-        },
+        // 如果不存在，则创建
+        if (!category) {
+          category = await prisma.quickReplyCategory.create({
+            data: {
+              name: cat.name,
+              isGlobal: cat.isGlobal,
+              sortOrder: cat.sortOrder,
+              isActive: true,
+            },
+          });
+          console.log('✓ 快捷回复分类: ', category.name);
+        } else {
+          console.log('✓ 快捷回复分类已存在: ', category.name);
+        }
+        createdCategories.push(category);
       });
-      console.log('✓ 创建快捷回复分类:', category.name);
-    } else {
-      console.log('✓ 快捷回复分类已存在:', category.name);
     }
-    createdCategories.push(category);
-  }
 
-  // 6. 创建快捷回复内容
-  const replies = [
+    // 6. 创建快捷回复内容（幂等性：已实现）
+    const replies = [
     // 问候语
     {
       categoryName: '问候语',
@@ -402,52 +494,72 @@ async function main() {
     },
   ];
 
-  for (const reply of replies) {
-    const category = createdCategories.find((c) => c.name === reply.categoryName);
-    if (category) {
-      // 检查是否已存在相同分类和内容的回复
-      const existing = await prisma.quickReply.findFirst({
-        where: {
-          categoryId: category.id,
-          content: reply.content,
-          deletedAt: null,
-        },
+    let createdCount = 0;
+    let skippedCount = 0;
+
+    for (const reply of replies) {
+      await retry(async () => {
+        const category = createdCategories.find((c) => c.name === reply.categoryName);
+        if (category) {
+          // 检查是否已存在相同分类和内容的回复
+          const existing = await prisma.quickReply.findFirst({
+            where: {
+              categoryId: category.id,
+              content: reply.content,
+              deletedAt: null,
+            },
+          });
+
+          if (!existing) {
+            await prisma.quickReply.create({
+              data: {
+                categoryId: category.id,
+                content: reply.content,
+                isGlobal: true,
+                isActive: true,
+                sortOrder: reply.sortOrder,
+              },
+            });
+            createdCount++;
+          } else {
+            skippedCount++;
+          }
+        }
       });
-
-      if (!existing) {
-        await prisma.quickReply.create({
-          data: {
-            categoryId: category.id,
-            content: reply.content,
-            isGlobal: true,
-            isActive: true,
-            sortOrder: reply.sortOrder,
-          },
-        });
-      }
     }
-  }
-  console.log(`✓ 创建快捷回复内容: ${replies.length} 条`);
 
-  console.log('\n✅ 数据库初始化完成！');
-  console.log('\n📋 默认账户信息:');
-  console.log('\n  管理员账户:');
-  console.log('    - admin / admin123 (系统管理员)');
-  console.log('    - admin2 / admin123 (副管理员)');
-  console.log('\n  客服账户:');
-  console.log('    - agent1 / agent123 (客服001)');
-  console.log('    - agent2 / agent123 (客服002)');
-  console.log('    - agent3 / agent123 (客服003)');
-  console.log('\n📊 初始化数据:');
-  console.log(`  游戏配置: 2 个`);
-  console.log(`  紧急排序规则: 2 个`);
-  console.log(`  快捷回复分类: ${categories.length} 个`);
-  console.log(`  快捷回复内容: ${replies.length} 条`);
-  console.log('\n⚠️  重要提示:');
-  console.log('  1. 所有账户的默认密码都是 "admin123" 或 "agent123"');
-  console.log('  2. 请在生产环境中立即修改所有账户的密码！');
-  console.log('  3. 建议为每个账户设置强密码（至少8位，包含字母和数字）');
-  console.log('  4. 可以通过管理端修改账户密码');
+    console.log(`✓ 快捷回复内容: 创建 ${createdCount} 条，跳过 ${skippedCount} 条（已存在）`);
+
+    console.log('\n✅ 数据库初始化完成！');
+    console.log('\n📋 默认账户信息:');
+    console.log('\n  管理员账户:');
+    console.log('    - admin / admin123 (系统管理员)');
+    console.log('    - admin2 / admin123 (副管理员)');
+    console.log('\n  客服账户:');
+    console.log('    - agent1 / agent123 (客服001)');
+    console.log('    - agent2 / agent123 (客服002)');
+    console.log('    - agent3 / agent123 (客服003)');
+    console.log('\n📊 初始化数据:');
+    console.log(`  游戏配置: ${games.length} 个`);
+    console.log(`  紧急排序规则: ${rules.length} 个`);
+    console.log(`  快捷回复分类: ${categories.length} 个`);
+    console.log(`  快捷回复内容: ${createdCount + skippedCount} 条`);
+    console.log('\n⚠️  重要提示:');
+    console.log('  1. 所有账户的默认密码都是 "admin123" 或 "agent123"');
+    console.log('  2. 请在生产环境中立即修改所有账户的密码！');
+    console.log('  3. 建议为每个账户设置强密码（至少8位，包含字母和数字）');
+    console.log('  4. 可以通过管理端修改账户密码');
+    console.log('  5. 游戏配置中的 Dify API Key 需要手动配置');
+  } catch (error) {
+    console.error('\n❌ 数据库初始化失败！');
+    console.error('错误详情:', error);
+    console.error('\n💡 排查建议:');
+    console.error('  1. 检查数据库连接是否正常');
+    console.error('  2. 检查数据库用户权限是否足够');
+    console.error('  3. 检查 Prisma schema 是否与数据库结构一致');
+    console.error('  4. 查看上方错误信息，定位具体失败的操作');
+    throw error;
+  }
 }
 
 main()

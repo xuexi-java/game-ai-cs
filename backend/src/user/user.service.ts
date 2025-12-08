@@ -9,7 +9,7 @@ import { CreateUserDto, QueryUsersDto, UpdateUserDto } from './dto/user.dto';
 
 @Injectable()
 export class UserService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService) { }
 
   private sanitizeUser(user: any) {
     if (!user) return null;
@@ -138,7 +138,7 @@ export class UserService {
     const agents = await this.prisma.user.findMany({
       where: {
         deletedAt: null,
-        role: 'AGENT',
+        role: { in: ['AGENT', 'ADMIN'] },
         isOnline: true,
       },
       select: {

@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common';
+import { APP_GUARD } from '@nestjs/core';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { ServeStaticModule } from '@nestjs/serve-static';
+import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { join, isAbsolute } from 'path';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
@@ -22,12 +24,25 @@ import { IssueTypeModule } from './issue-type/issue-type.module';
 import { QuickReplyModule } from './quick-reply/quick-reply.module';
 import { LoggerModule } from './common/logger/logger.module';
 import { RedisModule } from './redis/redis.module';
+import { EncryptionModule } from './common/encryption/encryption.module';
 import { validate } from './common/config/env.validation';
 
 @Module({
   imports: [
     LoggerModule,
     RedisModule,
+    EncryptionModule,
+    ThrottlerModule.forRoot([
+      {
+        ttl: 60000, // 时间窗口：60秒（1分钟）
+        limit: 10000, // 每个IP在1分钟内最多10000次请求
+      },
+      {
+        name: 'dify-api', // 针对 Dify API 的严格限制
+        ttl: 60000, // 60秒（1分钟）
+        limit: 3000, // 每个IP在1分钟内最多3000次 Dify API 调用
+      },
+    ]),
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: ['.env'],
@@ -67,6 +82,13 @@ import { validate } from './common/config/env.validation';
     QuickReplyModule,
   ],
   controllers: [AppController],
-  providers: [AppService, PrismaService],
+  providers: [
+    AppService,
+    PrismaService,
+    {
+      provide: APP_GUARD,
+      useClass: ThrottlerGuard,
+    },
+  ],
 })
 export class AppModule {}

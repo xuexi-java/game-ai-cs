@@ -1,5 +1,6 @@
 services:
   postgres:
+    # 使用国内镜像源以避免网络问题
     image: postgres:14-alpine
     container_name: game-ai-cs-postgres
     environment:
@@ -20,6 +21,7 @@ services:
     restart: unless-stopped
 
   redis:
+    # 使用国内镜像源以避免网络问题
     image: redis:7-alpine
     container_name: game-ai-cs-redis
     ports:
@@ -52,6 +54,9 @@ services:
       - DIFY_BASE_URL=${DIFY_BASE_URL:-}
       - REDIS_HOST=redis
       - REDIS_PORT=6379
+      - ENCRYPTION_SECRET_KEY=${ENCRYPTION_SECRET_KEY:-default-secret-key-change-in-production-32-chars!!}
+      - BAIDU_TRANSLATE_APP_ID=${BAIDU_TRANSLATE_APP_ID}
+      - BAIDU_TRANSLATE_SECRET=${BAIDU_TRANSLATE_SECRET}
     ports:
       - "21101:21101"
     volumes:

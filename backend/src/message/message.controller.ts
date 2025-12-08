@@ -26,7 +26,7 @@ import { Public } from '../common/decorators/public.decorator';
 @ApiTags('messages')
 @Controller('messages')
 export class MessageController {
-  constructor(private readonly messageService: MessageService) {}
+  constructor(private readonly messageService: MessageService) { }
 
   // 玩家端API - 发送消息
   @Public()
@@ -76,5 +76,14 @@ export class MessageController {
       user.id,
       user,
     );
+  }
+  // 翻译消息
+  @Public()
+  @Post(':id/translate')
+  @ApiOperation({ summary: '翻译消息' })
+  @ApiParam({ name: 'id', description: '消息ID' })
+  @ApiResponse({ status: 200, description: '返回翻译后的消息' })
+  translate(@Param('id') id: string, @Body('targetLang') targetLang?: string) {
+    return this.messageService.translateMessage(id, targetLang);
   }
 }

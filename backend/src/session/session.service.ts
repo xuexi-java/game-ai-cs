@@ -4,6 +4,7 @@
   BadRequestException,
   Logger,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateSessionDto, TransferToAgentDto } from './dto/create-session.dto';
 import {
@@ -18,6 +19,7 @@ import { MessageService } from '../message/message.service';
 import { WebsocketGateway } from '../websocket/websocket.gateway';
 import { Inject, forwardRef } from '@nestjs/common';
 import { TicketService } from '../ticket/ticket.service';
+import { QueueService } from '../queue/queue.service';
 
 const TICKET_RELATION_INCLUDE = {
   game: true,
@@ -47,6 +49,7 @@ export class SessionService {
     private websocketGateway: WebsocketGateway,
     @Inject(forwardRef(() => TicketService))
     private ticketService: TicketService,
+    private queueService: QueueService,
   ) {}
 
   private enrichTicketWithIssueTypes<T extends { ticketIssueTypes?: any[] }>(
@@ -76,6 +79,10 @@ export class SessionService {
   }
 
   // 鍒涘缓浼氳瘽锛堟楠?锛欰I寮曞锛?
+  @Throttle({ 
+    default: { limit: 10000, ttl: 60000 }, // 全局限制：10000次/分钟
+    'dify-api': { limit: 3000, ttl: 60000 } // Dify API 限制：3000次/分钟
+  })
   async create(createSessionDto: CreateSessionDto) {
     const ticket = await this.prisma.ticket.findUnique({
       where: { id: createSessionDto.ticketId },
@@ -152,6 +159,10 @@ export class SessionService {
   }
 
   // 鐜╁鍙戦€佹秷鎭紝鑷姩涓?Dify 浜や簰
+  @Throttle({ 
+    default: { limit: 10000, ttl: 60000 }, // 全局限制：10000次/分钟
+    'dify-api': { limit: 3000, ttl: 60000 } // Dify API 限制：3000次/分钟
+  })
   async handlePlayerMessage(
     sessionId: string,
     content: string,
@@ -651,6 +662,12 @@ export class SessionService {
       }
     }
 
+    // 获取原会话信息（用于从队列移除）
+    const oldSession = await this.prisma.session.findUnique({
+      where: { id: sessionId },
+      select: { agentId: true },
+    });
+
     // 更新会话状态
     const updatedSession = await this.prisma.session.update({
       where: { id: sessionId },
@@ -686,6 +703,17 @@ export class SessionService {
       data: { isOnline: true },
     });
 
+    // 从 Redis 队列移除会话（使用重试机制）
+    const removed = await this.queueService.removeFromQueueWithRetry(
+      sessionId,
+      oldSession?.agentId || null,
+    );
+    if (!removed) {
+      this.logger.warn(
+        `从 Redis 队列移除会话失败，将在下次一致性检查时修复`,
+      );
+    }
+
     const normalizedSession = this.enrichSession(updatedSession);
 
     // 更新关联工单的状态为"处理中"（如果会话状态为 IN_PROGRESS）
@@ -715,66 +743,164 @@ export class SessionService {
   }
 
   // 管理员手动分配会话给指定客服（包括管理员自己）
+  // 支持二次分配：除了已结束的工单和会话，其他都可以重新分配
   async assignSession(sessionId: string, agentId: string) {
-    const session = await this.findOne(sessionId);
+    const startTime = Date.now();
+    
+    try {
+      this.logger.log(
+        `开始手动分配会话 ${sessionId} 给 ${agentId}`,
+        { sessionId, agentId, timestamp: new Date().toISOString() },
+      );
 
-    // 如果所属工单已解决或关闭，禁止分配
-    if (
-      session.ticket?.status === 'RESOLVED' ||
-      session.ticket?.status === 'CLOSED'
-    ) {
-      throw new BadRequestException('该工单已解决，无法再次分配客服');
-    }
+      const session = await this.findOne(sessionId);
 
-    // 检查用户是否存在（可以是客服或管理员）
-    const agent = await this.prisma.user.findUnique({
-      where: { id: agentId, deletedAt: null },
-    });
+      // 检查会话状态：已结束的会话不能分配
+      if (session.status === 'CLOSED') {
+        this.logger.warn(
+          `会话 ${sessionId} 已结束，无法分配`,
+          { sessionId, sessionStatus: session.status },
+        );
+        throw new BadRequestException('该会话已结束，无法分配');
+      }
 
-    if (!agent) {
-      throw new NotFoundException('用户不存在');
-    }
+      // 检查工单状态：已解决的工单不能分配
+      if (session.ticket?.status === 'RESOLVED') {
+        this.logger.warn(
+          `工单 ${session.ticket?.id} 已解决，无法分配会话 ${sessionId}`,
+          { sessionId, ticketId: session.ticket?.id, ticketStatus: session.ticket?.status },
+        );
+        throw new BadRequestException('该工单已解决，无法分配客服');
+      }
 
-    // 只允许分配给客服或管理员
-    if (agent.role !== 'AGENT' && agent.role !== 'ADMIN') {
-      throw new BadRequestException('只能分配给客服或管理员');
-    }
+      // 检查用户是否存在（可以是客服或管理员）
+      const agent = await this.prisma.user.findUnique({
+        where: { id: agentId, deletedAt: null },
+      });
 
-    // 更新会话，分配给指定客服，标记为手动分配
-    const updatedSession = await this.prisma.session.update({
-      where: { id: sessionId },
-      data: {
-        agentId,
-        status: 'IN_PROGRESS',
-        startedAt: session.startedAt || new Date(),
-        queuedAt: null, // 清除排队状态
-        manuallyAssigned: true, // 标记为手动分配
-      },
-      include: {
-        ticket: {
-          include: {
-            ...TICKET_RELATION_INCLUDE,
+      if (!agent) {
+        this.logger.error(
+          `分配失败：用户 ${agentId} 不存在`,
+          undefined,
+          'SessionService',
+          { sessionId, agentId },
+        );
+        throw new NotFoundException('用户不存在');
+      }
+
+      // 只允许分配给客服或管理员
+      if (agent.role !== 'AGENT' && agent.role !== 'ADMIN') {
+        this.logger.warn(
+          `分配失败：用户 ${agentId} 不是客服或管理员`,
+          { sessionId, agentId, agentRole: agent.role },
+        );
+        throw new BadRequestException('只能分配给客服或管理员');
+      }
+
+      // 获取原会话信息（用于从队列移除和日志记录）
+      const oldSession = await this.prisma.session.findUnique({
+        where: { id: sessionId },
+        select: {
+          agentId: true,
+          status: true,
+          manuallyAssigned: true,
+        },
+      });
+
+      const isReassignment = oldSession?.agentId && oldSession.agentId !== agentId;
+      const previousAgentId = oldSession?.agentId;
+
+      // 更新会话，分配给指定客服，标记为手动分配
+      // 支持二次分配：即使已经分配过，也可以重新分配
+      const updatedSession = await this.prisma.session.update({
+        where: { id: sessionId },
+        data: {
+          agentId,
+          // 如果会话是 QUEUED 状态，分配后变为 IN_PROGRESS
+          // 如果已经是 IN_PROGRESS，保持 IN_PROGRESS
+          status: session.status === 'QUEUED' ? 'IN_PROGRESS' : session.status,
+          startedAt: session.startedAt || new Date(),
+          queuedAt: session.status === 'QUEUED' ? null : session.queuedAt, // 如果从 QUEUED 变为 IN_PROGRESS，清除排队状态
+          queuePosition: session.status === 'QUEUED' ? null : session.queuePosition, // 清除排队位置
+          manuallyAssigned: true, // 标记为手动分配
+        },
+        include: {
+          ticket: {
+            include: {
+              ...TICKET_RELATION_INCLUDE,
+            },
+          },
+          agent: {
+            select: {
+              id: true,
+              username: true,
+              realName: true,
+            },
+          },
+          messages: {
+            orderBy: { createdAt: 'asc' },
           },
         },
-        agent: {
-          select: {
-            id: true,
-            username: true,
-            realName: true,
-          },
+      });
+
+      // 从 Redis 队列移除会话（如果之前有分配，需要从旧队列移除）
+      if (previousAgentId || session.status === 'QUEUED') {
+        const removed = await this.queueService.removeFromQueueWithRetry(
+          sessionId,
+          previousAgentId || null,
+        );
+        if (!removed) {
+          this.logger.debug(
+            `从 Redis 队列移除会话失败（Redis 可能不可用，可以忽略）`,
+            { sessionId, previousAgentId },
+          );
+        }
+      }
+
+      const normalizedSession = this.enrichSession(updatedSession);
+
+      // 记录分配日志
+      const duration = Date.now() - startTime;
+      this.logger.log(
+        `${isReassignment ? '重新' : ''}分配会话 ${sessionId} 成功: ${previousAgentId ? `从 ${previousAgentId} ` : ''}分配给 ${agent.role} ${agent.username} (${agentId})`,
+        {
+          sessionId,
+          ticketId: session.ticketId,
+          previousAgentId,
+          newAgentId: agentId,
+          newAgentRole: agent.role,
+          newAgentUsername: agent.username,
+          isReassignment,
+          sessionStatus: updatedSession.status,
+          duration,
+          timestamp: new Date().toISOString(),
         },
-        messages: {
-          orderBy: { createdAt: 'asc' },
+      );
+
+      // 通知 WebSocket 客户端
+      this.websocketGateway.notifySessionUpdate(sessionId, normalizedSession);
+
+      return normalizedSession;
+    } catch (error) {
+      const duration = Date.now() - startTime;
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorStack = error instanceof Error ? error.stack : undefined;
+
+      this.logger.error(
+        `手动分配会话 ${sessionId} 失败: ${errorMessage}`,
+        errorStack,
+        'SessionService',
+        {
+          sessionId,
+          agentId,
+          duration,
+          timestamp: new Date().toISOString(),
         },
-      },
-    });
+      );
 
-    const normalizedSession = this.enrichSession(updatedSession);
-
-    // 通知 WebSocket 客户端
-    this.websocketGateway.notifySessionUpdate(sessionId, normalizedSession);
-
-    return normalizedSession;
+      // 重新抛出错误，让上层处理
+      throw error;
+    }
   }
 
   // 自动分配会话（根据客服当前接待数量）
@@ -863,6 +989,12 @@ export class SessionService {
     });
     const selectedAgent = agentsWithLoad[0].agent;
 
+    // 获取原会话信息（用于从队列移除）
+    const oldSession = await this.prisma.session.findUnique({
+      where: { id: sessionId },
+      select: { agentId: true },
+    });
+
     // 自动分配后，会话应该立即变为 IN_PROGRESS，清除排队状态
     const updatedSession = await this.prisma.session.update({
       where: { id: sessionId },
@@ -898,6 +1030,17 @@ export class SessionService {
         where: { id: selectedAgent.id },
         data: { isOnline: true },
       });
+    }
+
+    // 从 Redis 队列移除会话（使用重试机制）
+    const removed = await this.queueService.removeFromQueueWithRetry(
+      sessionId,
+      oldSession?.agentId || null,
+    );
+    if (!removed) {
+      this.logger.warn(
+        `从 Redis 队列移除会话失败，将在下次一致性检查时修复`,
+      );
     }
 
     const normalizedSession = this.enrichSession(updatedSession);
@@ -948,53 +1091,69 @@ export class SessionService {
     // ⚠️ 关键修复：只从在线客服中选择，不选择离线客服
     const onlineAgents = agents.filter((agent) => agent.isOnline);
     
-    // 只使用在线客服，如果没有在线客服，检查在线管理员
-    let candidatePool: typeof agents = [];
+    // 获取所有在线管理员
+    const admins = await this.prisma.user.findMany({
+      where: {
+        role: 'ADMIN',
+        deletedAt: null,
+      },
+      include: agentInclude,
+    });
+    const onlineAdmins = admins.filter((admin) => admin.isOnline);
     
-    if (onlineAgents.length > 0) {
-      // 有在线客服，只从在线客服中选择
-      candidatePool = onlineAgents.filter((agent) => agent.deletedAt === null);
-    } else {
-      // 没有在线客服，检查在线管理员
-      const admins = await this.prisma.user.findMany({
-        where: {
-          role: 'ADMIN',
-          deletedAt: null,
-        },
-        include: agentInclude,
-      });
-      const onlineAdmins = admins.filter((admin) => admin.isOnline);
-      if (onlineAdmins.length > 0) {
-        // 有在线管理员，只从在线管理员中选择
-        candidatePool = onlineAdmins;
-      } else {
-        // 既没有在线客服也没有在线管理员，不分配
-        return session;
-      }
-    }
+    // 合并候选池：客服 + 管理员（管理员权重更高，优先分配给客服）
+    const candidatePool = [...onlineAgents, ...onlineAdmins];
 
     if (candidatePool.length === 0) {
-      // ✅ 如果没有可分配的在线客服/管理员，不抛出错误，保持未分配状态
+      this.logger.warn(
+        `会话 ${sessionId} 没有可分配的在线客服或管理员`,
+        { sessionId, onlineAgentsCount: onlineAgents.length, onlineAdminsCount: onlineAdmins.length },
+      );
       return session;
     }
 
+    // 计算负载：管理员增加权重（+3），优先分配给客服
+    const ADMIN_WEIGHT_PENALTY = 3; // 管理员负载权重惩罚
     const agentsWithLoad = candidatePool.map((agent) => ({
       agent,
-      load: agent.sessions.length,
+      load: agent.sessions.length + (agent.role === 'ADMIN' ? ADMIN_WEIGHT_PENALTY : 0),
       loginTime: agent.lastLoginAt || agent.createdAt,
+      role: agent.role,
     }));
 
-    // 排序：在在线客服/管理员中，按负载升序，然后按登录时间升序
-    // 注意：候选池中都是在线客服/管理员，不需要再按在线状态排序
+    // 排序：先按负载升序，负载相同时按登录时间升序
     agentsWithLoad.sort((a, b) => {
-      // 先按负载
       if (a.load !== b.load) {
         return a.load - b.load;
       }
-      // 然后按登录时间
       return new Date(a.loginTime).getTime() - new Date(b.loginTime).getTime();
     });
     const selectedAgent = agentsWithLoad[0].agent;
+
+    // 记录分配日志
+    this.logger.log(
+      `会话 ${sessionId} 自动分配: 选择 ${selectedAgent.role} ${selectedAgent.username} (负载: ${selectedAgent.sessions.length}, 加权负载: ${agentsWithLoad[0].load})`,
+      {
+        sessionId,
+        selectedAgentId: selectedAgent.id,
+        selectedAgentRole: selectedAgent.role,
+        selectedAgentUsername: selectedAgent.username,
+        actualLoad: selectedAgent.sessions.length,
+        weightedLoad: agentsWithLoad[0].load,
+        candidateCount: candidatePool.length,
+        agentCount: onlineAgents.length,
+        adminCount: onlineAdmins.length,
+      },
+    );
+
+    // 获取会话信息（用于移动队列）
+    const sessionInfo = await this.prisma.session.findUnique({
+      where: { id: sessionId },
+      select: {
+        priorityScore: true,
+        queuedAt: true,
+      },
+    });
 
     // ✅ 只分配客服，不改变状态（保持 QUEUED）
     const updatedSession = await this.prisma.session.update({
@@ -1025,6 +1184,21 @@ export class SessionService {
     });
 
     const normalizedSession = this.enrichSession(updatedSession);
+
+    // ✅ 更新 Redis 队列：从未分配队列移动到客服队列（使用重试机制）
+    if (sessionInfo?.queuedAt) {
+      const moved = await this.queueService.moveToAgentQueueWithRetry(
+        sessionId,
+        selectedAgent.id,
+        sessionInfo.priorityScore || 0,
+        sessionInfo.queuedAt,
+      );
+      if (!moved) {
+        this.logger.warn(
+          `移动会话到客服队列失败，将在下次一致性检查时修复`,
+        );
+      }
+    }
 
     // 重新排序队列（更新排队位置）
     await this.reorderQueue();
@@ -1186,13 +1360,14 @@ export class SessionService {
 
     // 确认有在线客服：正常进入排队流程
     // 更新会话状态为排队
+    const queuedAt = new Date();
     const updatedSession = await this.prisma.session.update({
       where: { id: sessionId },
       data: {
         status: 'QUEUED',
         playerUrgency: transferDto.urgency,
         priorityScore,
-        queuedAt: new Date(),
+        queuedAt,
         allowManualTransfer: false,
         transferReason: transferDto.reason,
         transferIssueTypeId: transferDto.issueTypeId,
@@ -1200,6 +1375,18 @@ export class SessionService {
         manuallyAssigned: false, // 默认未手动分配
       },
     });
+
+    // 添加到 Redis 队列（未分配队列，使用重试机制）
+    const added = await this.queueService.addToUnassignedQueueWithRetry(
+      sessionId,
+      priorityScore,
+      queuedAt,
+    );
+    if (!added) {
+      this.logger.warn(
+        `添加到 Redis 队列失败，将在下次一致性检查时修复`,
+      );
+    }
 
     // 重新排序队列
     await this.reorderQueue();
@@ -1415,7 +1602,162 @@ export class SessionService {
   }
 
   // 重新排序队列（公开方法，供其他服务调用）
+  // 使用 Redis Zset 优化性能
   async reorderQueue() {
+    // 检查 Redis 是否可用
+    const isRedisAvailable = await this.queueService.isRedisAvailable();
+
+    if (!isRedisAvailable) {
+      // Redis 不可用，回退到数据库方案
+      this.logger.warn('Redis 不可用，使用数据库方案重新排序队列');
+      return this.reorderQueueFallback();
+    }
+
+    try {
+      // 获取在线客服数量（包括管理员）
+      const onlineAgentsCount = await this.prisma.user.count({
+        where: {
+          role: { in: ['AGENT', 'ADMIN'] },
+          isOnline: true,
+          deletedAt: null,
+        },
+      });
+
+      // 计算平均处理时间（分钟），默认5分钟
+      const averageProcessingTime = 5;
+
+      // 1. 处理已分配客服的会话
+      const assignedSessions = await this.prisma.session.findMany({
+        where: {
+          status: 'QUEUED',
+          agentId: { not: null },
+        },
+        select: {
+          id: true,
+          agentId: true,
+          priorityScore: true,
+          queuedAt: true,
+        },
+      });
+
+      // 按客服ID分组
+      const sessionsByAgent = new Map<string, typeof assignedSessions>();
+      for (const session of assignedSessions) {
+        if (session.agentId && session.queuedAt) {
+          if (!sessionsByAgent.has(session.agentId)) {
+            sessionsByAgent.set(session.agentId, []);
+          }
+          sessionsByAgent.get(session.agentId)!.push(session);
+        }
+      }
+
+      // 更新每个客服队列中的会话位置
+      for (const [agentId, sessions] of sessionsByAgent.entries()) {
+        for (const session of sessions) {
+          if (session.queuedAt) {
+            // 确保会话在 Redis 队列中（使用重试机制）
+            await this.queueService.addToAgentQueueWithRetry(
+              session.id,
+              agentId,
+              session.priorityScore || 0,
+              session.queuedAt,
+            );
+
+            // 从 Redis 获取实时排队位置
+            const queuePosition = await this.queueService.getQueuePosition(
+              session.id,
+              agentId,
+            );
+
+            if (queuePosition !== null) {
+              // 更新数据库
+              await this.prisma.session.update({
+                where: { id: session.id },
+                data: { queuePosition },
+              });
+
+              // 计算预计等待时间
+              const estimatedWaitTime = Math.ceil(
+                queuePosition * averageProcessingTime,
+              );
+
+              // 发送 WebSocket 通知
+              this.websocketGateway.notifyQueueUpdate(
+                session.id,
+                queuePosition,
+                estimatedWaitTime,
+              );
+            }
+          }
+        }
+      }
+
+      // 2. 处理未分配的会话
+      const unassignedSessions = await this.prisma.session.findMany({
+        where: {
+          status: 'QUEUED',
+          agentId: null,
+        },
+        select: {
+          id: true,
+          priorityScore: true,
+          queuedAt: true,
+        },
+      });
+
+      for (const session of unassignedSessions) {
+        if (session.queuedAt) {
+          // 确保会话在 Redis 队列中（使用重试机制）
+          await this.queueService.addToUnassignedQueueWithRetry(
+            session.id,
+            session.priorityScore || 0,
+            session.queuedAt,
+          );
+
+          // 从 Redis 获取实时排队位置
+          const queuePosition = await this.queueService.getQueuePosition(
+            session.id,
+            null,
+          );
+
+          if (queuePosition !== null) {
+            // 更新数据库
+            await this.prisma.session.update({
+              where: { id: session.id },
+              data: { queuePosition },
+            });
+
+            // 计算预计等待时间
+            const estimatedWaitTime =
+              onlineAgentsCount > 0
+                ? Math.ceil(
+                    (queuePosition / onlineAgentsCount) * averageProcessingTime,
+                  )
+                : null;
+
+            // 发送 WebSocket 通知
+            this.websocketGateway.notifyQueueUpdate(
+              session.id,
+              queuePosition,
+              estimatedWaitTime,
+            );
+          }
+        }
+      }
+
+      this.logger.debug(
+        `队列重新排序完成：已分配 ${assignedSessions.length} 个，未分配 ${unassignedSessions.length} 个`,
+      );
+    } catch (error) {
+      this.logger.error(`使用 Redis 重新排序队列失败: ${error.message}`, error.stack);
+      // 回退到数据库方案
+      this.logger.warn('回退到数据库方案重新排序队列');
+      return this.reorderQueueFallback();
+    }
+  }
+
+  // 数据库方案（降级方案）
+  private async reorderQueueFallback() {
     // 按分配的客服分组处理排队位置
     // 1. 获取所有已分配客服的排队会话，按客服分组
     const assignedSessions = await this.prisma.session.findMany({
@@ -1510,7 +1852,28 @@ export class SessionService {
   }
 
   // 获取排队位置（按分配的客服计算排名）
+  // 优先从 Redis 获取，如果 Redis 不可用则回退到数据库查询
   private async getQueuePosition(sessionId: string): Promise<number> {
+    // 优先从 Redis 获取
+    const isRedisAvailable = await this.queueService.isRedisAvailable();
+    if (isRedisAvailable) {
+      const session = await this.prisma.session.findUnique({
+        where: { id: sessionId },
+        select: { agentId: true },
+      });
+
+      if (session) {
+        const queuePosition = await this.queueService.getQueuePosition(
+          sessionId,
+          session.agentId,
+        );
+        if (queuePosition !== null) {
+          return queuePosition;
+        }
+      }
+    }
+
+    // Redis 不可用或未找到，回退到数据库查询
     const session = await this.prisma.session.findUnique({
       where: { id: sessionId },
     });
@@ -1566,6 +1929,12 @@ export class SessionService {
     if (session.status === 'CLOSED') {
       return session;
     }
+
+    // 获取原会话信息（用于从队列移除）
+    const oldSession = await this.prisma.session.findUnique({
+      where: { id: sessionId },
+      select: { agentId: true },
+    });
 
     const updatedSession = await this.prisma.session.update({
       where: { id: sessionId },
@@ -1639,6 +2008,12 @@ export class SessionService {
       return await this.findOne(sessionId);
     }
 
+    // 获取原会话信息（用于从队列移除）
+    const oldSessionInfo = await this.prisma.session.findUnique({
+      where: { id: sessionId },
+      select: { agentId: true },
+    });
+
     const session = await this.prisma.session.update({
       where: { id: sessionId },
       data: {
@@ -1677,6 +2052,17 @@ export class SessionService {
       this.websocketGateway.notifyMessage(sessionId, systemMessage);
     } catch (error) {
       console.warn('创建系统消息失败:', error);
+    }
+
+    // 从 Redis 队列移除会话（使用重试机制）
+    const removed = await this.queueService.removeFromQueueWithRetry(
+      sessionId,
+      oldSessionInfo?.agentId || null,
+    );
+    if (!removed) {
+      this.logger.warn(
+        `从 Redis 队列移除会话失败，将在下次一致性检查时修复`,
+      );
     }
 
     // 重新排序队列（移除已关闭的会话）

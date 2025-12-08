@@ -31,6 +31,40 @@ import { Public } from '../common/decorators/public.decorator';
 export class TicketController {
   constructor(private readonly ticketService: TicketService) {}
 
+  // 玩家端API - 查询玩家未完成工单列表
+  @Public()
+  @Post('query-open-tickets')
+  @ApiOperation({ summary: '查询玩家未完成工单列表' })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        gameId: { type: 'string', description: '游戏ID' },
+        serverId: { type: 'string', description: '区服ID（可选）' },
+        serverName: { type: 'string', description: '区服名称（可选）' },
+        playerIdOrName: { type: 'string', description: '玩家ID或昵称' },
+      },
+      required: ['gameId', 'playerIdOrName'],
+    },
+  })
+  @ApiResponse({ status: 200, description: '返回工单列表' })
+  queryOpenTickets(
+    @Body()
+    body: {
+      gameId: string;
+      serverId?: string;
+      serverName?: string;
+      playerIdOrName: string;
+    },
+  ) {
+    return this.ticketService.findOpenTicketsByPlayer(
+      body.gameId,
+      body.serverId || null,
+      body.serverName || null,
+      body.playerIdOrName,
+    );
+  }
+
   // 玩家端API - 检查未关闭工单
   @Public()
   @Post('check-open')

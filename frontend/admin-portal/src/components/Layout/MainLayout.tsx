@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Layout,
   Menu,
@@ -21,17 +21,38 @@ import {
 } from '@ant-design/icons';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAuthStore } from '../../stores/authStore';
+import { useSessionStore } from '../../stores/sessionStore';
 import { resolveAvatarUrl } from '../../utils/avatar';
+import { Badge } from 'antd';
 import './MainLayout.css';
 
 const { Header, Sider, Content } = Layout;
 
 const MainLayout: React.FC = () => {
   const [collapsed, setCollapsed] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
   const { user, logout } = useAuthStore();
+  const { getTotalUnread } = useSessionStore();
   const isAdmin = user?.role === 'ADMIN';
+  const totalUnread = getTotalUnread();
+  
+  // 检测是否为移动端（使用 useEffect 监听窗口大小变化）
+  const [isMobile, setIsMobile] = useState(false);
+  
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth <= 768);
+    };
+    
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    
+    return () => {
+      window.removeEventListener('resize', checkMobile);
+    };
+  }, []);
 
   const rawMenuItems = [
     {
@@ -43,7 +64,19 @@ const MainLayout: React.FC = () => {
     {
       key: '/workbench/active',
       icon: <CustomerServiceOutlined />,
-      label: '客服工作台',
+      label: (
+        <span>
+          客服工作台
+          {totalUnread > 0 && (
+            <Badge 
+              count={totalUnread} 
+              size="small" 
+              style={{ marginLeft: 10 }}
+              overflowCount={99}
+            />
+          )}
+        </span>
+      ),
     },
     {
       key: '/tickets',
@@ -95,6 +128,25 @@ const MainLayout: React.FC = () => {
 
   const handleMenuClick = ({ key }: { key: string }) => {
     navigate(key);
+    // 移动端点击菜单后自动关闭侧边栏
+    if (isMobile) {
+      setMobileMenuOpen(false);
+    }
+  };
+  
+  const handleToggleMenu = () => {
+    if (isMobile) {
+      setMobileMenuOpen(!mobileMenuOpen);
+    } else {
+      setCollapsed(!collapsed);
+    }
+  };
+  
+  // 点击遮罩层关闭移动端菜单
+  const handleOverlayClick = () => {
+    if (isMobile) {
+      setMobileMenuOpen(false);
+    }
   };
 
   const handleProfileClick = () => {
@@ -142,13 +194,39 @@ const MainLayout: React.FC = () => {
   };
 
   return (
-    <Layout className="main-layout">
+    <Layout className="main-layout" style={{ minHeight: '100vh' }}>
+      {/* 移动端遮罩层 */}
+      {isMobile && mobileMenuOpen && (
+        <div
+          className="mobile-menu-overlay"
+          onClick={handleOverlayClick}
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0, 0, 0, 0.5)',
+            zIndex: 999,
+          }}
+        />
+      )}
+      
       <Sider
         trigger={null}
         collapsible
         collapsed={collapsed}
         width={200}
-        className="layout-sider"
+        className={`layout-sider ${isMobile && mobileMenuOpen ? 'mobile-open' : ''}`}
+        style={{
+          position: 'fixed',
+          left: isMobile ? (mobileMenuOpen ? 0 : -200) : 0,
+          top: 0,
+          height: '100vh',
+          overflow: 'auto',
+          transition: 'left 0.3s ease',
+          zIndex: 1000,
+        }}
       >
         <div className="logo">
           <AppstoreOutlined />
@@ -167,7 +245,10 @@ const MainLayout: React.FC = () => {
 
       <Layout
         className="site-layout"
-        style={{ marginLeft: collapsed ? 80 : 200, transition: 'margin-left 0.2s' }}
+        style={{ 
+          marginLeft: isMobile ? 0 : (collapsed ? 80 : 200), 
+          transition: 'margin-left 0.2s' 
+        }}
       >
         <Header className="layout-header">
           <div className="header-left">
@@ -175,7 +256,7 @@ const MainLayout: React.FC = () => {
               className="trigger"
               type="text"
               icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
-              onClick={() => setCollapsed(!collapsed)}
+              onClick={handleToggleMenu}
             />
           </div>
 

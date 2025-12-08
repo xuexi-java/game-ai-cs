@@ -6,6 +6,7 @@ import { DifyModule } from '../dify/dify.module';
 import { MessageModule } from '../message/message.module';
 import { WebsocketModule } from '../websocket/websocket.module';
 import { TicketModule } from '../ticket/ticket.module';
+import { QueueModule } from '../queue/queue.module';
 
 @Module({
   imports: [
@@ -13,6 +14,7 @@ import { TicketModule } from '../ticket/ticket.module';
     MessageModule,
     forwardRef(() => WebsocketModule),
     forwardRef(() => TicketModule),
+    QueueModule,
   ],
   controllers: [SessionController],
   providers: [SessionService, PrismaService],

@@ -220,6 +220,29 @@
     }
 }
 
+/* 移动端优化 - 确保输入框有合适的大小 */
+@media (max-width: 768px) {
+    .enhanced-form .ant-input,
+    .enhanced-form .ant-input-affix-wrapper,
+    .enhanced-form .ant-picker,
+    .enhanced-form .ant-select-selector {
+        font-size: 16px; /* 防止 iOS 自动缩放 */
+        min-height: 44px; /* iOS 推荐的最小触摸目标 */
+        padding: 10px 14px;
+    }
+    
+    .enhanced-form .ant-btn {
+        min-height: 44px;
+        font-size: 16px;
+        padding: 10px 24px;
+    }
+    
+    .enhanced-form .ant-upload-select-picture-card {
+        width: 100px;
+        height: 100px;
+    }
+}
+
 @media (max-width: 480px) {
     .page-container {
         padding: 16px 12px;
@@ -237,11 +260,17 @@
     .enhanced-form .ant-input-affix-wrapper,
     .enhanced-form .ant-picker,
     .enhanced-form .ant-btn-primary {
-        font-size: 15px;
+        font-size: 16px; /* 防止 iOS 自动缩放 */
+    }
+    
+    .enhanced-form .ant-input,
+    .enhanced-form .ant-input-affix-wrapper {
+        padding: 12px 16px;
     }
     
     .enhanced-form .ant-btn-primary {
         height: 48px;
+        width: 100%;
     }
     
     .enhanced-form .ant-upload-select-picture-card {

@@ -3,6 +3,7 @@ import {
   NotFoundException,
   Inject,
   forwardRef,
+  Logger,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateTicketDto, TicketResponseDto } from './dto/create-ticket.dto';
@@ -11,11 +12,14 @@ import { TicketMessageService } from '../ticket-message/ticket-message.service';
 import { MessageService } from '../message/message.service';
 import { WebsocketGateway } from '../websocket/websocket.gateway';
 import { SessionService } from '../session/session.service';
+import { QueueService } from '../queue/queue.service';
 import { IssueTypeService } from '../issue-type/issue-type.service';
 import * as crypto from 'crypto';
 
 @Injectable()
 export class TicketService {
+  private readonly logger = new Logger(TicketService.name);
+
   constructor(
     private prisma: PrismaService,
     private priorityService: TicketPriorityService,
@@ -26,7 +30,8 @@ export class TicketService {
     @Inject(forwardRef(() => SessionService))
     private sessionService: SessionService,
     private issueTypeService: IssueTypeService,
-  ) {}
+    private queueService: QueueService,
+  ) { }
 
   // 生成工单编号
   private generateTicketNo(): string {
@@ -76,12 +81,95 @@ export class TicketService {
       hasOpenTicket: !!openTicket,
       ticket: openTicket
         ? {
-            id: openTicket.id,
-            ticketNo: openTicket.ticketNo,
-            token: openTicket.token,
-          }
+          id: openTicket.id,
+          ticketNo: openTicket.ticketNo,
+          token: openTicket.token,
+        }
         : null,
     };
+  }
+
+  // 查询玩家所有未完成工单（用于工单查询页面）
+  async findOpenTicketsByPlayer(
+    gameId: string,
+    serverId: string | null,
+    serverName: string | null,
+    playerIdOrName: string,
+  ) {
+    const where: any = {
+      gameId,
+      playerIdOrName,
+      deletedAt: null,
+      status: {
+        in: ['WAITING', 'IN_PROGRESS'], // 只查询未完成的工单
+      },
+    };
+
+    // 区服匹配逻辑：优先使用 serverId，其次使用 serverName
+    if (serverId) {
+      where.serverId = serverId;
+    } else if (serverName) {
+      where.serverName = serverName;
+    }
+    // 如果都不提供，则查询所有区服的工单
+
+    const tickets = await this.prisma.ticket.findMany({
+      where,
+      include: {
+        game: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+        server: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+        ticketIssueTypes: {
+          include: {
+            issueType: {
+              select: {
+                id: true,
+                name: true,
+              },
+            },
+          },
+        },
+      },
+      orderBy: {
+        createdAt: 'desc',
+      },
+      take: 50, // 最多返回50条
+    });
+
+    // 格式化返回数据
+    return tickets.map((ticket) => ({
+      id: ticket.id,
+      ticketNo: ticket.ticketNo,
+      token: ticket.token,
+      status: ticket.status,
+      description: ticket.description,
+      createdAt: ticket.createdAt.toISOString(),
+      updatedAt: ticket.updatedAt.toISOString(),
+      game: {
+        id: ticket.game.id,
+        name: ticket.game.name,
+      },
+      server: ticket.server
+        ? {
+          id: ticket.server.id,
+          name: ticket.server.name,
+        }
+        : null,
+      serverName: ticket.serverName,
+      issueTypes: ticket.ticketIssueTypes.map((tt) => ({
+        id: tt.issueType.id,
+        name: tt.issueType.name,
+      })),
+    }));
   }
 
   // 检查玩家是否有相同问题类型的未完成工单
@@ -119,10 +207,10 @@ export class TicketService {
       hasOpenTicket: !!openTicket,
       ticket: openTicket
         ? {
-            id: openTicket.id,
-            ticketNo: openTicket.ticketNo,
-            token: openTicket.token,
-          }
+          id: openTicket.id,
+          ticketNo: openTicket.ticketNo,
+          token: openTicket.token,
+        }
         : null,
     };
   }
@@ -169,26 +257,27 @@ export class TicketService {
       }
 
       // ✅ 验证问题类型是否存在且启用，并获取完整信息
-      let issueTypes: Array<{ id: string; enabled: boolean; requireDirectTransfer: boolean }> = [];
+      let issueTypes: Array<{ id: string; name: string; enabled: boolean; requireDirectTransfer: boolean }> = [];
       if (issueTypeIds && issueTypeIds.length > 0) {
         issueTypes = await this.prisma.issueType.findMany({
           where: {
             id: { in: issueTypeIds },
             deletedAt: null,
           },
-          select: { 
-            id: true, 
+          select: {
+            id: true,
+            name: true,
             enabled: true,
             requireDirectTransfer: true,
           },
         });
-        
+
         if (issueTypes.length !== issueTypeIds.length) {
           const foundIds = issueTypes.map((t) => t.id);
           const missingIds = issueTypeIds.filter((id) => !foundIds.includes(id));
           throw new Error(`问题类型不存在: ${missingIds.join(', ')}`);
         }
-        
+
         const disabledTypes = issueTypes.filter((t) => !t.enabled);
         if (disabledTypes.length > 0) {
           throw new Error(`问题类型已禁用: ${disabledTypes.map((t) => t.id).join(', ')}`);
@@ -217,9 +306,14 @@ export class TicketService {
       }
 
       // 检查是否需要直接转人工（使用已查询的问题类型）
-      const requiresDirectTransfer = issueTypes.some(
-        (type) => type.requireDirectTransfer,
-      );
+      const directTransferType = issueTypes.find((type) => type.requireDirectTransfer);
+      const requiresDirectTransfer = !!directTransferType;
+
+      if (requiresDirectTransfer) {
+        this.logger.log(`工单 ${ticketNo} 触发直接转人工，原因：问题类型 "${directTransferType.name}" (ID: ${directTransferType.id}) 要求直接转人工`);
+      } else {
+        this.logger.log(`工单 ${ticketNo} 进入 AI 处理流程，涉及问题类型: ${issueTypes.map(t => t.name).join(', ')}`);
+      }
 
       // 如果需要直接转人工，状态设置为 WAITING（待人工处理）
       // 否则设置为 IN_PROGRESS（处理中，会进入AI流程）
@@ -261,70 +355,70 @@ export class TicketService {
         throw new Error(`创建工单失败: ${error.message || '未知错误'}`);
       }
 
-    // 计算优先级（基于问题类型权重）
-    try {
-      const { priorityScore, priority } =
-        await this.priorityService.calculatePriority(issueTypeIds || []);
+      // 计算优先级（基于问题类型权重）
+      try {
+        const { priorityScore, priority } =
+          await this.priorityService.calculatePriority(issueTypeIds || []);
 
-      // 更新工单的优先级和分数
-      await this.prisma.ticket.update({
-        where: { id: ticket.id },
-        data: {
-          priority,
-          priorityScore,
-        },
-      });
-    } catch (error) {
-      // ✅ 如果计算优先级失败，使用默认值，不影响工单创建
-      console.error('计算优先级失败，使用默认值:', error);
-      await this.prisma.ticket.update({
-        where: { id: ticket.id },
-        data: {
-          priority: 'NORMAL',
-          priorityScore: 50,
-        },
-      });
-    }
+        // 更新工单的优先级和分数
+        await this.prisma.ticket.update({
+          where: { id: ticket.id },
+          data: {
+            priority,
+            priorityScore,
+          },
+        });
+      } catch (error) {
+        // ✅ 如果计算优先级失败，使用默认值，不影响工单创建
+        console.error('计算优先级失败，使用默认值:', error);
+        await this.prisma.ticket.update({
+          where: { id: ticket.id },
+          data: {
+            priority: 'NORMAL',
+            priorityScore: 50,
+          },
+        });
+      }
 
-    // 如果需要直接转人工，检查是否有在线客服
-    let hasOnlineAgents = false;
-    let sessionCreated = false;
-    let sessionId: string | null = null;
-    if (requiresDirectTransfer) {
-      // 检查是否有在线客服（包括管理员）
-      const onlineAgentsCount = await this.prisma.user.count({
-        where: {
-          role: { in: ['AGENT', 'ADMIN'] },
-          isOnline: true,
-          deletedAt: null,
-        },
-      });
-      hasOnlineAgents = onlineAgentsCount > 0;
+      // 如果需要直接转人工，检查是否有在线客服
+      let hasOnlineAgents = false;
+      let sessionCreated = false;
+      let sessionId: string | null = null;
+      if (requiresDirectTransfer) {
+        // 检查是否有在线客服（包括管理员）
+        const onlineAgentsCount = await this.prisma.user.count({
+          where: {
+            role: { in: ['AGENT', 'ADMIN'] },
+            isOnline: true,
+            deletedAt: null,
+          },
+        });
+        hasOnlineAgents = onlineAgentsCount > 0;
 
-      // 如果有在线客服，尝试自动分配并创建会话
-      if (hasOnlineAgents) {
-        try {
-          const result = await this.autoAssignDirectTransferTicket(ticket.id);
-          sessionCreated = result.sessionCreated;
-          // 如果会话已创建，获取会话ID
-          if (sessionCreated) {
-            const activeSession = await this.prisma.session.findFirst({
-              where: {
-                ticketId: ticket.id,
-                status: { in: ['PENDING', 'QUEUED', 'IN_PROGRESS'] },
-              },
-              orderBy: { createdAt: 'desc' },
-              select: { id: true },
-            });
-            sessionId = activeSession?.id || null;
+        // 如果有在线客服，尝试自动分配并创建会话
+        if (hasOnlineAgents) {
+          try {
+            const result = await this.autoAssignDirectTransferTicket(ticket.id);
+            sessionCreated = result.sessionCreated;
+            // 如果会话已创建，获取会话ID
+            if (sessionCreated) {
+              const activeSession = await this.prisma.session.findFirst({
+                where: {
+                  ticketId: ticket.id,
+                  status: { in: ['PENDING', 'QUEUED', 'IN_PROGRESS'] },
+                },
+                orderBy: { createdAt: 'desc' },
+                select: { id: true },
+              });
+              sessionId = activeSession?.id || null;
+            }
+          } catch (error) {
+            // ✅ 如果自动分配失败，记录错误但不影响工单创建
+            console.error('自动分配直接转人工工单失败:', error);
+            sessionCreated = false;
           }
-        } catch (error) {
-          // ✅ 如果自动分配失败，记录错误但不影响工单创建
-          console.error('自动分配直接转人工工单失败:', error);
-          sessionCreated = false;
         }
       }
-    }
 
       // 异步验证身份（如果有订单号）
       if (createTicketDto.paymentOrderNo) {
@@ -663,8 +757,8 @@ export class TicketService {
 
     // 定义允许排序的字段（防止SQL注入）
     const allowedSortFields = ['createdAt', 'updatedAt', 'priorityScore'];
-    const sortBy = query.sortBy && allowedSortFields.includes(query.sortBy) 
-      ? query.sortBy 
+    const sortBy = query.sortBy && allowedSortFields.includes(query.sortBy)
+      ? query.sortBy
       : null;
     const sortOrder = query.sortOrder === 'asc' || query.sortOrder === 'desc'
       ? query.sortOrder
@@ -704,14 +798,14 @@ export class TicketService {
         },
         orderBy: sortBy
           ? {
-              // 使用验证后的排序字段和顺序，确保排序基于整个数据集
-              [sortBy]: sortOrder,
-            }
+            // 使用验证后的排序字段和顺序，确保排序基于整个数据集
+            [sortBy]: sortOrder,
+          }
           : [
-              // 默认排序：先按问题类型权重分数降序，相同分数按创建时间升序
-              { priorityScore: 'desc' },
-              { createdAt: 'asc' },
-            ],
+            // 默认排序：先按问题类型权重分数降序，相同分数按创建时间升序
+            { priorityScore: 'desc' },
+            { createdAt: 'asc' },
+          ],
         skip,
         take: pageSize,
       }),
@@ -938,14 +1032,14 @@ export class TicketService {
 
     // 检查每个工单：如果3天没有玩家继续处理，则更新为 RESOLVED
     const ticketsToUpdate: any[] = [];
-    
+
     for (const ticket of staleTickets) {
       // 获取最后一条消息的时间（如果有）
       const ticketMessages = (ticket as any).messages || [];
       const lastMessageTime = ticketMessages.length > 0
         ? ticketMessages[0].createdAt
         : null;
-      
+
       // 获取最后活跃会话的更新时间
       const ticketSessions = (ticket as any).sessions || [];
       const lastActiveSession = ticketSessions.find(
@@ -954,8 +1048,8 @@ export class TicketService {
       const lastSessionUpdateTime = lastActiveSession
         ? lastActiveSession.updatedAt
         : (ticketSessions.length > 0
-            ? ticketSessions[0].updatedAt
-            : null);
+          ? ticketSessions[0].updatedAt
+          : null);
 
       // 确定最后活动时间：取消息时间、会话更新时间、工单更新时间的最大值
       const lastActivityTime = [
@@ -1060,33 +1154,34 @@ export class TicketService {
         },
       });
 
-      // 如果没有在线客服，检查是否有在线管理员
-      let candidatePool = [...onlineAgents];
-      if (onlineAgents.length === 0) {
-        const onlineAdmins = await this.prisma.user.findMany({
-          where: {
-            role: 'ADMIN',
-            isOnline: true,
-            deletedAt: null,
-          },
-          include: {
-            sessions: {
-              where: {
-                status: {
-                  in: ['QUEUED', 'IN_PROGRESS'],
-                },
+      // 获取所有在线管理员
+      const onlineAdmins = await this.prisma.user.findMany({
+        where: {
+          role: 'ADMIN',
+          isOnline: true,
+          deletedAt: null,
+        },
+        include: {
+          sessions: {
+            where: {
+              status: {
+                in: ['QUEUED', 'IN_PROGRESS'],
               },
             },
           },
-        });
-        candidatePool = onlineAdmins;
-      }
+        },
+      });
+
+      // 合并候选池：客服 + 管理员（管理员权重更高，优先分配给客服）
+      const candidatePool = [...onlineAgents, ...onlineAdmins];
 
       if (candidatePool.length === 0) {
+        this.logger.warn('没有在线客服或管理员，无法分配工单');
         return; // 没有在线客服或管理员，不分配
       }
 
-      // 为每个工单找到最合适的客服（负载均衡 + 最早登录优先）
+      // 为每个工单找到最合适的客服/管理员（负载均衡 + 最早登录优先）
+      const ADMIN_WEIGHT_PENALTY = 3; // 管理员负载权重惩罚
       for (const ticket of waitingTickets) {
         try {
           // 检查是否已经有活跃会话
@@ -1103,11 +1198,12 @@ export class TicketService {
             continue; // 已有活跃会话，跳过
           }
 
-          // 计算每个客服/管理员的负载和登录时间
+          // 计算每个客服/管理员的负载（管理员增加权重）
           const agentsWithLoad = candidatePool.map((agent) => ({
             agent,
-            load: agent.sessions.length,
+            load: agent.sessions.length + (agent.role === 'ADMIN' ? ADMIN_WEIGHT_PENALTY : 0),
             loginTime: agent.lastLoginAt || agent.createdAt,
+            role: agent.role,
           }));
 
           // 排序：先按负载升序，负载相同时按登录时间升序（最早登录优先）
@@ -1122,6 +1218,19 @@ export class TicketService {
           });
 
           const selectedAgent = agentsWithLoad[0].agent;
+
+          // 记录分配日志
+          this.logger.log(
+            `工单 ${ticket.id} 自动分配: 选择 ${selectedAgent.role} ${selectedAgent.username} (负载: ${selectedAgent.sessions.length}, 加权负载: ${agentsWithLoad[0].load})`,
+            {
+              ticketId: ticket.id,
+              selectedAgentId: selectedAgent.id,
+              selectedAgentRole: selectedAgent.role,
+              selectedAgentUsername: selectedAgent.username,
+              actualLoad: selectedAgent.sessions.length,
+              weightedLoad: agentsWithLoad[0].load,
+            },
+          );
 
           // 创建新会话并分配给选中的客服
           const session = await this.prisma.session.create({
@@ -1143,6 +1252,21 @@ export class TicketService {
             },
           });
 
+          // 立即添加到 Redis 队列（已分配给客服，使用重试机制）
+          if (session.queuedAt) {
+            const added = await this.queueService.addToAgentQueueWithRetry(
+              session.id,
+              selectedAgent.id,
+              ticket.priorityScore || 0,
+              session.queuedAt,
+            );
+            if (!added) {
+              console.warn(
+                `添加到 Redis 队列失败，将在下次一致性检查时修复`,
+              );
+            }
+          }
+
           // 注意：会话应该保持 QUEUED 状态，让客服能看到并主动接入
           // 不调用 autoAssignSession，因为那会将状态改为 IN_PROGRESS
           // 会话状态保持为 QUEUED，等待客服主动接入
@@ -1154,7 +1278,10 @@ export class TicketService {
             );
             this.websocketGateway.notifyNewSession(enrichedSession);
           } catch (error) {
-            console.warn(`通知新会话失败: ${error.message}`);
+            this.logger.warn(`通知新会话失败: ${error.message}`, {
+              sessionId: session.id,
+              error: error.message,
+            });
           }
 
           // 更新工单状态
@@ -1165,16 +1292,38 @@ export class TicketService {
             },
           });
 
-          console.log(
-            `工单 ${ticket.ticketNo} 已自动分配给客服 ${selectedAgent.username}`,
+          this.logger.log(
+            `工单 ${ticket.ticketNo} 已自动分配给 ${selectedAgent.role} ${selectedAgent.username}`,
+            {
+              ticketId: ticket.id,
+              ticketNo: ticket.ticketNo,
+              selectedAgentId: selectedAgent.id,
+              selectedAgentRole: selectedAgent.role,
+              selectedAgentUsername: selectedAgent.username,
+            },
           );
         } catch (error) {
-          console.error(`分配工单 ${ticket.ticketNo} 失败:`, error);
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          const errorStack = error instanceof Error ? error.stack : undefined;
+          this.logger.error(
+            `分配工单 ${ticket.ticketNo} 失败: ${errorMessage}`,
+            errorStack,
+            'TicketService',
+            { ticketId: ticket.id, ticketNo: ticket.ticketNo },
+          );
           // 继续处理下一个工单
         }
       }
+
+      this.logger.log(`自动分配等待工单完成，处理了 ${waitingTickets.length} 个工单`);
     } catch (error) {
-      console.error('自动分配工单失败:', error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorStack = error instanceof Error ? error.stack : undefined;
+      this.logger.error(
+        `自动分配等待工单失败: ${errorMessage}`,
+        errorStack,
+        'TicketService',
+      );
     }
   }
 
@@ -1244,16 +1393,15 @@ export class TicketService {
       }
 
       // 合并客服和管理员作为候选池
-      let candidatePool = [...onlineAgents];
-      if (onlineAdmins.length > 0) {
-        candidatePool = [...candidatePool, ...onlineAdmins];
-      }
+      const candidatePool = [...onlineAgents, ...onlineAdmins];
 
-      // 计算每个客服/管理员的负载和登录时间
+      // 计算每个客服/管理员的负载（管理员增加权重）
+      const ADMIN_WEIGHT_PENALTY = 3; // 管理员负载权重惩罚
       const agentsWithLoad = candidatePool.map((agent) => ({
         agent,
-        load: agent.sessions.length,
+        load: agent.sessions.length + (agent.role === 'ADMIN' ? ADMIN_WEIGHT_PENALTY : 0),
         loginTime: agent.lastLoginAt || agent.createdAt,
+        role: agent.role,
       }));
 
       // 排序：先按负载升序，负载相同时按登录时间升序（最早登录优先）
@@ -1268,6 +1416,19 @@ export class TicketService {
       });
 
       const selectedAgent = agentsWithLoad[0].agent;
+
+      // 记录分配日志
+      this.logger.log(
+        `工单 ${ticketId} 自动分配: 选择 ${selectedAgent.role} ${selectedAgent.username} (负载: ${selectedAgent.sessions.length}, 加权负载: ${agentsWithLoad[0].load})`,
+        {
+          ticketId,
+          selectedAgentId: selectedAgent.id,
+          selectedAgentRole: selectedAgent.role,
+          selectedAgentUsername: selectedAgent.username,
+          actualLoad: selectedAgent.sessions.length,
+          weightedLoad: agentsWithLoad[0].load,
+        },
+      );
 
       // 获取工单信息
       const ticket = await this.prisma.ticket.findUnique({
@@ -1306,6 +1467,20 @@ export class TicketService {
         },
       });
 
+      // 立即添加到 Redis 队列（未分配队列，使用重试机制）
+      if (session.queuedAt) {
+        const added = await this.queueService.addToUnassignedQueueWithRetry(
+          session.id,
+          ticket.priorityScore || 0,
+          session.queuedAt,
+        );
+        if (!added) {
+          console.warn(
+            `添加到 Redis 队列失败，将在下次一致性检查时修复`,
+          );
+        }
+      }
+
       // 重新排序队列（计算排队位置和预计等待时间）
       try {
         await this.sessionService.reorderQueue();
@@ -1320,13 +1495,27 @@ export class TicketService {
         // ⚠️ 关键：检查是否真的分配了客服
         if (assignedSession.agentId) {
           assignmentSucceeded = true;
-          console.log(`会话 ${session.id} 已自动分配给客服`);
+          this.logger.log(`会话 ${session.id} 已自动分配给客服`, {
+            sessionId: session.id,
+            agentId: assignedSession.agentId,
+          });
         } else {
-          console.warn(`会话 ${session.id} 未能分配客服（可能没有可分配的客服）`);
+          this.logger.warn(`会话 ${session.id} 未能分配客服（可能没有可分配的客服）`, {
+            sessionId: session.id,
+          });
         }
       } catch (error) {
         // 自动分配失败可能是因为所有客服都忙，这是正常的，保持未分配状态
-        console.warn(`自动分配失败，会话 ${session.id} 保持未分配状态: ${error.message}`);
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        const errorStack = error instanceof Error ? error.stack : undefined;
+        this.logger.warn(
+          `自动分配失败，会话 ${session.id} 保持未分配状态: ${errorMessage}`,
+          {
+            sessionId: session.id,
+            error: errorMessage,
+            stack: errorStack,
+          },
+        );
       }
 
       // ⚠️ 关键修复：如果自动分配失败，检查是否还有在线客服
@@ -1341,8 +1530,14 @@ export class TicketService {
 
         // 如果现在没有在线客服了，关闭会话并转为工单，告知玩家
         if (stillHasOnlineAgents === 0) {
-          console.warn(`自动分配失败且无在线客服，关闭会话 ${session.id} 并转为工单`);
-          
+          this.logger.warn(
+            `自动分配失败且无在线客服，关闭会话 ${session.id} 并转为工单`,
+            {
+              sessionId: session.id,
+              ticketId: ticket.id,
+            },
+          );
+
           // 更新工单为加急状态
           await this.prisma.ticket.update({
             where: { id: ticketId },
@@ -1384,7 +1579,7 @@ export class TicketService {
         this.websocketGateway.notifyNewSession(enrichedSession);
         // 通知会话更新（确保客服端能刷新待接入队列，包含排队信息）
         this.websocketGateway.notifySessionUpdate(session.id, enrichedSession);
-        
+
         // ✅ 确保发送排队更新通知到玩家端
         if (enrichedSession.queuePosition !== null && enrichedSession.queuePosition !== undefined) {
           this.websocketGateway.notifyQueueUpdate(
@@ -1399,7 +1594,14 @@ export class TicketService {
 
       return { hasAgents: true, sessionCreated: true };
     } catch (error) {
-      console.error(`自动分配直接转人工工单失败: ${error.message}`);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorStack = error instanceof Error ? error.stack : undefined;
+      this.logger.error(
+        `自动分配直接转人工工单 ${ticketId} 失败: ${errorMessage}`,
+        errorStack,
+        'TicketService',
+        { ticketId },
+      );
       return { hasAgents: false, sessionCreated: false };
     }
   }

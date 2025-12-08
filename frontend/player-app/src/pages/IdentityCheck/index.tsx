@@ -3,7 +3,8 @@
  */
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Form, Select, Input, Button, Card, Modal, Typography } from 'antd';
+import { Form, Select, Input, Button, Card, Modal, Typography, Space } from 'antd';
+import { SearchOutlined } from '@ant-design/icons';
 import { getEnabledGames, type Game } from '../../services/game.service';
 import { getEnabledIssueTypes, type IssueType } from '../../services/issue-type.service';
 import { useTicketStore } from '../../stores/ticketStore';
@@ -157,8 +158,16 @@ const IdentityCheckPage = () => {
               // 直接转人工：创建工单并进入排队
               handleDirectTransfer(values);
             } else {
-              // 正常流程：进入问题描述表单
-              navigate('/intake-form');
+              // 正常流程：跳转到合并表单页面（包含身份信息和问题描述）
+              // 将表单数据保存到 store，然后跳转
+              setIdentity({
+                gameId: values.gameId,
+                serverId: undefined,
+                serverName: values.serverName,
+                playerIdOrName: values.playerIdOrName,
+              });
+              setStoreIssueTypes([values.issueTypeId]);
+              navigate('/submit-ticket');
             }
           },
         });
@@ -170,8 +179,16 @@ const IdentityCheckPage = () => {
         // 直接转人工：创建工单并进入排队
         await handleDirectTransfer(values);
       } else {
-        // 正常流程：进入问题描述表单
-        navigate('/intake-form');
+        // 正常流程：跳转到合并表单页面（包含身份信息和问题描述）
+        // 将表单数据保存到 store，然后跳转
+        setIdentity({
+          gameId: values.gameId,
+          serverId: undefined,
+          serverName: values.serverName,
+          playerIdOrName: values.playerIdOrName,
+        });
+        setStoreIssueTypes([values.issueTypeId]);
+        navigate('/submit-ticket');
       }
     } catch (error: unknown) {
       console.error('身份验证失败:', error);
@@ -427,6 +444,17 @@ const IdentityCheckPage = () => {
               loading={loading}
             >
               下一步
+            </Button>
+          </Form.Item>
+
+          <Form.Item style={{ marginBottom: 0, textAlign: 'center' }}>
+            <Button
+              type="link"
+              icon={<SearchOutlined />}
+              onClick={() => navigate('/ticket-query')}
+              style={{ padding: 0 }}
+            >
+              查询我的工单
             </Button>
           </Form.Item>
         </Form>
