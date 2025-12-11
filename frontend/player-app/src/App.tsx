@@ -13,7 +13,12 @@ const customZhCN = {
   ...zhCN,
   DatePicker: {
     ...zhCN.DatePicker,
-    okText: '确定',
+    lang: {
+      ...zhCN.DatePicker?.lang,
+      ok: '确定',
+      now: '此刻',
+      today: '今天',
+    },
   },
 };
 
@@ -35,7 +40,7 @@ import './App.css';
 
 function App() {
   return (
-    <ConfigProvider 
+    <ConfigProvider
       locale={customZhCN}
       theme={{
         token: {

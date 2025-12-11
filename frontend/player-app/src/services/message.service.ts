@@ -32,3 +32,10 @@ export const getSessionMessages = async (
 ): Promise<Message[]> => {
   return apiClient.get(`/messages/session/${sessionId}`);
 };
+
+/**
+ * 翻译消息
+ */
+export const translateMessage = async (messageId: string, targetLang?: string): Promise<Message> => {
+  return apiClient.post(`/messages/${messageId}/translate`, { targetLang });
+};

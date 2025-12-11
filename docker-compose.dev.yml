@@ -5,20 +5,29 @@ version: '3.8'
 
 services:
   backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: builder
     environment:
       - NODE_ENV=development
     volumes:
       - ./backend/src:/app/src
       - ./backend/prisma:/app/prisma
+      - ./backend/package.json:/app/package.json
+      - ./backend/tsconfig.json:/app/tsconfig.json
+      - ./backend/tsconfig.build.json:/app/tsconfig.build.json
+      - ./backend/nest-cli.json:/app/nest-cli.json
     command: npm run start:dev
 
   admin-portal:
     build:
       context: ./frontend/admin-portal
       dockerfile: Dockerfile
+  #    provenance: false
 
   player-app:
     build:
       context: ./frontend/player-app
       dockerfile: Dockerfile
-
+  #    provenance: false

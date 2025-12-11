@@ -136,6 +136,7 @@ export interface TicketMessage {
     realName?: string | null;
   } | null;
   content: string;
+  metadata?: any; // 包含翻译信息等
   createdAt: string;
 }
 
@@ -165,5 +166,15 @@ export const sendTicketMessageByToken = async (
   content: string
 ): Promise<TicketMessage> => {
   return apiClient.post(`/tickets/by-token/${token}/messages`, { content });
+};
+
+/**
+ * 翻译工单消息
+ */
+export const translateTicketMessage = async (
+  messageId: string,
+  targetLang?: string
+): Promise<TicketMessage> => {
+  return apiClient.post(`/ticket-messages/${messageId}/translate`, { targetLang });
 };
 

@@ -1,12 +1,17 @@
 /**
- * 消息列表组件 - V3.0
+ * 消息列表组件 - V3.0  
  */
 import type { Message } from '../../types';
 import dayjs from 'dayjs';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { RobotOutlined, UserOutlined, CustomerServiceOutlined, LoadingOutlined } from '@ant-design/icons';
+import { RobotOutlined, UserOutlined, CustomerServiceOutlined, LoadingOutlined, TranslationOutlined, GlobalOutlined } from '@ant-design/icons';
 import { API_BASE_URL } from '../../config/api';
+import { useState } from 'react';
+import { useMessage } from '../../hooks/useMessage';
+import { translateMessage } from '../../services/message.service';
+import { translateTicketMessage } from '../../services/ticket.service';
+import { Dropdown, type MenuProps } from 'antd';
 import './MessageList.css';
 
 // 解析媒体URL（图片等）
@@ -20,15 +25,33 @@ const resolveMediaUrl = (url?: string) => {
   return `${apiOrigin}${normalized}`;
 };
 
-type UploadStatus = 'UPLOADING' | 'FAILED';
-
 interface MessageListProps {
   messages: Message[];
   aiTyping?: boolean;
-  onRetryUpload?: (pendingId: string) => void;
+  onRetryUpload?: (pendingUploadId: string) => void;
+  onMessageUpdate?: (message: Message) => void;
+  playerLanguage?: string;
+  isTicketChat?: boolean;
+  preferredTargetLang?: string;
 }
 
-const MessageList = ({ messages, aiTyping = false, onRetryUpload }: MessageListProps) => {
+// 语言选项
+const LANGUAGES: MenuProps['items'] = [
+  { key: 'zh', label: '中文' },
+  { key: 'en', label: 'English' },
+  { key: 'ja', label: '日本語' },
+  { key: 'ko', label: '한국어' },
+  { key: 'es', label: 'Español' },
+  { key: 'fr', label: 'Français' },
+  { key: 'de', label: 'Deutsch' },
+  { key: 'ru', label: 'Русский' },
+];
+
+const MessageList = ({ messages, aiTyping = false, onRetryUpload, onMessageUpdate, playerLanguage, isTicketChat = false, preferredTargetLang }: MessageListProps) => {
+  const [translatingMessageIds, setTranslatingMessageIds] = useState<Set<string>>(new Set());
+  const [showOriginal, setShowOriginal] = useState<Record<string, boolean>>({});
+  const messageApi = useMessage();
+
   if (messages.length === 0) {
     return (
       <div className="message-list-empty">
@@ -36,6 +59,66 @@ const MessageList = ({ messages, aiTyping = false, onRetryUpload }: MessageListP
       </div>
     );
   }
+
+  const handleTranslate = async (messageId: string, targetLang: string) => {
+    if (translatingMessageIds.has(messageId)) return;
+
+    setTranslatingMessageIds((prev) => {
+      const next = new Set(prev);
+      next.add(messageId);
+      return next;
+    });
+
+    try {
+      // 根据消息类型选择正确的翻译API
+      const translated = isTicketChat
+        ? await translateTicketMessage(messageId, targetLang)
+        : await translateMessage(messageId, targetLang);
+
+      // 查找对应的消息
+      const message = messages.find(m => m.id === messageId);
+      if (!message) return;
+
+      // 将翻译结果转换为Message格式
+      const translatedMessage: Message = {
+        ...message,
+        metadata: {
+          ...message.metadata,
+          translation: (translated as any).metadata?.translation,
+        },
+      };
+
+      if (onMessageUpdate && translatedMessage) {
+        onMessageUpdate(translatedMessage);
+      }
+
+      // 检查是否有翻译内容
+      const hasTranslation = translatedMessage.metadata?.translation?.translatedContent;
+      if (hasTranslation) {
+        messageApi.success('翻译成功');
+      } else {
+        messageApi.warning('翻译完成，但未获取到翻译内容');
+      }
+    } catch (error: any) {
+      console.error('Translation failed:', error);
+
+      // 提供更详细的错误提示
+      let errorMessage = '翻译失败，请稍后重试';
+      if (error?.response?.data?.message) {
+        errorMessage = error.response.data.message;
+      } else if (error?.message) {
+        errorMessage = error.message;
+      }
+
+      messageApi.error(errorMessage);
+    } finally {
+      setTranslatingMessageIds((prev) => {
+        const next = new Set(prev);
+        next.delete(messageId);
+        return next;
+      });
+    }
+  };
 
   const parseContent = (content: string): string => {
     let parsed = content || '';
@@ -78,12 +161,8 @@ const MessageList = ({ messages, aiTyping = false, onRetryUpload }: MessageListP
         const isSystem = message.senderType === 'SYSTEM';
         const formattedTime = message.createdAt ? dayjs(message.createdAt).format('HH:mm') : '';
         const isTempMessage = message.id?.startsWith('temp-');
-        const metadata = (message.metadata || {}) as {
-          uploadStatus?: UploadStatus;
-          pendingUploadId?: string;
-          isLocalPreview?: boolean;
-          translatedContent?: string;
-        };
+        const metadata = message.metadata || {};
+        const translatedContent = metadata.translation?.translatedContent;
         const uploadStatus = metadata.uploadStatus;
         const isSending = uploadStatus === 'UPLOADING' || isTempMessage;
         const isFailed = uploadStatus === 'FAILED';
@@ -132,17 +211,99 @@ const MessageList = ({ messages, aiTyping = false, onRetryUpload }: MessageListP
                   />
                 ) : (
                   <div className="message-text-v3">
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                      {metadata.translatedContent
-                        ? metadata.translatedContent
-                        : parseContent(message.content)}
-                    </ReactMarkdown>
-                    {metadata.translatedContent && (
-                      <div className="translation-indicator">
-                        <small style={{ color: '#8c8c8c', fontSize: '12px', marginTop: '4px', display: 'block' }}>
-                          [已翻译] 原文: {parseContent(message.content)}
-                        </small>
-                      </div>
+                    {/* 显示原文或译文 */}
+                    {translatedContent && !showOriginal[message.id] ? (
+                      <>
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                          {translatedContent}
+                        </ReactMarkdown>
+                        <div
+                          className="translation-toggle"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setShowOriginal((prev) => ({
+                              ...prev,
+                              [message.id]: true,
+                            }));
+                          }}
+                          style={{
+                            fontSize: '12px',
+                            color: '#1890ff',
+                            cursor: 'pointer',
+                            marginTop: '4px'
+                          }}
+                        >
+                          查看原文
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                          {parseContent(message.content)}
+                        </ReactMarkdown>
+                        {translatedContent && showOriginal[message.id] && (
+                          <>
+                            <div className="translation-indicator" style={{ marginTop: '8px', paddingTop: '8px', borderTop: '1px solid #f0f0f0' }}>
+                              <small style={{ color: '#8c8c8c', fontSize: '12px', display: 'block', marginBottom: '4px' }}>
+                                [已翻译]
+                              </small>
+                              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                {translatedContent}
+                              </ReactMarkdown>
+                            </div>
+                            <div
+                              className="translation-toggle"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setShowOriginal((prev) => ({
+                                  ...prev,
+                                  [message.id]: false,
+                                }));
+                              }}
+                              style={{
+                                fontSize: '12px',
+                                color: '#1890ff',
+                                cursor: 'pointer',
+                                marginTop: '4px'
+                              }}
+                            >
+                              查看译文
+                            </div>
+                          </>
+                        )}
+                        {/* 翻译按钮：仅针对非玩家消息且没有翻译的 */}
+                        {!isPlayer && !translatedContent && (
+                          <Dropdown
+                            menu={{
+                              items: LANGUAGES,
+                              onClick: ({ key }) => handleTranslate(message.id!, key),
+                            }}
+                            trigger={['click']}
+                            placement="bottomLeft"
+                          >
+                            <div
+                              style={{
+                                marginTop: '8px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                                cursor: 'pointer',
+                                color: '#666'
+                              }}
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              {translatingMessageIds.has(message.id) ? (
+                                <LoadingOutlined style={{ fontSize: '14px' }} />
+                              ) : (
+                                <>
+                                  <GlobalOutlined style={{ fontSize: '14px' }} />
+                                  <span style={{ fontSize: '12px' }}>翻译</span>
+                                </>
+                              )}
+                            </div>
+                          </Dropdown>
+                        )}
+                      </>
                     )}
                   </div>
                 )}

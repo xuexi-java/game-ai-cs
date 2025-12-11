@@ -76,6 +76,18 @@ export interface Ticket {
       name: string;
     } | null;
   }>;
+  sessions?: Array<{
+    id: string;
+    status: 'PENDING' | 'QUEUED' | 'IN_PROGRESS' | 'CLOSED';
+    agentId?: string | null;
+    agent?: {
+      id: string;
+      username: string;
+      realName?: string;
+    } | null;
+    messages?: Message[];
+    createdAt: string;
+  }>;
 }
 
 export interface TicketAttachment {

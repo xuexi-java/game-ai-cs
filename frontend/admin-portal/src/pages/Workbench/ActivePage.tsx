@@ -46,9 +46,11 @@ import {
   getQueuedSessions,
   getSessionById,
   joinSession,
+  joinSessionByTicketId,
   closeSession,
 } from '../../services/session.service';
-import { sendTicketMessage, getTicketMessages } from '../../services/ticket.service';
+import { translateMessage, getSessionMessages } from '../../services/message.service';
+import { sendTicketMessage, getTicketMessages, getTicketById } from '../../services/ticket.service';
 import { uploadTicketAttachment } from '../../services/upload.service';
 
 // 延迟导入 websocketService 避免循环依赖
@@ -120,6 +122,7 @@ const ActivePage: React.FC = () => {
   // 翻译相关状态
   const [translatingMessageIds, setTranslatingMessageIds] = useState<Set<string>>(new Set());
   const [translatedMessages, setTranslatedMessages] = useState<Record<string, string>>({});
+  const [showOriginal, setShowOriginal] = useState<Record<string, boolean>>({});
 
   // 布局调整相关状态
   const [leftPanelWidth, setLeftPanelWidth] = useState(320);
@@ -245,16 +248,94 @@ const ActivePage: React.FC = () => {
           console.warn('跳过加载工单详情，工单ID:', next.id);
           return;
         }
+        
+        // ✅ 修复：先检查缓存中是否有消息，如果有且数量大于0，则优先使用缓存
+        const cachedMessagesForSession = cachedMessages[next.id];
+        if (cachedMessagesForSession && cachedMessagesForSession.length > 0) {
+          console.log(`[客服端] loadSessions - 使用缓存消息，会话 ${next.id}，消息数量: ${cachedMessagesForSession.length}`);
+          setCurrentSession(next);
+          currentSessionRef.current = next;
+          // 直接使用缓存的消息，不需要重新加载
+          return;
+        }
+        
         // 总是重新加载消息，确保获取最新的完整消息列表
         try {
           const detail = await getSessionById(next.id);
+          console.log('[客服端] loadSessions - 加载会话详情:', {
+            sessionId: detail.id,
+            ticketId: detail.ticketId,
+            messagesCount: detail.messages?.length || 0
+          });
           setCurrentSession(detail);
           currentSessionRef.current = detail;
           // 确保消息按时间排序
-          const sortedMessages = (detail.messages ?? []).sort(
+          let sortedMessages = (detail.messages ?? []).sort(
             (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
           );
-          setSessionMessages(next.id, sortedMessages);
+          
+          // ✅ 修复：如果会话消息为空，尝试通过工单查找关联会话的消息
+          if (sortedMessages.length === 0 && detail.ticketId) {
+            console.warn(`[客服端] loadSessions - 会话 ${detail.id} 消息为空，尝试通过工单 ${detail.ticketId} 查找关联会话的消息`);
+            try {
+              const ticketData = await getTicketById(detail.ticketId);
+              console.log('[客服端] loadSessions - 工单数据:', {
+                ticketId: ticketData.id,
+                sessionsCount: ticketData.sessions?.length || 0
+              });
+              if (ticketData.sessions && ticketData.sessions.length > 0) {
+                const allSessionMessages: Message[] = [];
+                for (const ticketSession of ticketData.sessions) {
+                  if (ticketSession.id && ticketSession.messages && Array.isArray(ticketSession.messages)) {
+                    const sessionMsgs = ticketSession.messages.map((msg: any) => ({
+                      id: msg.id,
+                      sessionId: ticketSession.id,
+                      senderType: msg.senderType,
+                      messageType: msg.messageType || 'TEXT',
+                      content: msg.content,
+                      metadata: msg.metadata || {},
+                      createdAt: msg.createdAt,
+                    }));
+                    allSessionMessages.push(...sessionMsgs);
+                  } else if (ticketSession.id) {
+                    try {
+                      const sessionMsgs = await getSessionMessages(ticketSession.id);
+                      allSessionMessages.push(...sessionMsgs);
+                    } catch (err) {
+                      console.warn(`[客服端] loadSessions - 获取会话 ${ticketSession.id} 的消息失败:`, err);
+                    }
+                  }
+                }
+                if (allSessionMessages.length > 0) {
+                  const uniqueMessages = allSessionMessages.filter(
+                    (msg, index, self) => index === self.findIndex((m) => m.id === msg.id)
+                  );
+                  sortedMessages = uniqueMessages.sort(
+                    (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+                  );
+                  console.log(`[客服端] loadSessions - 通过工单关联会话获取到 ${sortedMessages.length} 条消息`);
+                }
+              }
+            } catch (ticketError) {
+              console.error('[客服端] loadSessions - 通过工单查找会话消息失败:', ticketError);
+            }
+          }
+          
+          // ✅ 修复：只有在找到消息时才设置，避免用空消息覆盖已有的缓存消息
+          if (sortedMessages.length > 0) {
+            setSessionMessages(next.id, sortedMessages);
+            console.log('[客服端] loadSessions - 设置消息列表，数量:', sortedMessages.length);
+          } else {
+            // 如果仍然没有消息，检查缓存中是否有消息，如果有则保留缓存
+            const existingCachedMessages = cachedMessages[next.id];
+            if (existingCachedMessages && existingCachedMessages.length > 0) {
+              console.log(`[客服端] loadSessions - 后端返回空消息，但缓存中有 ${existingCachedMessages.length} 条消息，保留缓存`);
+              // 不调用 setSessionMessages，保留缓存的消息
+            } else {
+              console.warn(`[客服端] loadSessions - 会话 ${next.id} 没有消息，且缓存也为空`);
+              setSessionMessages(next.id, []); // 明确设置为空数组
+            }
+          }
         } catch (error) {
           console.error('加载会话详情失败', error);
           // 如果加载失败，不清空当前会话，保持显示基本信息
@@ -360,20 +441,42 @@ const ActivePage: React.FC = () => {
 
     // 当切换会话时，确保加载消息
     if (currentSession && currentSession.id) {
-      const cachedMessages = sessionMessages[currentSession.id];
+      // ✅ 修复：从 store 中获取最新的缓存消息
+      const { sessionMessages: latestCachedMessages } = useSessionStore.getState();
+      const cachedMessages = latestCachedMessages[currentSession.id];
+      // ✅ 修复：如果缓存中有消息，直接使用，不需要重新加载
+      if (cachedMessages && cachedMessages.length > 0) {
+        console.log(`[客服端] 会话切换，使用缓存消息: ${currentSession.id}，消息数量: ${cachedMessages.length}`);
+        // 直接返回，不重新加载，避免用空消息覆盖缓存
+        return; // 直接返回，不重新加载
+      }
       // 如果没有缓存的消息，或者消息数量为0，重新加载
       if (!cachedMessages || cachedMessages.length === 0) {
-        console.log('会话切换，重新加载消息:', currentSession.id);
+        console.log('[客服端] 会话切换，缓存中没有消息，重新加载消息:', currentSession.id);
         handleOpenChat(currentSession).catch((error) => {
           console.error('加载会话消息失败:', error);
         });
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentSession?.id]); // 只依赖会话ID，避免重复加载
+  }, [currentSession?.id]); // 移除 handleOpenChat 依赖，避免重复调用
 
   const handleOpenChat = useCallback(
     async (session: Session) => {
+      // ✅ 修复：先检查缓存中是否有消息，如果有且数量大于0，直接返回
+      const { sessionMessages: cachedMessages } = useSessionStore.getState();
+      const existingCachedMessages = cachedMessages[session.id];
+      if (existingCachedMessages && existingCachedMessages.length > 0) {
+        console.log(`[客服端] handleOpenChat - 使用缓存消息，会话 ${session.id}，消息数量: ${existingCachedMessages.length}`);
+        // 先设置会话，即使加载失败也能显示基本信息
+        setCurrentSession(session);
+        currentSessionRef.current = session;
+        // 直接返回，不重新加载，避免用空消息覆盖缓存
+        return;
+      }
+      
+      console.log(`[客服端] handleOpenChat - 缓存中没有消息，开始加载会话 ${session.id}`);
+      
       // 先设置会话，即使加载失败也能显示基本信息
       setCurrentSession(session);
       currentSessionRef.current = session;
@@ -426,8 +529,17 @@ const ActivePage: React.FC = () => {
 
       // 正常会话：总是重新加载消息，确保获取最新的完整消息列表
       try {
+        // ✅ 修复：先检查缓存中是否有消息
+        const { sessionMessages: cachedMessages } = useSessionStore.getState();
+        const existingCachedMessages = cachedMessages[session.id];
+        
         const detail = await getSessionById(session.id);
-        console.log('加载会话详情:', detail.id, '消息数量:', detail.messages?.length || 0);
+        console.log('[客服端] handleOpenChat - 加载会话详情:', {
+          sessionId: detail.id,
+          ticketId: detail.ticketId,
+          messagesCount: detail.messages?.length || 0,
+          cachedMessagesCount: existingCachedMessages?.length || 0
+        });
 
         // 更新会话信息
         setCurrentSession(detail);
@@ -437,11 +549,71 @@ const ActivePage: React.FC = () => {
         clearUnread(session.id);
 
         // 确保消息按时间排序
-        const sortedMessages = (detail.messages ?? []).sort(
+        let sortedMessages = (detail.messages ?? []).sort(
           (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
         );
-        console.log('设置消息列表，数量:', sortedMessages.length);
-        setSessionMessages(session.id, sortedMessages);
+        
+        // ✅ 修复：如果会话消息为空，尝试通过工单查找关联会话的消息
+        if (sortedMessages.length === 0 && detail.ticketId) {
+          console.warn(`[客服端] handleOpenChat - 会话 ${detail.id} 消息为空，尝试通过工单 ${detail.ticketId} 查找关联会话的消息`);
+          try {
+            const ticketData = await getTicketById(detail.ticketId);
+            console.log('[客服端] handleOpenChat - 工单数据:', {
+              ticketId: ticketData.id,
+              sessionsCount: ticketData.sessions?.length || 0
+            });
+            if (ticketData.sessions && ticketData.sessions.length > 0) {
+              const allSessionMessages: Message[] = [];
+              for (const ticketSession of ticketData.sessions) {
+                if (ticketSession.id && ticketSession.messages && Array.isArray(ticketSession.messages)) {
+                  const sessionMsgs = ticketSession.messages.map((msg: any) => ({
+                    id: msg.id,
+                    sessionId: ticketSession.id,
+                    senderType: msg.senderType,
+                    messageType: msg.messageType || 'TEXT',
+                    content: msg.content,
+                    metadata: msg.metadata || {},
+                    createdAt: msg.createdAt,
+                  }));
+                  allSessionMessages.push(...sessionMsgs);
+                } else if (ticketSession.id) {
+                  try {
+                    const sessionMsgs = await getSessionMessages(ticketSession.id);
+                    allSessionMessages.push(...sessionMsgs);
+                  } catch (err) {
+                    console.warn(`[客服端] handleOpenChat - 获取会话 ${ticketSession.id} 的消息失败:`, err);
+                  }
+                }
+              }
+              if (allSessionMessages.length > 0) {
+                const uniqueMessages = allSessionMessages.filter(
+                  (msg, index, self) => index === self.findIndex((m) => m.id === msg.id)
+                );
+                sortedMessages = uniqueMessages.sort(
+                  (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+                );
+                console.log(`[客服端] handleOpenChat - 通过工单关联会话获取到 ${sortedMessages.length} 条消息`);
+              }
+            }
+          } catch (ticketError) {
+            console.error('[客服端] handleOpenChat - 通过工单查找会话消息失败:', ticketError);
+          }
+        }
+        
+        // ✅ 修复：只有在找到消息时才设置，避免用空消息覆盖已有的缓存消息
+        if (sortedMessages.length > 0) {
+          setSessionMessages(session.id, sortedMessages);
+          console.log('[客服端] handleOpenChat - 设置消息列表，数量:', sortedMessages.length);
+        } else {
+          // 如果仍然没有消息，检查缓存中是否有消息，如果有则保留缓存
+          if (existingCachedMessages && existingCachedMessages.length > 0) {
+            console.log(`[客服端] handleOpenChat - 后端返回空消息，但缓存中有 ${existingCachedMessages.length} 条消息，保留缓存`);
+            // 不调用 setSessionMessages，保留缓存的消息
+          } else {
+            console.warn(`[客服端] handleOpenChat - 会话 ${session.id} 没有消息，且缓存也为空`);
+            setSessionMessages(session.id, []); // 明确设置为空数组
+          }
+        }
 
         // 如果会话已接入，加入WebSocket房间以接收实时消息
         if (detail.status === 'IN_PROGRESS' && detail.agentId === authUser?.id) {
@@ -675,7 +847,7 @@ const ActivePage: React.FC = () => {
     const isVirtual = (session as any).isVirtual || session.id.startsWith('ticket-');
 
     if (isVirtual) {
-      // 虚拟会话（工单）：直接加载工单消息，不需要接入会话
+      // ✅ 修复：虚拟会话（工单）需要真正接入会话，而不是只加载消息
       const ticketId = session.ticketId;
       if (!ticketId) {
         message.error('工单信息无效');
@@ -683,72 +855,193 @@ const ActivePage: React.FC = () => {
       }
 
       try {
-        // 加载工单消息
-        const ticketMessages = await getTicketMessages(ticketId);
+        // 通过工单ID接入会话（如果会话不存在则创建，如果已关闭则重新激活）
+        const joinedSession = await joinSessionByTicketId(ticketId);
+        console.log(`[客服端] 虚拟会话接入成功:`, joinedSession);
+
+        // 接入成功后，加载消息
+        const sessionMessages = joinedSession.messages || [];
+        
+        // 同时加载工单消息
+        const ticketMessages = await getTicketMessages(ticketId).catch(() => []);
 
         // 将工单消息转换为会话消息格式
-        const convertedMessages: Message[] = (Array.isArray(ticketMessages) ? ticketMessages : []).map((msg: any) => ({
+        const convertedTicketMessages: Message[] = (Array.isArray(ticketMessages) ? ticketMessages : []).map((msg: any) => ({
           id: msg.id,
-          sessionId: session.id,
+          sessionId: joinedSession.id,
           senderType: (msg.senderId ? 'AGENT' : 'PLAYER') as 'AGENT' | 'PLAYER',
           messageType: 'TEXT' as const,
           content: msg.content,
+          metadata: msg.metadata || {},
           createdAt: msg.createdAt,
           agentId: msg.senderId,
         }));
 
-        // 设置当前会话和消息
-        // 标记虚拟会话已加载消息，允许发送
-        const updatedSession = {
-          ...session,
-          isVirtual: true,
-          messagesLoaded: true, // 标记已加载消息
-        };
-        setCurrentSession(updatedSession);
-        currentSessionRef.current = updatedSession;
-        setSessionMessages(session.id, convertedMessages);
+        // ✅ 修复：合并会话消息和工单消息，去重并按时间排序
+        const allMessages = [...(sessionMessages || []), ...convertedTicketMessages];
+        const uniqueMessages = allMessages.filter(
+          (msg, index, self) => index === self.findIndex((m) => m.id === msg.id)
+        );
+        const sortedMessages = uniqueMessages.sort(
+          (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+        );
 
-        message.success('已加载工单消息');
+        console.log(`[客服端] 工单会话 ${joinedSession.id} 加载消息完成:`, {
+          会话消息数: sessionMessages?.length || 0,
+          工单消息数: convertedTicketMessages.length,
+          合并后总数: sortedMessages.length
+        });
+
+        // 设置当前会话和消息
+        setCurrentSession(joinedSession);
+        currentSessionRef.current = joinedSession;
+        setSessionMessages(joinedSession.id, sortedMessages);
+
+        // 刷新会话列表
+        await loadSessions();
+
+        message.success('接入会话成功');
       } catch (error: any) {
-        console.error('加载工单消息失败:', error);
-        message.error(error?.response?.data?.message || '加载工单消息失败，请重试');
+        console.error('接入虚拟会话失败:', error);
+        message.error(error?.response?.data?.message || '接入会话失败，请重试');
       }
       return;
     }
 
     // 正常会话：接入会话
     try {
+      console.log(`[客服端] 准备接入会话:`, {
+        sessionId: session.id,
+        ticketId: session.ticketId,
+        status: session.status,
+        hasMessages: !!session.messages,
+        messagesCount: session.messages?.length || 0
+      });
+      
       const updatedSession = await joinSession(session.id);
+      console.log(`[客服端] joinSession 返回:`, {
+        sessionId: updatedSession.id,
+        ticketId: updatedSession.ticketId,
+        hasMessages: !!updatedSession.messages,
+        messagesCount: updatedSession.messages?.length || 0,
+        messages: updatedSession.messages
+      });
+      
       message.success('接入会话成功');
 
-      // 立即更新当前会话（如果当前选中的是这个会话）
-      if (currentSession?.id === session.id) {
-        // 直接使用返回的更新后的会话信息
-        const enrichedSession = {
-          ...updatedSession,
-          status: 'IN_PROGRESS' as const,
-          agentId: updatedSession.agentId || authUser?.id,
-        };
-        setCurrentSession(enrichedSession);
-        currentSessionRef.current = enrichedSession;
+      //  无论当前选中的是哪个会话，都要加载消息并更新会话信息
+      // 这样可以避免消息丢失的问题
+      const enrichedSession = {
+        ...updatedSession,
+        status: 'IN_PROGRESS' as const,
+        agentId: updatedSession.agentId || authUser?.id,
+      };
 
-        // 更新会话列表中的会话（包含 agent 信息）
-        updateSession(session.id, {
-          status: 'IN_PROGRESS',
-          agentId: updatedSession.agentId || authUser?.id,
-          agent: updatedSession.agent || (authUser ? {
-            id: authUser.id,
-            username: authUser.username,
-            realName: authUser.realName,
-          } : null),
-        });
-
-        // 加载消息
-        const sortedMessages = (updatedSession.messages ?? []).sort(
-          (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
-        );
-        setSessionMessages(session.id, sortedMessages);
+      //  修复：加载并设置消息（重要：要在设置当前会话之前完成）
+      let sortedMessages = (updatedSession.messages ?? []).sort(
+        (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+      );
+      
+      //  修复：如果后端没有返回消息，主动调用 API 获取会话消息
+      if (sortedMessages.length === 0) {
+        console.warn(`[客服端] 接入会话 ${session.id}，后端未返回消息，尝试通过 API 获取`);
+        try {
+          const apiMessages = await getSessionMessages(session.id);
+          console.log(`[客服端] getSessionMessages API 返回:`, {
+            sessionId: session.id,
+            messagesCount: apiMessages?.length || 0,
+            messages: apiMessages
+          });
+          if (apiMessages && apiMessages.length > 0) {
+            sortedMessages = apiMessages.sort(
+              (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+            );
+            console.log(`[客服端] 通过 API 获取到 ${sortedMessages.length} 条会话消息`);
+          } else {
+            console.warn(`[客服端] API 返回的会话消息为空，会话ID: ${session.id}，工单ID: ${session.ticketId || updatedSession.ticketId}`);
+            // ✅ 修复：如果会话消息为空，尝试通过工单查找关联的会话并加载消息
+            const ticketId = session.ticketId || updatedSession.ticketId;
+            if (ticketId) {
+              console.log(`[客服端] 尝试通过工单 ${ticketId} 查找关联会话的消息`);
+              try {
+                // 通过工单获取所有关联的会话
+                const ticketData = await getTicketById(ticketId);
+                console.log(`[客服端] 工单数据:`, {
+                  ticketId: ticketData.id,
+                  sessionsCount: ticketData.sessions?.length || 0,
+                  sessions: ticketData.sessions
+                });
+                if (ticketData.sessions && ticketData.sessions.length > 0) {
+                  // 查找所有会话的消息
+                  const allSessionMessages: Message[] = [];
+                  for (const ticketSession of ticketData.sessions) {
+                    console.log(`[客服端] 检查会话 ${ticketSession.id}:`, {
+                      hasMessages: !!ticketSession.messages,
+                      messagesCount: ticketSession.messages?.length || 0
+                    });
+                    if (ticketSession.id && ticketSession.messages && Array.isArray(ticketSession.messages)) {
+                      const sessionMsgs = ticketSession.messages.map((msg: any) => ({
+                        id: msg.id,
+                        sessionId: ticketSession.id,
+                        senderType: msg.senderType,
+                        messageType: msg.messageType || 'TEXT',
+                        content: msg.content,
+                        metadata: msg.metadata || {},
+                        createdAt: msg.createdAt,
+                      }));
+                      allSessionMessages.push(...sessionMsgs);
+                    } else if (ticketSession.id) {
+                      // 如果会话数据中没有消息，尝试通过 API 获取
+                      try {
+                        const sessionMsgs = await getSessionMessages(ticketSession.id);
+                        console.log(`[客服端] 通过 API 获取会话 ${ticketSession.id} 的消息:`, sessionMsgs.length);
+                        allSessionMessages.push(...sessionMsgs);
+                      } catch (err) {
+                        console.warn(`[客服端] 获取会话 ${ticketSession.id} 的消息失败:`, err);
+                      }
+                    }
+                  }
+                  
+                  if (allSessionMessages.length > 0) {
+                    // 去重并按时间排序
+                    const uniqueMessages = allSessionMessages.filter(
+                      (msg, index, self) => index === self.findIndex((m) => m.id === msg.id)
+                    );
+                    sortedMessages = uniqueMessages.sort(
+                      (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+                    );
+                    console.log(`[客服端] 通过工单关联会话获取到 ${sortedMessages.length} 条消息`);
+                  } else {
+                    console.warn(`[客服端] 工单关联的所有会话都没有消息`);
+                  }
+                }
+              } catch (ticketError) {
+                console.error(`[客服端] 通过工单查找会话消息失败:`, ticketError);
+              }
+            }
+          }
+        } catch (error) {
+          console.error(`[客服端] 获取会话消息失败:`, error);
+        }
       }
+      
+      setSessionMessages(session.id, sortedMessages);
+      console.log(`✅ 接入会话 ${session.id}，已加载 ${sortedMessages.length} 条消息`);
+
+      // 更新会话列表中的会话（包含 agent 信息）
+      updateSession(session.id, {
+        status: 'IN_PROGRESS',
+        agentId: updatedSession.agentId || authUser?.id,
+        agent: updatedSession.agent || (authUser ? {
+          id: authUser.id,
+          username: authUser.username,
+          realName: authUser.realName,
+        } : null),
+      });
+
+      // 自动切换到该会话（接入后应该查看这个会话）
+      setCurrentSession(enrichedSession);
+      currentSessionRef.current = enrichedSession;
 
       // 加入WebSocket会话房间
       const wsService = await getWebSocketService();
@@ -783,7 +1076,7 @@ const ActivePage: React.FC = () => {
     }
   };
 
-  const handleTranslate = useCallback((messageId: string) => {
+  const handleTranslate = useCallback(async (messageId: string) => {
     // 如果已经翻译过，就不再翻译
     if (translatedMessages[messageId]) {
       return;
@@ -795,19 +1088,37 @@ const ActivePage: React.FC = () => {
       return next;
     });
 
-    // 模拟假数据 1s 延迟
-    setTimeout(() => {
-      setTranslatedMessages((prev) => ({
-        ...prev,
-        [messageId]: 'Hello World',
-      }));
+    try {
+      const response = await translateMessage(messageId, 'zh'); // 默认翻译为中文
+      const translatedContent = response.metadata?.translation?.translatedContent;
 
+      if (translatedContent) {
+        setTranslatedMessages((prev) => ({
+          ...prev,
+          [messageId]: translatedContent,
+        }));
+      } else {
+        message.warning('翻译结果为空');
+      }
+    } catch (error: any) {
+      console.error('Translation failed:', error);
+
+      // 提供更详细的错误提示
+      let errorMessage = '翻译失败，请稍后重试';
+      if (error?.response?.data?.message) {
+        errorMessage = error.response.data.message;
+      } else if (error?.message) {
+        errorMessage = error.message;
+      }
+
+      message.error(errorMessage);
+    } finally {
       setTranslatingMessageIds((prev) => {
         const next = new Set(prev);
         next.delete(messageId);
         return next;
       });
-    }, 1000);
+    }
   }, [translatedMessages]);
 
   const handleUndoAiOptimization = useCallback(() => {
@@ -1560,15 +1871,63 @@ const ActivePage: React.FC = () => {
                                         </a>
                                       ) : (
                                         <>
-                                          {msg.content}
-                                          {/* 翻译结果显示 */}
-                                          {translatedMessages[msg.id] && (
-                                            <div className="translation-result">
-                                              <div className="translation-divider" />
+                                          {/* 显示原文或译文 */}
+                                          {translatedMessages[msg.id] && !showOriginal[msg.id] ? (
+                                            <>
                                               <div className="translation-content">
                                                 {translatedMessages[msg.id]}
                                               </div>
-                                            </div>
+                                              <div
+                                                className="translation-toggle"
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  setShowOriginal((prev) => ({
+                                                    ...prev,
+                                                    [msg.id]: true,
+                                                  }));
+                                                }}
+                                                style={{
+                                                  fontSize: '12px',
+                                                  color: '#1890ff',
+                                                  cursor: 'pointer',
+                                                  marginTop: '4px'
+                                                }}
+                                              >
+                                                查看原文
+                                              </div>
+                                            </>
+                                          ) : (
+                                            <>
+                                              {msg.content}
+                                              {translatedMessages[msg.id] && showOriginal[msg.id] && (
+                                                <>
+                                                  <div className="translation-result">
+                                                    <div className="translation-divider" />
+                                                    <div className="translation-content">
+                                                      {translatedMessages[msg.id]}
+                                                    </div>
+                                                  </div>
+                                                  <div
+                                                    className="translation-toggle"
+                                                    onClick={(e) => {
+                                                      e.stopPropagation();
+                                                      setShowOriginal((prev) => ({
+                                                        ...prev,
+                                                        [msg.id]: false,
+                                                      }));
+                                                    }}
+                                                    style={{
+                                                      fontSize: '12px',
+                                                      color: '#1890ff',
+                                                      cursor: 'pointer',
+                                                      marginTop: '4px'
+                                                    }}
+                                                  >
+                                                    查看译文
+                                                  </div>
+                                                </>
+                                              )}
+                                            </>
                                           )}
                                         </>
                                       )}
@@ -1637,7 +1996,7 @@ const ActivePage: React.FC = () => {
                   }}>
                     <div style={{ marginBottom: '8px', color: '#856404' }}>
                       {isVirtual
-                        ? '这是工单，点击"加载工单消息"查看并回复'
+                        ? '这是工单信息，点击"加载工单消息"查看并回复'
                         : '请先点击"接入会话"按钮才能开始聊天'}
                     </div>
                     <Button

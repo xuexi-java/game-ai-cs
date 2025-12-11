@@ -10,6 +10,7 @@ import {
   Spin,
   Modal,
   Avatar,
+  message,
 } from 'antd';
 import {
   CustomerServiceOutlined,
@@ -17,54 +18,54 @@ import {
   UserOutlined,
   PhoneOutlined,
   ExclamationCircleOutlined,
+  ReloadOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { useSessionStore } from '../../stores/sessionStore';
+import { getQueuedSessions, joinSession } from '../../services/session.service';
 import type { Session } from '../../types';
 import './QueuePage.css';
 
 const { Title, Text } = Typography;
 const { confirm } = Modal;
 
-const mockQueuedSessions: Session[] = [
-  {
-    id: 'queue-1',
-    ticketId: 'ticket-2',
-    status: 'QUEUED',
-    ticket: {
-      id: 'ticket-2',
-      ticketNo: 'T-20251119-430',
-      description: '充值后未到账，请尽快处理。',
-      playerIdOrName: '玩家-小明',
-      createdAt: '2025-11-19T07:30:00.000Z',
-      occurredAt: '2025-11-19T07:00:00.000Z',
-      game: { id: 'game-1', name: '弹弹堂', createdAt: '', updatedAt: '' },
-      server: { id: 'server-2', name: '二区', createdAt: '', updatedAt: '', gameId: 'game-1' },
-      attachments: [],
-      playerId: '',
-      playerName: '',
-      status: 'PENDING',
-      priority: 'HIGH',
-      descriptionImages: [],
-    },
-    createdAt: '2025-11-19T07:30:00.000Z',
-    queuedAt: '2025-11-19T07:35:00.000Z',
-    priorityScore: 82,
-    aiUrgency: 'URGENT',
-  },
-];
-
 const QueuePage: React.FC = () => {
-  const [loading] = useState(false);
+  const [loading, setLoading] = useState(false);
   const { queuedSessions, setQueuedSessions } = useSessionStore();
 
+  // 加载待接入会话列表
+  const loadQueuedSessions = async () => {
+    setLoading(true);
+    try {
+      const sessions = await getQueuedSessions();
+      setQueuedSessions(sessions);
+    } catch (error) {
+      console.error('加载待接入会话失败:', error);
+      message.error('加载待接入会话失败，请稍后重试');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
-    setQueuedSessions(mockQueuedSessions);
-  }, [setQueuedSessions]);
+    loadQueuedSessions();
+  }, []);
 
   // 接入会话
-  const handleJoinSession = () => {
-    console.log('演示模式：接入会话');
+  const handleJoinSession = async (session: Session) => {
+    if (!session || !session.id) {
+      message.error('会话信息无效');
+      return;
+    }
+
+    try {
+      await joinSession(session.id);
+      message.success('接入会话成功');
+      await loadQueuedSessions(); // 重新加载列表
+    } catch (error: any) {
+      console.error('接入会话失败:', error);
+      message.error(error?.response?.data?.message || '接入会话失败，请稍后重试');
+    }
   };
 
   // 获取优先级颜色
@@ -115,7 +116,14 @@ const QueuePage: React.FC = () => {
             )}
           </Title>
           
-          <Button type="primary">刷新队列</Button>
+          <Button 
+            type="primary" 
+            icon={<ReloadOutlined />}
+            onClick={loadQueuedSessions}
+            loading={loading}
+          >
+            刷新队列
+          </Button>
         </div>
 
         {queuedSessions.length === 0 ? (

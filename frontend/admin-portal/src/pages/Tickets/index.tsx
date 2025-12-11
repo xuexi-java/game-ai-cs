@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo} from 'react';
 import {
   Table,
   Card,
@@ -30,7 +30,7 @@ import {
 import { getGames } from '../../services/game.service';
 import { getAllIssueTypes } from '../../services/issueType.service';
 import { getUsers } from '../../services/user.service';
-import { assignSession } from '../../services/session.service';
+import { assignSession, joinSessionByTicketId } from '../../services/session.service';
 import type { Ticket, Game, IssueType, User } from '../../types';
 import { useMessage } from '../../hooks/useMessage';
 import { useAuthStore } from '../../stores/authStore';
@@ -292,7 +292,19 @@ const TicketsPage: React.FC = () => {
       return;
     }
     try {
-      await assignSession(assigningSessionId, selectedAgentId);
+      // ✅ 修复：如果工单没有会话（assigningSessionId 以 ticket- 开头），先创建会话
+      if (assigningSessionId.startsWith('ticket-')) {
+        const ticketId = assigningSessionId.replace('ticket-', '');
+        // 先通过工单ID接入会话（会自动创建会话）
+        const session = await joinSessionByTicketId(ticketId);
+        // 如果当前用户不是选中的客服，需要重新分配
+        if (session.agentId !== selectedAgentId) {
+          await assignSession(session.id, selectedAgentId);
+        }
+      } else {
+        // 正常分配已有会话
+        await assignSession(assigningSessionId, selectedAgentId);
+      }
       message.success('分配成功，会话记录已更新');
       setAssignModalVisible(false);
       setAssigningSessionId(null);
@@ -311,19 +323,27 @@ const TicketsPage: React.FC = () => {
 
   // 打开手动分配弹窗（支持多次分配）
   const handleOpenAssignModal = (ticket: Ticket) => {
+    // ✅ 只检查工单状态，不检查会话状态
     if (ticket.status === 'RESOLVED') {
       message.warning('已解决的工单无法分配客服');
       return;
     }
+    
     // 获取工单的最新会话
     const latestSession = ticket.sessions && ticket.sessions.length > 0 
       ? ticket.sessions[0] 
       : null;
     
+    // ✅ 修复：如果工单没有会话，使用工单ID作为标识，后端会自动创建会话
     if (!latestSession) {
-      message.warning('该工单没有会话，无法分配');
+      // 对于没有会话的工单，使用工单ID作为会话ID（后端会处理）
+      setAssigningSessionId(`ticket-${ticket.id}`);
+      setSelectedAgentId('');
+      setAssignModalVisible(true);
       return;
     }
+    
+    // ✅ 移除会话状态检查，允许对已关闭会话的工单进行分配
     
     setAssigningSessionId(latestSession.id);
     // 如果已经分配过，默认选中当前客服
@@ -447,6 +467,7 @@ const TicketsPage: React.FC = () => {
         const hasSession = latestSession !== null;
         const isResolved = record.status === 'RESOLVED';
         const isAssigned = latestSession?.agentId && latestSession?.status === 'IN_PROGRESS';
+        // ✅ 移除会话状态检查，只检查工单状态
         
         return (
           <Space>
@@ -462,7 +483,7 @@ const TicketsPage: React.FC = () => {
               <Button
                 type="link"
                 size="small"
-                disabled={isResolved}
+                disabled={isResolved} // ✅ 只检查工单状态
                 onClick={() => handleOpenAssignModal(record)}
               >
                 {isAssigned ? '重新分配' : '分配客服'}
@@ -826,16 +847,21 @@ const TicketsPage: React.FC = () => {
             onChange={setSelectedAgentId}
             placeholder="请选择客服"
             showSearch
+            optionFilterProp="label"
             filterOption={(input, option) =>
-              (option?.children as string)?.toLowerCase().includes(input.toLowerCase())
+              (option?.label as string)?.toLowerCase().includes(input.toLowerCase())
             }
           >
             {agents.map((agent) => (
-              <Option key={agent.id} value={agent.id}>
+              <Option 
+                key={agent.id} 
+                value={agent.id}
+                label={agent.realName || agent.username}
+              >
                 {agent.realName || agent.username}
                 {agent.isOnline && <Tag color="green" style={{ marginLeft: 8 }}>在线</Tag>}
                 {!agent.isOnline && <Tag color="default" style={{ marginLeft: 8 }}>离线</Tag>}
-              </Option>
+              </Option> //Option这个标签是干什么的 
             ))}
           </Select>
         </div>

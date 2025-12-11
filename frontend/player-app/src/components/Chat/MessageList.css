@@ -375,6 +375,32 @@
   }
 }
 
+/* ==================== Translation Styles ==================== */
+.translation-indicator {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+  color: #8c8c8c;
+}
+
+.translation-toggle {
+  font-size: 12px;
+  color: #1890ff;
+  cursor: pointer;
+  margin-top: 4px;
+  transition: color 0.2s;
+  user-select: none;
+}
+
+.translation-toggle:hover {
+  color: #40a9ff;
+  text-decoration: underline;
+}
+
+.translation-content {
+  color: inherit;
+}
+
 /* ==================== Responsive ==================== */
 @media (max-width: 768px) {
   .message-content-wrapper-v3 {

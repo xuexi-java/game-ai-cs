@@ -50,7 +50,7 @@ export class SessionService {
     @Inject(forwardRef(() => TicketService))
     private ticketService: TicketService,
     private queueService: QueueService,
-  ) {}
+  ) { }
 
   private enrichTicketWithIssueTypes<T extends { ticketIssueTypes?: any[] }>(
     ticket: T | null,
@@ -79,7 +79,7 @@ export class SessionService {
   }
 
   // 鍒涘缓浼氳瘽锛堟楠?锛欰I寮曞锛?
-  @Throttle({ 
+  @Throttle({
     default: { limit: 10000, ttl: 60000 }, // 全局限制：10000次/分钟
     'dify-api': { limit: 3000, ttl: 60000 } // Dify API 限制：3000次/分钟
   })
@@ -159,7 +159,7 @@ export class SessionService {
   }
 
   // 鐜╁鍙戦€佹秷鎭紝鑷姩涓?Dify 浜や簰
-  @Throttle({ 
+  @Throttle({
     default: { limit: 10000, ttl: 60000 }, // 全局限制：10000次/分钟
     'dify-api': { limit: 3000, ttl: 60000 } // Dify API 限制：3000次/分钟
   })
@@ -452,6 +452,8 @@ export class SessionService {
       return {
         id: `ticket-${ticket.id}`, // 虚拟会话ID，使用 ticket- 前缀
         ticketId: ticket.id,
+        // ✅ 修复：如果存在已关闭的会话，保存真实会话ID，方便前端接入
+        realSessionId: latestSession?.id || null,
         status: 'QUEUED' as SessionStatus, // 标记为 QUEUED，让前端可以统一处理
         detectedIntent: latestSession?.detectedIntent || null,
         aiUrgency: latestSession?.aiUrgency || null,
@@ -746,7 +748,7 @@ export class SessionService {
   // 支持二次分配：除了已结束的工单和会话，其他都可以重新分配
   async assignSession(sessionId: string, agentId: string) {
     const startTime = Date.now();
-    
+
     try {
       this.logger.log(
         `开始手动分配会话 ${sessionId} 给 ${agentId}`,
@@ -1090,7 +1092,7 @@ export class SessionService {
 
     // ⚠️ 关键修复：只从在线客服中选择，不选择离线客服
     const onlineAgents = agents.filter((agent) => agent.isOnline);
-    
+
     // 获取所有在线管理员
     const admins = await this.prisma.user.findMany({
       where: {
@@ -1100,7 +1102,7 @@ export class SessionService {
       include: agentInclude,
     });
     const onlineAdmins = admins.filter((admin) => admin.isOnline);
-    
+
     // 合并候选池：客服 + 管理员（管理员权重更高，优先分配给客服）
     const candidatePool = [...onlineAgents, ...onlineAdmins];
 
@@ -1427,7 +1429,7 @@ export class SessionService {
       // 如果现在没有在线客服了，关闭会话并转为工单，告知玩家
       if (stillHasOnlineAgents === 0 && stillHasOnlineAdmins === 0) {
         this.logger.warn(`自动分配失败且无在线客服，关闭会话 ${sessionId} 并转为工单`);
-        
+
         // 更新工单为加急状态
         await this.ticketService.updateStatus(session.ticketId, 'WAITING');
         await this.prisma.ticket.update({
@@ -1477,7 +1479,7 @@ export class SessionService {
     }
 
     const finalSession = await this.findOne(sessionId);
-    
+
     // ✅ 确保发送排队更新通知到玩家端
     if (finalSession.queuePosition !== null && finalSession.queuePosition !== undefined) {
       this.websocketGateway.notifyQueueUpdate(
@@ -1486,7 +1488,7 @@ export class SessionService {
         finalSession.estimatedWaitTime,
       );
     }
-    
+
     // ✅ 确保发送会话更新通知
     this.websocketGateway.notifySessionUpdate(sessionId, finalSession);
 
@@ -1518,8 +1520,8 @@ export class SessionService {
         estimatedWaitTime =
           onlineAgentsCount > 0
             ? Math.ceil(
-                (queuePosition / onlineAgentsCount) * averageProcessingTime,
-              )
+              (queuePosition / onlineAgentsCount) * averageProcessingTime,
+            )
             : null;
       }
     }
@@ -1731,8 +1733,8 @@ export class SessionService {
             const estimatedWaitTime =
               onlineAgentsCount > 0
                 ? Math.ceil(
-                    (queuePosition / onlineAgentsCount) * averageProcessingTime,
-                  )
+                  (queuePosition / onlineAgentsCount) * averageProcessingTime,
+                )
                 : null;
 
             // 发送 WebSocket 通知
@@ -1838,8 +1840,8 @@ export class SessionService {
       const estimatedWaitTime =
         onlineAgentsCount > 0
           ? Math.ceil(
-              (queuePosition / onlineAgentsCount) * averageProcessingTime,
-            )
+            (queuePosition / onlineAgentsCount) * averageProcessingTime,
+          )
           : null;
 
       // 发送 WebSocket 通知
@@ -2118,5 +2120,151 @@ export class SessionService {
     }
 
     return this.enrichSession(session);
+  }
+
+  // ✅ 新增：通过工单ID接入会话（如果会话不存在则创建，如果已关闭则重新激活）
+  async joinSessionByTicketId(ticketId: string, agentId: string) {
+    // 1. 检查工单是否存在
+    const ticket = await this.prisma.ticket.findUnique({
+      where: { id: ticketId },
+      select: { id: true, status: true },
+    });
+
+    if (!ticket) {
+      throw new NotFoundException('工单不存在');
+    }
+
+    // 2. 检查工单状态
+    if (ticket.status === 'RESOLVED') {
+      throw new BadRequestException('该工单已解决，无法接入');
+    }
+
+    // 3. 查找最新的会话（包括已关闭的）
+    const latestSession = await this.prisma.session.findFirst({
+      where: {
+        ticketId,
+      },
+      orderBy: {
+        createdAt: 'desc',
+      },
+    });
+
+    // 4. 如果有已关闭的会话，重新激活它
+    if (latestSession && latestSession.status === 'CLOSED') {
+      // 重新激活已关闭的会话
+      return await this.joinSession(latestSession.id, agentId);
+    }
+
+    // 5. 如果有活跃会话，直接接入
+    if (latestSession && ['PENDING', 'QUEUED', 'IN_PROGRESS'].includes(latestSession.status)) {
+      return await this.joinSession(latestSession.id, agentId);
+    }
+
+    // 6. 如果没有会话，创建新会话
+    const ticketFull = await this.prisma.ticket.findUnique({
+      where: { id: ticketId },
+      include: {
+        game: true,
+        server: true,
+      },
+    });
+
+    if (!ticketFull) {
+      throw new NotFoundException('工单不存在');
+    }
+
+    // 创建新会话
+    const newSession = await this.prisma.session.create({
+      data: {
+        ticketId,
+        agentId,
+        status: 'IN_PROGRESS',
+        startedAt: new Date(),
+        priorityScore: ticketFull.priorityScore || 0,
+        manuallyAssigned: true,
+      },
+      include: {
+        ticket: {
+          include: {
+            ...TICKET_RELATION_INCLUDE,
+          },
+        },
+        agent: {
+          select: {
+            id: true,
+            username: true,
+            realName: true,
+          },
+        },
+        messages: {
+          orderBy: { createdAt: 'asc' },
+        },
+      },
+    });
+
+    // 更新工单状态为处理中
+    await this.ticketService.updateStatus(ticketId, 'IN_PROGRESS');
+
+    // 更新用户在线状态
+    await this.prisma.user.update({
+      where: { id: agentId },
+      data: { isOnline: true },
+    });
+
+    const normalizedSession = this.enrichSession(newSession);
+
+    // 通知 WebSocket 客户端
+    this.websocketGateway.notifySessionUpdate(normalizedSession.id, normalizedSession);
+
+    return normalizedSession;
+  }
+
+  /**
+   * 通过工单ID获取所有历史消息
+   * 用于玩家端查看完整的对话历史，包括跨会话的消息
+   */
+  async getTicketMessages(ticketId: string) {
+    // 验证工单存在
+    const ticket = await this.prisma.ticket.findUnique({
+      where: { id: ticketId },
+    });
+
+    if (!ticket) {
+      throw new NotFoundException('工单不存在');
+    }
+
+    // 获取工单的所有会话
+    const sessions = await this.prisma.session.findMany({
+      where: { ticketId },
+      select: { id: true },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    const sessionIds = sessions.map(s => s.id);
+
+    if (sessionIds.length === 0) {
+      return [];
+    }
+
+    // 获取所有会话的消息，按时间排序
+    const messages = await this.prisma.message.findMany({
+      where: {
+        sessionId: { in: sessionIds },
+      },
+      orderBy: { createdAt: 'asc' },
+      include: {
+        agent: {
+          select: {
+            id: true,
+            username: true,
+            realName: true,
+          },
+        },
+      },
+    });
+
+    this.logger.log(`[getTicketMessages] 工单=${ticketId}，会话数=${sessions.length}，消息数=${messages.length}`);
+
+    return messages;
   }
 }

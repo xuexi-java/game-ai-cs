@@ -7,9 +7,10 @@ import type { Session, Message } from '../types';
 export interface SessionState {
   session: Session | null;
   messages: Message[];
-  
+
   setSession: (session: Session) => void;
   addMessage: (message: Message) => void;
+  updateMessage: (messageId: string, updates: Partial<Message>) => void;
   removeMessage: (messageId: string) => void;
   updateSession: (updates: Partial<Session>) => void;
   reset: () => void;
@@ -18,10 +19,15 @@ export interface SessionState {
 export const useSessionStore = create<SessionState>((set) => ({
   session: null,
   messages: [],
-  
+
   setSession: (session) => {
     // 确保消息按时间排序并去重
     let messages = Array.isArray(session.messages) ? session.messages : [];
+    console.log('[sessionStore] setSession 调用:', {
+      sessionId: session.id,
+      inputMessageCount: messages.length,
+      messages: messages
+    });
     // 按时间排序
     messages = messages.sort(
       (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
@@ -30,7 +36,10 @@ export const useSessionStore = create<SessionState>((set) => ({
     const uniqueMessages = messages.filter(
       (msg, index, self) => index === self.findIndex((m) => m.id === msg.id)
     );
-    set({ 
+    console.log('[sessionStore] setSession 完成:', {
+      uniqueMessageCount: uniqueMessages.length
+    });
+    set({
       session: {
         ...session,
         messages: uniqueMessages,
@@ -38,7 +47,7 @@ export const useSessionStore = create<SessionState>((set) => ({
       messages: uniqueMessages,
     });
   },
-  
+
   addMessage: (message) => {
     set((state) => {
       // 检查消息是否已存在，避免重复添加
@@ -54,9 +63,26 @@ export const useSessionStore = create<SessionState>((set) => ({
         messages: newMessages,
         session: state.session
           ? {
-              ...state.session,
-              messages: newMessages,
-            }
+            ...state.session,
+            messages: newMessages,
+          }
+          : state.session,
+      };
+    });
+  },
+
+  updateMessage: (messageId, updates) => {
+    set((state) => {
+      const updatedMessages = state.messages.map((msg) =>
+        msg.id === messageId ? { ...msg, ...updates } : msg
+      );
+      return {
+        messages: updatedMessages,
+        session: state.session
+          ? {
+            ...state.session,
+            messages: updatedMessages,
+          }
           : state.session,
       };
     });
@@ -67,21 +93,69 @@ export const useSessionStore = create<SessionState>((set) => ({
       messages: state.messages.filter((msg) => msg.id !== messageId),
       session: state.session
         ? {
-            ...state.session,
-            messages: (state.session.messages || []).filter(
-              (msg) => msg.id !== messageId,
-            ),
-          }
+          ...state.session,
+          messages: (state.session.messages || []).filter(
+            (msg) => msg.id !== messageId,
+          ),
+        }
         : state.session,
     }));
   },
-  
+
   updateSession: (updates) => {
-    set((state) => ({
-      session: state.session ? { ...state.session, ...updates } : null,
-    }));
+    set((state) => {
+      console.log('[sessionStore] updateSession 调用:', {
+        hasMessages: !!updates.messages,
+        messageCount: updates.messages?.length || 0,
+        currentMessageCount: state.messages.length
+      });
+      
+      // ✅ 修复：如果传入的 messages 是空数组，不应该清空现有消息
+      if (updates.messages !== undefined) {
+        if (Array.isArray(updates.messages)) {
+          // 如果传入空数组，保留现有消息（可能是会话更新但消息列表为空）
+          if (updates.messages.length === 0 && state.messages.length > 0) {
+            console.log('[sessionStore] updateSession: 收到空消息数组，保留现有消息');
+            return {
+              session: state.session ? { ...state.session, ...updates } : null,
+              messages: state.messages, // 保留现有消息
+            };
+          }
+          
+          // 合并消息
+          const newMessages = updates.messages;
+          const mergedMessages = [...state.messages];
+          newMessages.forEach((newMsg) => {
+            const exists = mergedMessages.some((msg) => msg.id === newMsg.id);
+            if (!exists) {
+              mergedMessages.push(newMsg);
+            }
+          });
+
+          const sortedMessages = mergedMessages.sort(
+            (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+          );
+
+          console.log('[sessionStore] updateSession 完成（合并消息）:', {
+            mergedMessageCount: sortedMessages.length
+          });
+
+          return {
+            session: state.session ? { ...state.session, ...updates } : null,
+            messages: sortedMessages,
+          };
+        }
+      }
+
+      // If no messages in update, just update session fields
+      console.log('[sessionStore] updateSession 完成（只更新session）');
+      return {
+        session: state.session ? { ...state.session, ...updates } : null,
+        messages: state.messages, // ✅ 修复：保留现有消息
+      };
+    });
   },
-  
+
   reset: () => {
     set({
       session: null,

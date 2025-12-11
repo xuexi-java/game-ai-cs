@@ -245,14 +245,14 @@ export class WebsocketGateway
             this.connectedClients.set(client.id, clientInfo);
             await this.saveClientToRedis(client.id, clientInfo);
 
-            // 更新用户在线状态
-            if (user.role === 'AGENT') {
+            // 更新用户在线状态（客服和管理员）
+            if (user.role === 'AGENT' || user.role === 'ADMIN') {
               await this.prisma.user.update({
                 where: { id: user.id },
                 data: { isOnline: true },
               });
               
-              // 保存客服在线状态到 Redis
+              // 保存客服/管理员在线状态到 Redis
               await this.saveAgentOnlineToRedis(user.id, {
                 username: user.username,
                 realName: user.realName || undefined,
@@ -265,7 +265,7 @@ export class WebsocketGateway
                 avatar: user.avatar || undefined,
               });
 
-              // 客服上线时，自动分配 WAITING 状态的工单
+              // ✅ 修复：客服或管理员上线时，自动分配 WAITING 状态的工单
               // 异步执行，不阻塞连接
               this.ticketService
                 .autoAssignWaitingTickets(user.id)
@@ -304,8 +304,14 @@ export class WebsocketGateway
     await this.deleteClientFromRedis(client.id);
 
     if (clientInfo?.userId) {
+      // 先查询用户角色
+      const user = await this.prisma.user.findUnique({
+        where: { id: clientInfo.userId },
+        select: { role: true },
+      }).catch(() => null);
+
       // 更新用户离线状态
-      const user = await this.prisma.user
+      await this.prisma.user
         .update({
           where: { id: clientInfo.userId },
           data: { isOnline: false },
