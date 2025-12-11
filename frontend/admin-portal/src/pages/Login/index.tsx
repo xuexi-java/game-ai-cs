@@ -119,30 +119,10 @@ const LoginPage: React.FC = () => {
                     {loading ? '登录中...' : '立即登录'}
                   </Button>
                 </Form.Item>
-              </Form>
-              
-              <Divider>演示账号</Divider>
-              
-            <div className="demo-accounts">
-              <Space direction="vertical" style={{ width: '100%' }}>
-                <div className="demo-account">
-                  <Text strong>管理员账号：</Text>
-                  <Text code>admin</Text>
-                  <Text> / </Text>
-                  <Text code>admin123</Text>
-                </div>
-                <div className="demo-account">
-                  <Text strong>客服账号：</Text>
-                  <Text code>agent1</Text>
-                  <Text> / </Text>
-                  <Text code>agent123</Text>
-                </div>
-              </Space>
-            </div>
-            
+              </Form>         
             <div className="login-footer">
               <Text type="secondary" style={{ fontSize: '12px' }}>
-                © 2024 AI智能客服管理系统 - 为您提供专业的客服解决方案
+                © 2025 智能客服管理系统 - 为您提供专业的客服解决方案
               </Text>
             </div>
           </Card>

@@ -225,6 +225,7 @@ model TicketMessage {
   ticketId  String
   senderId  String? // Agent ID
   content   String   @db.Text
+  metadata  Json?    // 存储消息元数据，如翻译信息
   createdAt DateTime @default(now())
 
   // 关系

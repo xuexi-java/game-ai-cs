@@ -21,3 +21,10 @@ export const getSessionMessages = async (sessionId: string, limit?: number): Pro
   const url = `/messages/session/${sessionId}${limit ? `?limit=${limit}` : ''}`;
   return apiClient.get(url);
 };
+
+/**
+ * 翻译消息
+ */
+export const translateMessage = async (messageId: string, targetLang?: string): Promise<Message> => {
+  return apiClient.post(`/messages/${messageId}/translate`, { targetLang });
+};

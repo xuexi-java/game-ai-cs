@@ -476,20 +476,26 @@ export class TicketService {
           orderBy: { sortOrder: 'asc' },
         },
         sessions: {
-          where: {
-            status: {
-              in: ['PENDING', 'QUEUED', 'IN_PROGRESS'], // 只返回活跃会话
-            },
-          },
-          select: {
-            id: true,
-            status: true,
-            agentId: true,
-          },
+          // ✅ 修复：返回所有会话（包括 CLOSED），以便加载历史消息
           orderBy: {
             createdAt: 'desc',
           },
-          take: 1, // 只返回最新的活跃会话
+          take: 1, // 只返回最新的会话
+          include: {
+            // ✅ 修复：包含消息和元数据
+            messages: {
+              orderBy: { createdAt: 'asc' },
+              include: {
+                agent: {
+                  select: {
+                    id: true,
+                    username: true,
+                    realName: true,
+                  },
+                },
+              },
+            },
+          },
         },
       },
     });

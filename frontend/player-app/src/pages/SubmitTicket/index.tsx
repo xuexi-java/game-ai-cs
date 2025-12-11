@@ -57,7 +57,7 @@ const SubmitTicketPage = () => {
           getEnabledGames(),
           getEnabledIssueTypes(),
         ]);
-        
+
         if (Array.isArray(gameList)) {
           setGames(gameList);
         } else {
@@ -244,7 +244,7 @@ const SubmitTicketPage = () => {
         if (sessionCreated) {
           // 优先使用后端返回的会话ID
           const returnedSessionId = (ticket as any).sessionId;
-          
+
           if (returnedSessionId) {
             // 后端已返回会话ID，直接跳转到排队页面
             console.log('使用后端返回的会话ID，跳转到排队页面:', returnedSessionId);
@@ -252,7 +252,7 @@ const SubmitTicketPage = () => {
           } else {
             // 如果后端没有返回会话ID，等待后查询
             await new Promise(resolve => setTimeout(resolve, 1000));
-            
+
             // 尝试多次查询会话（最多3次，每次间隔500ms）
             let session = null;
             for (let i = 0; i < 3; i++) {
@@ -269,7 +269,7 @@ const SubmitTicketPage = () => {
                 console.error(`查询会话失败 (尝试 ${i + 1}/3):`, error);
               }
             }
-            
+
             if (session) {
               // 后端已创建会话，跳转到排队页面
               console.log('找到会话，跳转到排队页面:', session.id);
@@ -344,7 +344,7 @@ const SubmitTicketPage = () => {
                 size="large"
                 showSearch
                 filterOption={(input, option) =>
-                  (option?.children as string)?.toLowerCase().includes(input.toLowerCase())
+                  (option?.label?.toString() || '').toLowerCase().includes(input.toLowerCase())
                 }
               >
                 {games.map((game) => (
@@ -387,7 +387,7 @@ const SubmitTicketPage = () => {
                 size="large"
                 showSearch
                 filterOption={(input, option) =>
-                  (option?.children as string)?.toLowerCase().includes(input.toLowerCase())
+                  (option?.label?.toString() || '').toLowerCase().includes(input.toLowerCase())
                 }
               >
                 {issueTypes.map((type) => (
@@ -419,7 +419,8 @@ const SubmitTicketPage = () => {
 
             <Form.Item label="问题发生时间" name="occurredAt">
               <DatePicker
-                showTime
+                showTime={{ format: 'HH:mm' }}
+                format="YYYY-MM-DD HH:mm"
                 style={{ width: '100%' }}
                 size="large"
                 placeholder="请选择问题发生时间（可选）"

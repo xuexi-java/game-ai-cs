@@ -54,6 +54,13 @@ export const joinSession = async (id: string): Promise<Session> => {
 };
 
 /**
+ * ✅ 新增：通过工单ID接入会话（如果会话不存在则创建，如果已关闭则重新激活）
+ */
+export const joinSessionByTicketId = async (ticketId: string): Promise<Session> => {
+  return apiClient.post(`/sessions/by-ticket/${ticketId}/join`);
+};
+
+/**
  * 结束会话
  */
 export const closeSession = async (id: string): Promise<Session> => {

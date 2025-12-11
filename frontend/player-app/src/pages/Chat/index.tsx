@@ -44,12 +44,16 @@ const ChatPage = () => {
   // 移除转人工弹窗相关状态
   const [wsConnected, setWsConnected] = useState(false);
   const [aiTyping, setAiTyping] = useState(false);
-  const { session, messages, setSession, addMessage, updateSession } =
+  const { session, messages, setSession, addMessage, updateMessage, updateSession } =
     useSessionStore();
   const messageApi = useMessage();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const socketRef = useRef<any>(null);
   const previewUrlsRef = useRef<Set<string>>(new Set());
+
+  // 翻译语言设置 - 记住用户选择的目标语言
+  const [preferredTranslationLang, setPreferredTranslationLang] = useState<string>('en'); // 默认英语
+
   // 加载会话和消息
   useEffect(() => {
     if (!sessionId) return;
@@ -57,6 +61,12 @@ const ChatPage = () => {
     const loadSession = async () => {
       try {
         const sessionData = await getSession(sessionId);
+        console.log('[玩家端] 加载会话成功:', {
+          sessionId: sessionData.id,
+          status: sessionData.status,
+          messageCount: sessionData.messages?.length || 0,
+          messages: sessionData.messages
+        });
         // 确保消息按时间排序
         if (sessionData.messages && Array.isArray(sessionData.messages)) {
           sessionData.messages = sessionData.messages.sort(
@@ -64,6 +74,7 @@ const ChatPage = () => {
           );
         }
         setSession(sessionData);
+        console.log('[玩家端] setSession 完成，messages数量:', sessionData.messages?.length || 0);
         // setSession 已经会设置 messages，不需要重复添加
       } catch (error) {
         console.error('加载会话失败:', error);
@@ -79,7 +90,7 @@ const ChatPage = () => {
     if (typeof window !== 'undefined' && 'visualViewport' in window) {
       const viewport = window.visualViewport;
       const container = document.querySelector('.chat-container-v3');
-      
+
       const handleViewportChange = () => {
         if (container) {
           const heightDiff = window.innerHeight - viewport.height;
@@ -95,10 +106,10 @@ const ChatPage = () => {
           }
         }
       };
-      
+
       viewport.addEventListener('resize', handleViewportChange);
       viewport.addEventListener('scroll', handleViewportChange);
-      
+
       return () => {
         viewport.removeEventListener('resize', handleViewportChange);
         viewport.removeEventListener('scroll', handleViewportChange);
@@ -124,7 +135,7 @@ const ChatPage = () => {
       console.log('WebSocket 连接成功');
       setWsConnected(true);
       socket.emit('join-session', { sessionId });
-      
+
       // 设置心跳检测
       const heartbeatInterval = setInterval(() => {
         if (socket.connected) {
@@ -164,7 +175,12 @@ const ChatPage = () => {
     });
 
     socket.on('session-update', (sessionData) => {
-      console.log('会话更新:', sessionData);
+      console.log('[玩家端] 会话更新:', {
+        sessionId: sessionData.id,
+        status: sessionData.status,
+        messageCount: sessionData.messages?.length || 0,
+        hasMessages: !!sessionData.messages
+      });
       updateSession(sessionData);
       // 当客服接入时，停止AI对话，切换到人工客服模式
       if (sessionData.status === 'IN_PROGRESS' && sessionData.agentId) {
@@ -226,7 +242,7 @@ const ChatPage = () => {
       // 设置AI正在回复状态（仅在AI模式下，客服接入后不显示AI正在回复）
       const isAgentJoined = session?.status === 'IN_PROGRESS' && session?.agentId;
       if (!isAgentJoined) {
-      setAiTyping(true);
+        setAiTyping(true);
       }
 
       // 发送消息（后端会根据会话状态决定是否触发AI回复）
@@ -245,7 +261,7 @@ const ChatPage = () => {
           createdAt: new Date().toISOString(),
         });
       }
-      
+
       // 如果客服已接入，不会收到AI回复
       if (response?.aiMessage && !isAgentJoined) {
         addMessage(response.aiMessage);
@@ -414,16 +430,16 @@ const ChatPage = () => {
                     </Button>
                   </div>
                 )}
-                
+
                 {/* 工单状态 */}
                 <div style={{ marginBottom: 16, padding: '12px', background: '#f5f5f5', borderRadius: '4px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: 8 }}>
                     <span style={{ fontWeight: 500 }}>工单状态：</span>
-                    <span style={{ 
-                      color: statusInfo.color === 'orange' ? '#fa8c16' : 
-                             statusInfo.color === 'blue' ? '#1890ff' : 
-                             statusInfo.color === 'green' ? '#52c41a' : '#666',
-                      fontWeight: 500 
+                    <span style={{
+                      color: statusInfo.color === 'orange' ? '#fa8c16' :
+                        statusInfo.color === 'blue' ? '#1890ff' :
+                          statusInfo.color === 'green' ? '#52c41a' : '#666',
+                      fontWeight: 500
                     }}>
                       {statusInfo.text}
                     </span>
@@ -442,8 +458,8 @@ const ChatPage = () => {
                     <div style={{ fontWeight: 500, marginBottom: 8, fontSize: '14px' }}>
                       客服留言 ({agentMessages.length}条)：
                     </div>
-                    <div style={{ 
-                      maxHeight: '200px', 
+                    <div style={{
+                      maxHeight: '200px',
                       overflowY: 'auto',
                       border: '1px solid #e8e8e8',
                       borderRadius: '4px',
@@ -468,10 +484,10 @@ const ChatPage = () => {
                     </div>
                   </div>
                 ) : (
-                  <div style={{ 
-                    marginTop: 16, 
-                    padding: '12px', 
-                    background: '#fff7e6', 
+                  <div style={{
+                    marginTop: 16,
+                    padding: '12px',
+                    background: '#fff7e6',
                     borderRadius: '4px',
                     border: '1px solid #ffe58f',
                     color: '#666'
@@ -517,9 +533,9 @@ const ChatPage = () => {
             okText: '知道了',
           });
         }
-        
+
         // 更新会话状态为已关闭
-        updateSession({ 
+        updateSession({
           status: 'CLOSED',
           allowManualTransfer: false,
           queuePosition: null,
@@ -533,7 +549,7 @@ const ChatPage = () => {
       // 有在线客服：正常进入排队
       if (result.queued) {
         messageApi.success('已为您转接人工客服，请稍候');
-        updateSession({ 
+        updateSession({
           status: 'QUEUED',
           allowManualTransfer: false,
           queuePosition: result.queuePosition ?? queuePosition ?? null,
@@ -571,29 +587,29 @@ const ChatPage = () => {
       messageApi.warning('会话ID不存在，无法转人工');
       return;
     }
-    
+
     // 检查是否已经可以转人工
     if (!canTransfer) {
       messageApi.warning('当前无法转人工，会话可能已结束或正在处理中');
       return;
     }
-    
+
     // 检查是否正在转人工中
     if (transferring) {
       messageApi.info('正在转人工中，请稍候...');
       return;
     }
-    
+
     // 直接提交转人工请求，不显示弹窗
     // 使用工单已有的问题类型，如果没有则使用默认值
     const issueTypeId = session?.ticket?.issueTypes?.[0]?.id;
-    
+
     console.log('[转人工] 开始转人工请求', {
       sessionId,
       issueTypeId,
       urgency: 'URGENT',
     });
-    
+
     submitTransferRequest({
       urgency: 'URGENT', // 默认紧急
       issueTypeId: issueTypeId || undefined,
@@ -608,21 +624,21 @@ const ChatPage = () => {
   const [ratingModalVisible, setRatingModalVisible] = useState(false);
   const [rating, setRating] = useState(0);
   const [ratingComment, setRatingComment] = useState('');
-  const queueIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const queueIntervalRef = useRef<number | null>(null);
   const [pendingUploads, setPendingUploads] = useState<PendingUpload[]>([]);
   const [showAllQuickActions, setShowAllQuickActions] = useState(false);
 
   const canTransfer =
     session && session.status !== 'CLOSED' && session.allowManualTransfer !== false;
-  const isInputDisabled = 
-    sending || 
-    uploading || 
-    transferring || 
-    session?.status === 'CLOSED' || 
+  const isInputDisabled =
+    sending ||
+    uploading ||
+    transferring ||
+    session?.status === 'CLOSED' ||
     session?.ticket?.status === 'RESOLVED';
   const showTransferButton = Boolean(
-    canTransfer && 
-    session?.status !== 'QUEUED' && 
+    canTransfer &&
+    session?.status !== 'QUEUED' &&
     session?.status !== 'IN_PROGRESS' &&
     session?.status !== 'CLOSED' // 已关闭的会话不能转人工
   );
@@ -719,7 +735,7 @@ const ChatPage = () => {
       messageApi.warning('请选择评分');
       return;
     }
-    
+
     if (!sessionId) return;
 
     try {
@@ -799,19 +815,18 @@ const ChatPage = () => {
     const queueMessages =
       isQueued && displayQueuePositionValue !== null
         ? [
-            {
-              id: `queue-info-${displayQueuePositionValue}`,
-              sessionId: sessionId || 'queue',
-              senderType: 'SYSTEM' as const,
-              messageType: 'SYSTEM_NOTICE' as const,
-              content: `已为您排队，当前位于第 ${displayQueuePositionValue} 位${
-                displayEstimatedWaitValue
-                  ? `，预计等待约 ${Math.max(displayEstimatedWaitValue, 1)} 分钟`
-                  : ''
+          {
+            id: `queue-info-${displayQueuePositionValue}`,
+            sessionId: sessionId || 'queue',
+            senderType: 'SYSTEM' as const,
+            messageType: 'SYSTEM_NOTICE' as const,
+            content: `已为您排队，当前位于第 ${displayQueuePositionValue} 位${displayEstimatedWaitValue
+              ? `，预计等待约 ${Math.max(displayEstimatedWaitValue, 1)} 分钟`
+              : ''
               }。请保持在线，客服稍后将接入。`,
-              createdAt: new Date().toISOString(),
-            },
-          ]
+            createdAt: new Date().toISOString(),
+          },
+        ]
         : [];
 
     return [...messages, ...pendingMessages, ...queueMessages];
@@ -967,6 +982,11 @@ const ChatPage = () => {
               messages={enhancedMessages}
               aiTyping={aiTyping}
               onRetryUpload={handleRetryUpload}
+              onMessageUpdate={(updatedMessage) => {
+                updateMessage(updatedMessage.id, updatedMessage);
+              }}
+              preferredTargetLang={preferredTranslationLang}
+              isTicketChat={false}
             />
             <div ref={messagesEndRef} />
           </div>

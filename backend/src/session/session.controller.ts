@@ -28,7 +28,7 @@ import { Public } from '../common/decorators/public.decorator';
 @ApiTags('sessions')
 @Controller('sessions')
 export class SessionController {
-  constructor(private readonly sessionService: SessionService) {}
+  constructor(private readonly sessionService: SessionService) { }
 
   // 玩家端API - 创建会话
   @Public()
@@ -181,6 +181,18 @@ export class SessionController {
     return this.sessionService.joinSession(id, user.id);
   }
 
+  // ✅ 新增：管理端API - 通过工单ID接入会话（如果会话不存在则创建，如果已关闭则重新激活）
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('ADMIN', 'AGENT')
+  @Post('by-ticket/:ticketId/join')
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: '通过工单ID接入会话（管理端）' })
+  @ApiParam({ name: 'ticketId', description: '工单ID' })
+  @ApiResponse({ status: 200, description: '接入成功' })
+  joinSessionByTicketId(@Param('ticketId') ticketId: string, @CurrentUser() user: any) {
+    return this.sessionService.joinSessionByTicketId(ticketId, user.id);
+  }
+
   // 管理端API - 结束会话
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('ADMIN', 'AGENT')
@@ -201,6 +213,16 @@ export class SessionController {
   @ApiResponse({ status: 200, description: '结束成功' })
   closeByPlayer(@Param('id') id: string) {
     return this.sessionService.closeByPlayer(id);
+  }
+
+  // 玩家端API - 通过工单ID获取所有历史消息
+  @Public()
+  @Get('by-ticket/:ticketId/messages')
+  @ApiOperation({ summary: '通过工单ID获取所有历史消息（玩家端）' })
+  @ApiParam({ name: 'ticketId', description: '工单ID' })
+  @ApiResponse({ status: 200, description: '返回所有历史消息' })
+  async getTicketMessages(@Param('ticketId') ticketId: string) {
+    return this.sessionService.getTicketMessages(ticketId);
   }
 
   // 玩家端API - 通过工单ID查找活跃会话
