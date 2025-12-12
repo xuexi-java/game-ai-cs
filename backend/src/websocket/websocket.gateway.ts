@@ -126,34 +126,58 @@ export class WebsocketGateway
         }
       }
 
-      // 恢复在线客服状态
-      const onlineAgentKeys = await this.redis.keys(`${this.REDIS_PREFIX.AGENT_ONLINE}*`);
-      for (const key of onlineAgentKeys) {
-        const agentId = key.replace(this.REDIS_PREFIX.AGENT_ONLINE, '');
-        const agentData = await this.redis.get(key);
-        if (agentData) {
+      // 恢复在线客服状态 - 使用 SCAN 替代 keys
+      try {
+        const agentPattern = `${this.REDIS_PREFIX.AGENT_ONLINE}*`;
+        const onlineAgentKeys = await this.scanKeys(agentPattern);
+        
+        for (const key of onlineAgentKeys) {
           try {
-            const data = JSON.parse(agentData);
-            // 更新数据库中的在线状态
-            await this.prisma.user.update({
-              where: { id: agentId },
-              data: { isOnline: true },
-            });
-            this.logger.log(`恢复客服在线状态: ${agentId}`);
+            const agentId = key.replace(this.REDIS_PREFIX.AGENT_ONLINE, '');
+            const agentData = await this.redis.get(key);
+            if (agentData) {
+              try {
+                const data = JSON.parse(agentData);
+                // 更新数据库中的在线状态
+                await this.prisma.user.update({
+                  where: { id: agentId },
+                  data: { isOnline: true },
+                });
+                this.logger.log(`恢复客服在线状态: ${agentId}`);
+              } catch (error) {
+                this.logger.warn(`恢复客服状态失败: ${agentId}`, error);
+              }
+            }
           } catch (error) {
-            this.logger.warn(`恢复客服状态失败: ${agentId}`, error);
+            this.logger.warn(`处理客服 Key ${key} 时出错:`, error);
+            // 继续处理下一个 key，不中断整个流程
           }
         }
+      } catch (error) {
+        this.logger.error(`扫描在线客服 Keys 失败:`, error);
+        // 继续执行后续逻辑，不中断整个恢复流程
       }
 
-      // 清理过期的连接数据（超过24小时）
-      const allClientKeys = await this.redis.keys(`${this.REDIS_PREFIX.CLIENT}*`);
-      for (const key of allClientKeys) {
-        const ttl = await this.redis.ttl(key);
-        if (ttl === -1) {
-          // 没有过期时间的 key，设置24小时过期
-          await this.redis.expire(key, 86400);
+      // 清理过期的连接数据（超过24小时）- 使用 SCAN 替代 keys
+      try {
+        const clientPattern = `${this.REDIS_PREFIX.CLIENT}*`;
+        const allClientKeys = await this.scanKeys(clientPattern);
+        
+        for (const key of allClientKeys) {
+          try {
+            const ttl = await this.redis.ttl(key);
+            if (ttl === -1) {
+              // 没有过期时间的 key，设置24小时过期
+              await this.redis.expire(key, 86400);
+            }
+          } catch (error) {
+            this.logger.warn(`处理客户端 Key ${key} 时出错:`, error);
+            // 继续处理下一个 key，不中断整个流程
+          }
         }
+      } catch (error) {
+        this.logger.error(`扫描客户端 Keys 失败:`, error);
+        // 继续执行后续逻辑，不中断整个恢复流程
       }
 
       this.logger.log('WebSocket 状态恢复完成');
@@ -164,6 +188,49 @@ export class WebsocketGateway
       } else {
         this.logger.error(`恢复状态失败: ${error instanceof Error ? error.message : String(error)}`, error instanceof Error ? error.stack : undefined);
       }
+    }
+  }
+
+  /**
+   * 使用 SCAN 命令流式遍历匹配的 Redis Keys
+   * 替代 keys() 命令，避免在生产环境阻塞 Redis
+   * 
+   * @param pattern - 匹配模式，例如 'ws:agent:online:*'
+   * @param count - 每次扫描的 key 数量，建议 100-500，默认 200
+   * @returns 匹配的所有 keys 数组
+   */
+  private async scanKeys(pattern: string, count: number = 200): Promise<string[]> {
+    const keys: string[] = [];
+    let cursor = '0'; // 初始游标为 '0'
+
+    try {
+      do {
+        // 使用 SCAN 命令，返回 [nextCursor, keys]
+        const [nextCursor, scannedKeys] = await this.redis.scan(
+          cursor,
+          'MATCH',
+          pattern,
+          'COUNT',
+          count,
+        );
+
+        // 将本次扫描到的 keys 添加到结果数组
+        if (Array.isArray(scannedKeys) && scannedKeys.length > 0) {
+          keys.push(...scannedKeys);
+        }
+
+        // 更新游标，继续下一次扫描
+        cursor = nextCursor;
+
+        // 当游标为 '0' 时，表示扫描完成
+      } while (cursor !== '0');
+
+      this.logger.debug(`SCAN 完成，模式: ${pattern}，找到 ${keys.length} 个 keys`);
+      return keys;
+    } catch (error) {
+      this.logger.error(`SCAN 命令执行失败，模式: ${pattern}`, error);
+      // 抛出错误，让调用方处理
+      throw error;
     }
   }
 
