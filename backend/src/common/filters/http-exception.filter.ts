@@ -27,12 +27,12 @@ export class HttpExceptionFilter implements ExceptionFilter {
         ? exception.getResponse()
         : 'Internal server error';
 
-    // 记录详细的错误信息
+    // 记录详细的错误信息（脱敏处理，不记录整个 exception 对象）
     if (status === HttpStatus.INTERNAL_SERVER_ERROR) {
       const errorDetails: any = {
         path: request.url,
         method: request.method,
-        error: exception,
+        // 不记录整个 exception 对象，只记录必要信息
       };
 
       if (exception instanceof Error) {
@@ -41,6 +41,10 @@ export class HttpExceptionFilter implements ExceptionFilter {
         if ((exception as any).code) {
           errorDetails.code = (exception as any).code;
         }
+        // 不记录 exception 对象的其他属性，避免泄露用户输入
+      } else {
+        errorDetails.errorType = typeof exception;
+        errorDetails.errorString = String(exception);
       }
 
       this.logger.error(

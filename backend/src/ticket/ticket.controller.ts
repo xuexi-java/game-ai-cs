@@ -29,7 +29,30 @@ import { Public } from '../common/decorators/public.decorator';
 @ApiTags('tickets')
 @Controller('tickets')
 export class TicketController {
-  constructor(private readonly ticketService: TicketService) {}
+  private readonly isProduction: boolean;
+
+  constructor(private readonly ticketService: TicketService) {
+    this.isProduction = process.env.NODE_ENV === 'production';
+  }
+
+  /**
+   * 脱敏工单创建数据（保护用户隐私）
+   * 任何环境下都脱敏敏感字段
+   */
+  private redactTicketData(dto: CreateTicketDto): any {
+    return {
+      gameId: dto.gameId,
+      serverId: dto.serverId,
+      serverName: dto.serverName,
+      playerIdOrName: this.isProduction ? '[REDACTED]' : dto.playerIdOrName,
+      description: this.isProduction 
+        ? `[REDACTED] length=${dto.description?.length || 0}` 
+        : `[REDACTED] length=${dto.description?.length || 0}`, // 任何环境都脱敏描述内容
+      paymentOrderNo: dto.paymentOrderNo ? '[REDACTED]' : undefined,
+      issueTypeIds: dto.issueTypeIds,
+      occurredAt: dto.occurredAt,
+    };
+  }
 
   // 玩家端API - 查询玩家未完成工单列表
   @Public()
@@ -143,9 +166,9 @@ export class TicketController {
     try {
       return await this.ticketService.create(createTicketDto);
     } catch (error) {
-      // ✅ 记录详细错误信息
+      // ✅ 记录详细错误信息（脱敏处理）
       console.error('工单创建控制器错误:', error);
-      console.error('请求数据:', JSON.stringify(createTicketDto, null, 2));
+      console.error('请求数据:', JSON.stringify(this.redactTicketData(createTicketDto), null, 2));
       throw error; // 重新抛出，让异常过滤器处理
     }
   }

@@ -212,14 +212,16 @@ export class TicketMessageService {
         },
       });
     } catch (error) {
-      // 记录详细错误日志
+      // 记录详细错误日志（LoggerService 会自动过滤敏感信息）
       this.logger.error('Translation failed', error);
-      this.logger.error(`Error details: ${error instanceof Error ? error.message : JSON.stringify(error)}`);
+      // 只记录错误消息，不记录整个错误对象（避免泄露用户输入）
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.error(`Error details: ${errorMessage}`);
       this.logger.error(`Stack trace: ${error instanceof Error ? error.stack : 'N/A'}`);
 
       // 返回更详细的错误信息
-      const errorMessage = error instanceof Error ? error.message : '翻译失败，请稍后重试';
-      throw new BadRequestException(`翻译失败: ${errorMessage}`);
+      const finalErrorMessage = error instanceof Error ? error.message : '翻译失败，请稍后重试';
+      throw new BadRequestException(`翻译失败: ${finalErrorMessage}`);
     }
   }
 }

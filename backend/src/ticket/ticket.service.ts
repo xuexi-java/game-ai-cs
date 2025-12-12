@@ -19,6 +19,7 @@ import * as crypto from 'crypto';
 @Injectable()
 export class TicketService {
   private readonly logger = new Logger(TicketService.name);
+  private readonly isProduction: boolean;
 
   constructor(
     private prisma: PrismaService,
@@ -31,7 +32,9 @@ export class TicketService {
     private sessionService: SessionService,
     private issueTypeService: IssueTypeService,
     private queueService: QueueService,
-  ) { }
+  ) {
+    this.isProduction = process.env.NODE_ENV === 'production';
+  }
 
   // 生成工单编号
   private generateTicketNo(): string {
@@ -344,14 +347,27 @@ export class TicketService {
         });
       } catch (error) {
         console.error('创建工单失败:', error);
-        console.error('工单数据:', {
-          gameId: createTicketDto.gameId,
-          playerIdOrName: createTicketDto.playerIdOrName,
-          description: createTicketDto.description?.substring(0, 50),
-          issueTypeIds,
-          serverId,
-          serverName,
-        });
+        // 脱敏处理：生产环境不打印敏感信息
+        if (this.isProduction) {
+          console.error('工单数据:', {
+            gameId: createTicketDto.gameId,
+            playerIdOrName: '[REDACTED]',
+            description: `[REDACTED] length=${createTicketDto.description?.length || 0}`,
+            issueTypeIds,
+            serverId,
+            serverName,
+          });
+        } else {
+          // 开发/测试环境：保留部分信息用于调试（但仍脱敏 description）
+          console.error('工单数据:', {
+            gameId: createTicketDto.gameId,
+            playerIdOrName: createTicketDto.playerIdOrName,
+            description: `[REDACTED] length=${createTicketDto.description?.length || 0}`,
+            issueTypeIds,
+            serverId,
+            serverName,
+          });
+        }
         throw new Error(`创建工单失败: ${error.message || '未知错误'}`);
       }
 

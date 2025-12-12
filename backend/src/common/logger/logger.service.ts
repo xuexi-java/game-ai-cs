@@ -243,20 +243,35 @@ export class LoggerService implements NestLoggerService, OnModuleDestroy {
   private filterSensitiveData(data: any): any {
     if (!data || typeof data !== 'object') return data;
 
+    // 扩展敏感字段列表，包含用户输入相关的字段
     const sensitiveFields = (
       process.env.LOG_SENSITIVE_FIELDS ||
-      'password,token,secret,apiKey,authorization'
+      'password,token,secret,apiKey,authorization,content,message,text,description,query,playerIdOrName,paymentOrderNo,src,dst,trans_result'
     )
       .split(',')
       .map((s) => s.trim());
     const filtered = Array.isArray(data) ? [...data] : { ...data };
+    const isProduction = process.env.NODE_ENV === 'production';
 
     for (const key in filtered) {
       const lowerKey = key.toLowerCase();
       if (
         sensitiveFields.some((field) => lowerKey.includes(field.toLowerCase()))
       ) {
-        filtered[key] = '***REDACTED***';
+        // 对于用户输入字段，根据环境决定脱敏程度
+        if (isProduction && (lowerKey.includes('content') || lowerKey.includes('message') || 
+            lowerKey.includes('text') || lowerKey.includes('description') || 
+            lowerKey.includes('query') || lowerKey.includes('src') || lowerKey.includes('dst'))) {
+          // 生产环境：只显示长度
+          const value = filtered[key];
+          if (typeof value === 'string') {
+            filtered[key] = `[REDACTED] length=${value.length}`;
+          } else {
+            filtered[key] = '***REDACTED***';
+          }
+        } else {
+          filtered[key] = '***REDACTED***';
+        }
       } else if (typeof filtered[key] === 'object' && filtered[key] !== null) {
         filtered[key] = this.filterSensitiveData(filtered[key]);
       }
