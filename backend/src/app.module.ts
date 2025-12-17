@@ -6,7 +6,7 @@ import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { join, isAbsolute } from 'path';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
-import { PrismaService } from './prisma/prisma.service';
+import { PrismaModule } from './prisma/prisma.module';
 import { AuthModule } from './auth/auth.module';
 import { GameModule } from './game/game.module';
 import { TicketModule } from './ticket/ticket.module';
@@ -80,11 +80,11 @@ import { validate } from './common/config/env.validation';
     TicketMessageModule,
     UserModule,
     QuickReplyModule,
+    PrismaModule,
   ],
   controllers: [AppController],
   providers: [
     AppService,
-    PrismaService,
     {
       provide: APP_GUARD,
       useClass: ThrottlerGuard,

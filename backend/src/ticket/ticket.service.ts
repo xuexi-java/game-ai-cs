@@ -319,14 +319,14 @@ export class TicketService {
           });
 
           if (!serverExists) {
-            console.warn(
+            this.logger.warn(
               `服务器(${serverId})不存在，将以 serverName 形式保存玩家输入`,
             );
             serverName = serverName ?? serverId;
             serverId = null;
           }
         } catch (error) {
-          console.error('检查服务器失败:', error);
+          this.logger.error('检查服务器失败:', error);
           // 继续执行，使用 serverName
           serverName = serverName ?? rawServerId ?? null;
           serverId = null;
@@ -371,8 +371,8 @@ export class TicketService {
           },
         });
       } catch (error) {
-        console.error('创建工单失败:', error);
-        console.error('工单数据:', {
+        this.logger.error('创建工单失败:', error);
+        this.logger.error('工单数据:', {
           gameId: createTicketDto.gameId,
           playerIdOrName: createTicketDto.playerIdOrName,
           description: createTicketDto.description?.substring(0, 50),
@@ -398,7 +398,7 @@ export class TicketService {
         });
       } catch (error) {
         // ✅ 如果计算优先级失败，使用默认值，不影响工单创建
-        console.error('计算优先级失败，使用默认值:', error);
+        this.logger.error('计算优先级失败，使用默认值:', error);
         await this.prisma.ticket.update({
           where: { id: ticket.id },
           data: {
@@ -442,7 +442,7 @@ export class TicketService {
             }
           } catch (error) {
             // ✅ 如果自动分配失败，记录错误但不影响工单创建
-            console.error('自动分配直接转人工工单失败:', error);
+            this.logger.error('自动分配直接转人工工单失败:', error);
             sessionCreated = false;
           }
         }
@@ -455,7 +455,7 @@ export class TicketService {
           createTicketDto.playerIdOrName,
           createTicketDto.paymentOrderNo,
         ).catch((error) => {
-          console.error('身份验证失败:', error);
+          this.logger.error('身份验证失败:', error);
         });
       }
 
@@ -469,8 +469,8 @@ export class TicketService {
       };
     } catch (error) {
       // ✅ 捕获所有未处理的错误
-      console.error('创建工单过程中发生错误:', error);
-      console.error('错误堆栈:', error.stack);
+      this.logger.error('创建工单过程中发生错误:', error);
+      this.logger.error('错误堆栈:', error.stack);
       throw error; // 重新抛出，让 NestJS 的异常过滤器处理
     }
   }
@@ -724,7 +724,7 @@ export class TicketService {
         this.websocketGateway.notifyMessage(session.id, sessionMessage);
       } catch (sessionError) {
         // 会话消息创建失败不影响工单消息
-        console.warn(`创建会话消息失败: ${sessionError.message}`);
+        this.logger.warn(`创建会话消息失败: ${sessionError.message}`);
       }
     }
 
@@ -942,7 +942,7 @@ export class TicketService {
           });
         } catch (error) {
           // WebSocket 通知失败不影响状态更新
-          console.warn('WebSocket 通知失败:', error);
+          this.logger.warn('WebSocket 通知失败:', error);
         }
       };
 
@@ -983,7 +983,7 @@ export class TicketService {
             status: 'WAITING',
           });
         } catch (error) {
-          console.warn('WebSocket 通知失败:', error);
+          this.logger.warn('WebSocket 通知失败:', error);
         }
       }
     }
@@ -1122,11 +1122,11 @@ export class TicketService {
         });
       } catch (error) {
         // WebSocket 通知失败不影响状态更新
-        console.warn('WebSocket 通知失败:', error);
+        this.logger.warn('WebSocket 通知失败:', error);
       }
     }
 
-    console.log(
+    this.logger.log(
       `定时任务：已更新 ${ticketsToUpdate.length} 个超过3天未处理的工单状态为 RESOLVED`,
     );
   }
@@ -1295,7 +1295,7 @@ export class TicketService {
               session.queuedAt,
             );
             if (!added) {
-              console.warn(
+              this.logger.warn(
                 `添加到 Redis 队列失败，将在下次一致性检查时修复`,
               );
             }
@@ -1509,7 +1509,7 @@ export class TicketService {
           session.queuedAt,
         );
         if (!added) {
-          console.warn(
+          this.logger.warn(
             `添加到 Redis 队列失败，将在下次一致性检查时修复`,
           );
         }
@@ -1519,7 +1519,7 @@ export class TicketService {
       try {
         await this.sessionService.reorderQueue();
       } catch (error) {
-        console.warn(`重新排序队列失败: ${error.message}`);
+        this.logger.warn(`重新排序队列失败: ${error.message}`);
       }
 
       // ✅ 自动分配客服（只分配，不改变状态，保持 QUEUED）
@@ -1623,7 +1623,7 @@ export class TicketService {
           );
         }
       } catch (error) {
-        console.warn(`通知新会话失败: ${error.message}`);
+        this.logger.warn(`通知新会话失败: ${error.message}`);
       }
 
       return { hasAgents: true, sessionCreated: true };

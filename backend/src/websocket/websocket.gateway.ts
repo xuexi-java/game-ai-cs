@@ -8,7 +8,13 @@ import {
   ConnectedSocket,
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
-import { Logger, UseGuards, Inject, OnModuleInit } from '@nestjs/common';
+import {
+  Logger,
+  UseGuards,
+  Inject,
+  OnModuleInit,
+  OnApplicationBootstrap,
+} from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
@@ -31,7 +37,11 @@ import Redis from 'ioredis';
   namespace: '/',
 })
 export class WebsocketGateway
-  implements OnGatewayConnection, OnGatewayDisconnect, OnModuleInit
+  implements
+    OnGatewayConnection,
+    OnGatewayDisconnect,
+    OnModuleInit,
+    OnApplicationBootstrap
 {
   @WebSocketServer()
   server: Server;
@@ -71,10 +81,13 @@ export class WebsocketGateway
   ) {}
 
   async onModuleInit() {
-    // 服务启动时恢复状态（延迟执行，等待 Redis 连接就绪）
-    setTimeout(() => {
-      this.restoreStateFromRedis();
-    }, 2000); // 延迟 2 秒，确保 Redis 连接就绪
+    // 初始化阶段不再延迟，实际恢复放在 onApplicationBootstrap
+  }
+
+  async onApplicationBootstrap() {
+    this.restoreStateFromRedis().catch((err) => {
+      this.logger.error('WebSocket 状态恢复过程中发生未捕获异常', err);
+    });
   }
 
   // 检查 Redis 是否可用

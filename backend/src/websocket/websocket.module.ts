@@ -2,7 +2,6 @@ import { Module, forwardRef } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { WebsocketGateway } from './websocket.gateway';
-import { PrismaService } from '../prisma/prisma.service';
 import { MessageService } from '../message/message.service';
 import { MessageModule } from '../message/message.module';
 import { TicketModule } from '../ticket/ticket.module';
@@ -23,7 +22,7 @@ import { TicketModule } from '../ticket/ticket.module';
       inject: [ConfigService],
     }),
   ],
-  providers: [WebsocketGateway, PrismaService],
+  providers: [WebsocketGateway],
   exports: [WebsocketGateway],
 })
 export class WebsocketModule {}
