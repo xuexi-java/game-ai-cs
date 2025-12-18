@@ -1453,8 +1453,8 @@ export class TicketService {
 
       // 记录分配日志
       this.logger.log(
-        `工单 ${ticketId} 自动分配: 选择 ${selectedAgent.role} ${selectedAgent.username} (负载: ${selectedAgent.sessions.length}, 加权负载: ${agentsWithLoad[0].load})`,
         {
+          message: `工单 ${ticketId} 自动分配: 选择 ${selectedAgent.role} ${selectedAgent.username}`,
           ticketId,
           selectedAgentId: selectedAgent.id,
           selectedAgentRole: selectedAgent.role,
@@ -1462,7 +1462,9 @@ export class TicketService {
           actualLoad: selectedAgent.sessions.length,
           weightedLoad: agentsWithLoad[0].load,
         },
+        'TicketService', // context 要用字符串
       );
+      
 
       // 获取工单信息
       const ticket = await this.prisma.ticket.findUnique({
