@@ -4,6 +4,7 @@ import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { TransformInterceptor } from './common/interceptors/transform.interceptor';
+import { MetricsInterceptor } from './common/interceptors/metrics.interceptor';
 import { LoggerService } from './common/logger/logger.service';
 import { QueueService } from './queue/queue.service';
 
@@ -31,6 +32,9 @@ async function bootstrap() {
 
   // 全局响应拦截器
   app.useGlobalInterceptors(new TransformInterceptor());
+
+  // 全局 Metrics 拦截器
+  app.useGlobalInterceptors(new MetricsInterceptor());
 
   // CORS 配置 - 同时兼容 .env 中的 FRONTEND_URL 和默认本地域名
   const defaultOrigins =

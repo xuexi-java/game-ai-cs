@@ -26,9 +26,11 @@ import { LoggerModule } from './common/logger/logger.module';
 import { RedisModule } from './redis/redis.module';
 import { EncryptionModule } from './common/encryption/encryption.module';
 import { validate } from './common/config/env.validation';
+import { MetricsModule } from './metrics/metrics.module';
 
 @Module({
   imports: [
+    MetricsModule,
     LoggerModule,
     RedisModule,
     EncryptionModule,

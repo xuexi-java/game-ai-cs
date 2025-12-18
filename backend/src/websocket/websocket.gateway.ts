@@ -22,6 +22,7 @@ import { MessageService } from '../message/message.service';
 import { TicketService } from '../ticket/ticket.service';
 import { forwardRef } from '@nestjs/common';
 import Redis from 'ioredis';
+import { wsConnectionsGauge, wsMessagesCounter } from '../metrics/queue.metrics';
 
 @WebSocketGateway({
   cors: {
@@ -57,6 +58,7 @@ export class WebsocketGateway
       username?: string;
       realName?: string;
       sessionId?: string;
+      clientType?: 'player' | 'agent'; // 记录客户端类型（基于首次消息判定）
     }
   >();
   private playerSessions = new Map<string, string>(); // clientId -> sessionId
@@ -297,6 +299,7 @@ export class WebsocketGateway
         const clientInfo = {};
         this.connectedClients.set(client.id, clientInfo);
         await this.saveClientToRedis(client.id, clientInfo);
+
         this.logger.log(`玩家连接: ${client.id}`);
 
         // 设置心跳检测
@@ -309,6 +312,11 @@ export class WebsocketGateway
 
   async handleDisconnect(client: Socket) {
     const clientInfo = this.connectedClients.get(client.id);
+
+    // 记录 WebSocket 断开连接指标（基于已记录的 clientType）
+    if (clientInfo?.clientType) {
+      wsConnectionsGauge.dec({ client_type: clientInfo.clientType });
+    }
 
     // 清除心跳检测
     this.clearHeartbeat(client.id);
@@ -363,6 +371,16 @@ export class WebsocketGateway
     @ConnectedSocket() client: Socket,
   ) {
     try {
+      // 首次消息时记录 client_type（基于 handler 入口判定为 player）
+      const clientInfo = this.connectedClients.get(client.id);
+      if (clientInfo && !clientInfo.clientType) {
+        clientInfo.clientType = 'player';
+        wsConnectionsGauge.inc({ client_type: 'player' });
+      }
+
+      // 记录接收消息指标
+      wsMessagesCounter.inc({ direction: 'in' });
+
       const message = await this.messageService.create(
         {
           sessionId: data.sessionId,
@@ -388,7 +406,16 @@ export class WebsocketGateway
     @ConnectedSocket() client: Socket,
   ) {
     try {
+      // 首次消息时记录 client_type（基于 handler 入口判定为 agent）
       const clientInfo = this.connectedClients.get(client.id);
+      if (clientInfo && !clientInfo.clientType) {
+        clientInfo.clientType = 'agent';
+        wsConnectionsGauge.inc({ client_type: 'agent' });
+      }
+
+      // 记录接收消息指标
+      wsMessagesCounter.inc({ direction: 'in' });
+
       if (!clientInfo?.userId) {
         return { success: false, error: '未认证' };
       }
@@ -626,6 +653,9 @@ export class WebsocketGateway
 
   // 通知新消息
   notifyMessage(sessionId: string, message: any) {
+    // 记录发送消息指标
+    wsMessagesCounter.inc({ direction: 'out' });
+
     // 发送给会话房间的所有客户端（玩家端和客服端）
     this.server.to(`session:${sessionId}`).emit('message', {
       sessionId,

@@ -1,6 +1,7 @@
 import { Injectable, Logger, Inject } from '@nestjs/common';
 import Redis from 'ioredis';
 import { PrismaService } from '../prisma/prisma.service';
+import { queueLengthGauge, redisConnectionErrorsCounter } from '../metrics/queue.metrics';
 
 /**
  * 排队服务 - 使用 Redis Zset 管理排队序列
@@ -16,6 +17,26 @@ export class QueueService {
     @Inject('REDIS_CLIENT') private readonly redis: Redis,
     private readonly prisma: PrismaService,
   ) {}
+
+  /**
+   * 分类 Redis 错误类型并记录指标
+   */
+  private recordRedisError(error: unknown): void {
+    const errorMsg = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+    
+    let errorType: string;
+    if (errorMsg.includes('timeout')) {
+      errorType = 'timeout';
+    } else if (errorMsg.includes('econnrefused') || errorMsg.includes('connection')) {
+      errorType = 'connection_refused';
+    } else if (errorMsg.includes('maxretriesperrequest')) {
+      errorType = 'max_retries';
+    } else {
+      errorType = 'other';
+    }
+    
+    redisConnectionErrorsCounter.inc({ error_type: errorType });
+  }
 
   /**
    * 计算会话的排序分数
@@ -54,6 +75,7 @@ export class QueueService {
         `添加会话 ${sessionId} 到未分配队列，分数: ${score}`,
       );
     } catch (error: unknown) {
+      this.recordRedisError(error);
       const errorMsg = error instanceof Error ? error.message : String(error);
       const errorStack = error instanceof Error ? error.stack : undefined;
       this.logger.error(`添加会话到未分配队列失败: ${errorMsg}`, errorStack);
@@ -78,6 +100,7 @@ export class QueueService {
         `添加会话 ${sessionId} 到客服 ${agentId} 的队列，分数: ${score}`,
       );
     } catch (error: unknown) {
+      this.recordRedisError(error);
       const errorMsg = error instanceof Error ? error.message : String(error);
       const errorStack = error instanceof Error ? error.stack : undefined;
       this.logger.error(`添加会话到客服队列失败: ${errorMsg}`, errorStack);
@@ -121,6 +144,7 @@ export class QueueService {
 
       this.logger.debug(`从队列移除会话 ${sessionId}`);
     } catch (error) {
+      this.recordRedisError(error);
       this.logger.error(`从队列移除会话失败: ${error.message}`, error.stack);
       throw error;
     }
@@ -149,6 +173,7 @@ export class QueueService {
 
       this.logger.debug(`将会话 ${sessionId} 从未分配队列移动到客服 ${agentId} 的队列`);
     } catch (error: unknown) {
+      this.recordRedisError(error);
       const errorMsg = error instanceof Error ? error.message : String(error);
       const errorStack = error instanceof Error ? error.stack : undefined;
       this.logger.error(`移动会话到客服队列失败: ${errorMsg}`, errorStack);
@@ -179,6 +204,7 @@ export class QueueService {
       // rank 从0开始，所以需要 +1 转换为从1开始的排队位置
       return rank + 1;
     } catch (error) {
+      this.recordRedisError(error);
       this.logger.error(`获取排队位置失败: ${error.message}`, error.stack);
       return null;
     }
@@ -205,6 +231,7 @@ export class QueueService {
 
       return sessionIds;
     } catch (error) {
+      this.recordRedisError(error);
       this.logger.error(`获取队列会话ID失败: ${error.message}`, error.stack);
       return [];
     }
@@ -216,14 +243,21 @@ export class QueueService {
   async getQueueLength(agentId?: string | null): Promise<number> {
     try {
       let queueKey: string;
+      let queueType: string;
       if (agentId) {
         queueKey = `${this.AGENT_QUEUE_KEY_PREFIX}${agentId}`;
+        queueType = 'agent';
       } else {
         queueKey = this.UNASSIGNED_QUEUE_KEY;
+        queueType = 'unassigned';
       }
 
       return await this.redis.zcard(queueKey);
+      const length = await this.redis.zcard(queueKey);
+      queueLengthGauge.set({ queue_type: queueType }, length);      
+      return length;
     } catch (error) {
+      this.recordRedisError(error);
       this.logger.error(`获取队列长度失败: ${error.message}`, error.stack);
       return 0;
     }
@@ -243,6 +277,7 @@ export class QueueService {
       ]);
       return result === 'PONG';
     } catch (error) {
+      this.recordRedisError(error);
       this.logger.warn(`Redis 不可用: ${error instanceof Error ? error.message : String(error)}`);
       return false;
     }
