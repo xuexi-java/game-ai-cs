@@ -149,6 +149,12 @@ async function bootstrap() {
     },
   });
 
+  // 导出管理端API文档为JSON格式（供ApiFox等工具导入）
+  app.get('/api/v1/docs/admin-json', (req, res) => {
+    res.setHeader('Content-Type', 'application/json');
+    res.send(JSON.stringify(adminFilteredDocument, null, 2));
+  });
+
   // 玩家端：仅保留无需鉴权的接口（无 security 或空数组）
   const playerConfig = buildDoc('AI客服系统 - 玩家端API', 'AI客服系统玩家端后端API文档（无需认证）');
   const playerDocument = SwaggerModule.createDocument(app, playerConfig, {
@@ -169,6 +175,12 @@ async function bootstrap() {
     },
   });
 
+  // 导出玩家端API文档为JSON格式（供ApiFox等工具导入）
+  app.get('/api/v1/docs/player-json', (req, res) => {
+    res.setHeader('Content-Type', 'application/json');
+    res.send(JSON.stringify(playerFilteredDocument, null, 2));
+  });
+
   const port = process.env.PORT || 21101;
   await app.listen(port);
   // 使用环境变量或默认值构建 baseUrl（用于日志输出）
@@ -182,6 +194,8 @@ async function bootstrap() {
   logger.log(`🚀 后端服务运行在 ${baseUrl}`);
   logger.log(`📚 Swagger 管理端文档: ${baseUrl}/api/v1/docs/admin`);
   logger.log(`📚 Swagger 玩家端文档: ${baseUrl}/api/v1/docs/player`);
+  logger.log(`📄 管理端API JSON导出: ${baseUrl}/api/v1/docs/admin-json`);
+  logger.log(`📄 玩家端API JSON导出: ${baseUrl}/api/v1/docs/player-json`);
 
   // 恢复队列数据到 Redis（如果 Redis 可用）
   try {
