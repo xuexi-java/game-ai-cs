@@ -3,8 +3,8 @@ import {
   NotFoundException,
   Inject,
   forwardRef,
-  Logger,
 } from '@nestjs/common';
+import { AppLogger } from '../common/logger/app-logger.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateTicketDto, TicketResponseDto } from './dto/create-ticket.dto';
 import { TicketPriorityService } from './ticket-priority.service';
@@ -19,9 +19,8 @@ import Redis from 'ioredis';
 
 @Injectable()
 export class TicketService {
-  private readonly logger = new Logger(TicketService.name);
-
   constructor(
+    private readonly logger: AppLogger,
     private prisma: PrismaService,
     private priorityService: TicketPriorityService,
     private ticketMessageService: TicketMessageService,
@@ -34,7 +33,9 @@ export class TicketService {
     private queueService: QueueService,
     @Inject('REDIS_CLIENT')
     private readonly redisClient: Redis,
-  ) { }
+  ) {
+    this.logger.setContext('TicketService');
+  }
 
   // 生成工单编号 - 使用 Redis 原子计数器，避免高并发冲突
   private async generateTicketNo(): Promise<string> {
@@ -337,12 +338,6 @@ export class TicketService {
       const directTransferType = issueTypes.find((type) => type.requireDirectTransfer);
       const requiresDirectTransfer = !!directTransferType;
 
-      if (requiresDirectTransfer) {
-        this.logger.log(`工单 ${ticketNo} 触发直接转人工，原因：问题类型 "${directTransferType.name}" (ID: ${directTransferType.id}) 要求直接转人工`);
-      } else {
-        this.logger.log(`工单 ${ticketNo} 进入 AI 处理流程，涉及问题类型: ${issueTypes.map(t => t.name).join(', ')}`);
-      }
-
       // 如果需要直接转人工，状态设置为 WAITING（待人工处理）
       // 否则设置为 IN_PROGRESS（处理中，会进入AI流程）
       const initialStatus = requiresDirectTransfer ? 'WAITING' : 'IN_PROGRESS';
@@ -371,8 +366,9 @@ export class TicketService {
           },
         });
       } catch (error) {
-        this.logger.error('创建工单失败:', error);
-        this.logger.error('工单数据:', {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        const errorStack = error instanceof Error ? error.stack : undefined;
+        this.logger.error(`创建工单失败: ${errorMessage}`, errorStack, {
           gameId: createTicketDto.gameId,
           playerIdOrName: createTicketDto.playerIdOrName,
           description: createTicketDto.description?.substring(0, 50),
@@ -380,7 +376,7 @@ export class TicketService {
           serverId,
           serverName,
         });
-        throw new Error(`创建工单失败: ${error.message || '未知错误'}`);
+        throw new Error(`创建工单失败: ${errorMessage}`);
       }
 
       // 计算优先级（基于问题类型权重）
@@ -458,6 +454,17 @@ export class TicketService {
           this.logger.error('身份验证失败:', error);
         });
       }
+
+      // 关键业务日志：工单创建
+      this.logger.logBusiness({
+        action: 'ticket_created',
+        ticketId: ticket.id,
+        ticketNo: ticket.ticketNo,
+        gameId: createTicketDto.gameId,
+        status: initialStatus,
+        requiresDirectTransfer,
+        sessionCreated,
+      });
 
       return {
         id: ticket.id,
@@ -574,11 +581,24 @@ export class TicketService {
 
   // 更新工单状态
   async updateStatus(id: string, status: string) {
-    await this.findOne(id);
-    return this.prisma.ticket.update({
+    const ticket = await this.findOne(id);
+    const oldStatus = ticket.status;
+
+    const updatedTicket = await this.prisma.ticket.update({
       where: { id },
       data: { status: status as any },
     });
+
+    // 关键业务日志：工单状态变更
+    this.logger.logBusiness({
+      action: 'ticket_status_changed',
+      ticketId: id,
+      ticketNo: ticket.ticketNo,
+      oldStatus,
+      newStatus: status,
+    });
+
+    return updatedTicket;
   }
 
   // 更新工单优先级
@@ -1342,7 +1362,6 @@ export class TicketService {
           this.logger.error(
             `分配工单 ${ticket.ticketNo} 失败: ${errorMessage}`,
             errorStack,
-            'TicketService',
             { ticketId: ticket.id, ticketNo: ticket.ticketNo },
           );
           // 继续处理下一个工单
@@ -1356,7 +1375,6 @@ export class TicketService {
       this.logger.error(
         `自动分配等待工单失败: ${errorMessage}`,
         errorStack,
-        'TicketService',
       );
     }
   }
@@ -1453,8 +1471,8 @@ export class TicketService {
 
       // 记录分配日志
       this.logger.log(
+        `工单 ${ticketId} 自动分配: 选择 ${selectedAgent.role} ${selectedAgent.username}`,
         {
-          message: `工单 ${ticketId} 自动分配: 选择 ${selectedAgent.role} ${selectedAgent.username}`,
           ticketId,
           selectedAgentId: selectedAgent.id,
           selectedAgentRole: selectedAgent.role,
@@ -1462,7 +1480,6 @@ export class TicketService {
           actualLoad: selectedAgent.sessions.length,
           weightedLoad: agentsWithLoad[0].load,
         },
-        'TicketService', // context 要用字符串
       );
       
 
@@ -1635,7 +1652,6 @@ export class TicketService {
       this.logger.error(
         `自动分配直接转人工工单 ${ticketId} 失败: ${errorMessage}`,
         errorStack,
-        'TicketService',
         { ticketId },
       );
       return { hasAgents: false, sessionCreated: false };

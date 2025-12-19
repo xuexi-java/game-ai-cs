@@ -1,13 +1,20 @@
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { DetectResult, TranslateResult } from './translation.interface';
 import { BaiduTranslationProvider } from './providers/baidu.provider';
+import { AppLogger } from '../../common/logger/app-logger.service';
 
 @Injectable()
 export class TranslationService {
-    private readonly logger = new Logger(TranslationService.name);
+    private readonly logger: AppLogger;
 
-    constructor(private readonly provider: BaiduTranslationProvider) { }
+    constructor(
+        private readonly provider: BaiduTranslationProvider,
+        logger: AppLogger,
+    ) {
+        this.logger = logger;
+        this.logger.setContext(TranslationService.name);
+    }
 
     async detect(text: string): Promise<DetectResult> {
         return this.provider.detect(text);

@@ -46,6 +46,7 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=21101
+      - LOG_LEVEL=INFO
       - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/game_ai_cs?schema=public
       # 数据库连接池配置
       - DB_CONNECTION_LIMIT=${DB_CONNECTION_LIMIT:-50}
@@ -80,6 +81,13 @@ services:
     networks:
       - game-ai-cs-network
     restart: unless-stopped
+    # 日志配置（为 ELK/Loki 接入预留）
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "10"
+        labels: "service=backend,env=production"
 
   admin-portal:
     build:

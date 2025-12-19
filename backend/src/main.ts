@@ -5,15 +5,25 @@ import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { TransformInterceptor } from './common/interceptors/transform.interceptor';
 import { MetricsInterceptor } from './common/interceptors/metrics.interceptor';
+import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
+import { AppLogger } from './common/logger/app-logger.service';
+import { TraceService } from './common/logger/trace.service';
 import { LoggerService } from './common/logger/logger.service';
 import { QueueService } from './queue/queue.service';
 
 async function bootstrap() {
+  // 创建临时 TraceService 和 LoggerService 用于框架日志
+  const tempTraceService = new TraceService();
+  const tempLoggerService = new LoggerService();
+  
   const app = await NestFactory.create(AppModule, {
-    logger: new LoggerService(),
+    logger: AppLogger.createGlobal(tempTraceService, tempLoggerService),
+    bufferLogs: true, // 缓冲日志，等待应用启动后再输出
   });
 
-  const logger = app.get(LoggerService);
+  // 使用依赖注入的 AppLogger（已正确注入 LoggerService）
+  const logger = app.get(AppLogger);
+  app.useLogger(logger); // 替换临时 logger
 
   // 全局验证管道
   app.useGlobalPipes(
@@ -27,8 +37,11 @@ async function bootstrap() {
     }),
   );
 
-  // 全局异常过滤器
-  app.useGlobalFilters(new HttpExceptionFilter());
+  // 全局异常过滤器（使用依赖注入）
+  app.useGlobalFilters(app.get(HttpExceptionFilter));
+
+  // 全局日志拦截器（必须在最外层，第一个注册）
+  app.useGlobalInterceptors(app.get(LoggingInterceptor));
 
   // 全局响应拦截器
   app.useGlobalInterceptors(new TransformInterceptor());
@@ -162,25 +175,20 @@ async function bootstrap() {
   const host = process.env.HOST || 'localhost';
   const protocol = process.env.NODE_ENV === 'production' ? 'https' : 'http';
   const baseUrl = `${protocol}://${host}:${port}`;
-// 将这三行替换为正确的中文
-logger.log(`🚀 后端服务运行在 ${baseUrl}`, 'Bootstrap');
-
-logger.log(
-  `📚 Swagger 管理端文档: ${baseUrl}/api/v1/docs/admin`,
-  'Bootstrap',
-);
-
-logger.log(
-  `📚 Swagger 玩家端文档: ${baseUrl}/api/v1/docs/player`,
-  'Bootstrap',
-);
+  
+  // 设置 logger 的 context
+  logger.setContext('Bootstrap');
+  
+  logger.log(`🚀 后端服务运行在 ${baseUrl}`);
+  logger.log(`📚 Swagger 管理端文档: ${baseUrl}/api/v1/docs/admin`);
+  logger.log(`📚 Swagger 玩家端文档: ${baseUrl}/api/v1/docs/player`);
 
   // 恢复队列数据到 Redis（如果 Redis 可用）
   try {
     const queueService = app.get(QueueService);
     await queueService.recoverQueueFromDatabase();
   } catch (error) {
-    logger.warn(`恢复队列数据失败: ${error.message}`, 'Bootstrap');
+    logger.warn(`恢复队列数据失败: ${error.message}`);
   }
 }
 

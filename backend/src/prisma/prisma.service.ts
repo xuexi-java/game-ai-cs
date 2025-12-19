@@ -1,6 +1,7 @@
-import { Injectable, OnModuleInit, OnModuleDestroy, Logger } from '@nestjs/common';
+import { Injectable, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaClient, Prisma } from '@prisma/client';
+import { AppLogger } from '../common/logger/app-logger.service';
 
 // 数据库服务
 @Injectable()
@@ -8,9 +9,12 @@ export class PrismaService
   extends PrismaClient
   implements OnModuleInit, OnModuleDestroy
 {
-  private readonly logger = new Logger(PrismaService.name);
+  private readonly logger: AppLogger;
 
-  constructor(private configService: ConfigService) {
+  constructor(
+    private configService: ConfigService,
+    logger: AppLogger,
+  ) {
     // 构建完整的数据库连接字符串（包含连接池参数）
     const databaseUrl = PrismaService.buildDatabaseUrl(configService);
     
@@ -25,13 +29,18 @@ export class PrismaService
       // 错误格式化
       errorFormat: 'pretty',
     });
+    
+    // Initialize logger after super()
+    this.logger = logger;
+    this.logger.setContext(PrismaService.name);
   }
 
   /**
    * 构建包含连接池参数的数据库连接字符串
    */
   private static buildDatabaseUrl(configService: ConfigService): string {
-    const logger = new Logger(PrismaService.name);
+    // Note: Static method cannot use instance logger, using console for static context
+    const logPrefix = `[${PrismaService.name}]`;
     
     const baseUrl = 
       configService.get<string>('DATABASE_URL_BASE') ||
@@ -44,7 +53,7 @@ export class PrismaService
 
     // 如果已经包含连接池参数，直接返回
     if (baseUrl.includes('connection_limit') || baseUrl.includes('pool_timeout')) {
-      logger.warn('DATABASE_URL 已包含连接池参数，将使用现有配置');
+      console.warn(`${logPrefix} DATABASE_URL 已包含连接池参数，将使用现有配置`);
       return baseUrl;
     }
 
@@ -69,8 +78,8 @@ export class PrismaService
 
     const fullUrl = `${baseUrl}${separator}${poolParams}`;
     
-    logger.log(
-      `数据库连接池配置: 最大连接数=${connectionLimit}, 连接超时=${connectTimeout}s, 查询超时=${queryTimeout}s`,
+    console.log(
+      `${logPrefix} 数据库连接池配置: 最大连接数=${connectionLimit}, 连接超时=${connectTimeout}s, 查询超时=${queryTimeout}s`,
     );
     
     return fullUrl;

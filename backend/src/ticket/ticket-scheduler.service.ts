@@ -1,12 +1,19 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { TicketService } from './ticket.service';
+import { AppLogger } from '../common/logger/app-logger.service';
 
 @Injectable()
 export class TicketSchedulerService {
-  private readonly logger = new Logger(TicketSchedulerService.name);
+  private readonly logger: AppLogger;
 
-  constructor(private ticketService: TicketService) {}
+  constructor(
+    private ticketService: TicketService,
+    logger: AppLogger,
+  ) {
+    this.logger = logger;
+    this.logger.setContext(TicketSchedulerService.name);
+  }
 
   /**
    * 每天执行一次定时任务

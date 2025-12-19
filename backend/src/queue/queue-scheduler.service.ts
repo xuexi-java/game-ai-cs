@@ -1,19 +1,24 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { QueueService } from './queue.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { AppLogger } from '../common/logger/app-logger.service';
 
 /**
  * 队列调度服务 - 定期同步队列数据
  */
 @Injectable()
 export class QueueSchedulerService {
-  private readonly logger = new Logger(QueueSchedulerService.name);
+  private readonly logger: AppLogger;
 
   constructor(
     private queueService: QueueService,
     private prisma: PrismaService,
-  ) {}
+    logger: AppLogger,
+  ) {
+    this.logger = logger;
+    this.logger.setContext(QueueSchedulerService.name);
+  }
 
   /**
    * 每分钟同步一次队列数据到数据库

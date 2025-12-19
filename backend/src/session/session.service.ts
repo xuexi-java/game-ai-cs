@@ -1,9 +1,9 @@
-﻿import {
+import {
   Injectable,
   NotFoundException,
   BadRequestException,
-  Logger,
 } from '@nestjs/common';
+import { AppLogger } from '../common/logger/app-logger.service';
 import { Throttle } from '@nestjs/throttler';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateSessionDto, TransferToAgentDto } from './dto/create-session.dto';
@@ -39,9 +39,8 @@ const TICKET_RELATION_INCLUDE = {
 
 @Injectable()
 export class SessionService {
-  private readonly logger = new Logger(SessionService.name);
-
   constructor(
+    private readonly logger: AppLogger,
     private prisma: PrismaService,
     private difyService: DifyService,
     private messageService: MessageService,
@@ -50,7 +49,9 @@ export class SessionService {
     @Inject(forwardRef(() => TicketService))
     private ticketService: TicketService,
     private queueService: QueueService,
-  ) { }
+  ) {
+    this.logger.setContext('SessionService');
+  }
 
   private enrichTicketWithIssueTypes<T extends { ticketIssueTypes?: any[] }>(
     ticket: T | null,
@@ -155,7 +156,17 @@ export class SessionService {
       this.websocketGateway.notifyMessage(session.id, fallback);
     }
 
-    return this.findOne(session.id);
+    const finalSession = await this.findOne(session.id);
+
+    // 关键业务日志：会话创建
+    this.logger.logBusiness({
+      action: 'session_created',
+      sessionId: session.id,
+      ticketId: createSessionDto.ticketId,
+      status: finalSession.status,
+    });
+
+    return finalSession;
   }
 
   // 鐜╁鍙戦€佹秷鎭紝鑷姩涓?Dify 浜や簰
@@ -362,19 +373,11 @@ export class SessionService {
         { agentId: currentUser.id },
         { agentId: null },
       ];
-      // 添加日志
-      this.logger.log(
-        `客服 ${currentUser.id} (${currentUser.role}) 查询待接入队列，过滤条件: ${JSON.stringify(queuedWhere)}`,
-      );
     } else if (currentUser && currentUser.role === 'ADMIN') {
       // ✅ 管理员可以看到所有待接入会话，不需要过滤
-      this.logger.log('管理员查询待接入队列，返回所有会话');
     } else {
       // ✅ 未认证或未知角色：只返回未分配的会话（agentId 为 null）
       queuedWhere.agentId = null;
-      this.logger.warn(
-        `未认证用户或未知角色查询待接入队列，只返回未分配会话: ${JSON.stringify(currentUser)}`,
-      );
     }
 
     const queuedSessions = await this.prisma.session.findMany({
@@ -395,11 +398,6 @@ export class SessionService {
       },
       orderBy: [{ priorityScore: 'desc' }, { queuedAt: 'asc' }],
     });
-
-    // 添加日志记录查询结果
-    this.logger.log(
-      `查询到 ${queuedSessions.length} 个待接入会话，其中分配给客服的: ${queuedSessions.filter(s => s.agentId === currentUser?.id).length} 个，未分配的: ${queuedSessions.filter(s => !s.agentId).length} 个`,
-    );
 
     // 2. 获取 WAITING 状态的工单（没有活跃会话的）
     // 活跃会话：状态为 PENDING、QUEUED 或 IN_PROGRESS
@@ -738,6 +736,15 @@ export class SessionService {
     // 重新排序队列（移除已接入的会话）
     await this.reorderQueue();
 
+    // 关键业务日志：客服接入
+    this.logger.logBusiness({
+      action: 'session_joined',
+      sessionId,
+      agentId,
+      ticketId: normalizedSession.ticketId,
+      status: normalizedSession.status,
+    });
+
     // 通知 WebSocket 客户端
     this.websocketGateway.notifySessionUpdate(sessionId, normalizedSession);
 
@@ -784,7 +791,6 @@ export class SessionService {
         this.logger.error(
           `分配失败：用户 ${agentId} 不存在`,
           undefined,
-          'SessionService',
           { sessionId, agentId },
         );
         throw new NotFoundException('用户不存在');
@@ -861,23 +867,17 @@ export class SessionService {
 
       const normalizedSession = this.enrichSession(updatedSession);
 
-      // 记录分配日志
-      const duration = Date.now() - startTime;
-      this.logger.log(
-        `${isReassignment ? '重新' : ''}分配会话 ${sessionId} 成功: ${previousAgentId ? `从 ${previousAgentId} ` : ''}分配给 ${agent.role} ${agent.username} (${agentId})`,
-        {
-          sessionId,
-          ticketId: session.ticketId,
-          previousAgentId,
-          newAgentId: agentId,
-          newAgentRole: agent.role,
-          newAgentUsername: agent.username,
-          isReassignment,
-          sessionStatus: updatedSession.status,
-          duration,
-          timestamp: new Date().toISOString(),
-        },
-      );
+      // 关键业务日志：手动分配
+      this.logger.logBusiness({
+        action: 'session_assigned',
+        sessionId,
+        ticketId: session.ticketId,
+        previousAgentId,
+        newAgentId: agentId,
+        newAgentRole: agent.role,
+        isReassignment,
+        sessionStatus: updatedSession.status,
+      });
 
       // 通知 WebSocket 客户端
       this.websocketGateway.notifySessionUpdate(sessionId, normalizedSession);
@@ -891,7 +891,6 @@ export class SessionService {
       this.logger.error(
         `手动分配会话 ${sessionId} 失败: ${errorMessage}`,
         errorStack,
-        'SessionService',
         {
           sessionId,
           agentId,
@@ -1107,10 +1106,6 @@ export class SessionService {
     const candidatePool = [...onlineAgents, ...onlineAdmins];
 
     if (candidatePool.length === 0) {
-      this.logger.warn(
-        `会话 ${sessionId} 没有可分配的在线客服或管理员`,
-        { sessionId, onlineAgentsCount: onlineAgents.length, onlineAdminsCount: onlineAdmins.length },
-      );
       return session;
     }
 
@@ -1131,22 +1126,6 @@ export class SessionService {
       return new Date(a.loginTime).getTime() - new Date(b.loginTime).getTime();
     });
     const selectedAgent = agentsWithLoad[0].agent;
-
-    // 记录分配日志
-    this.logger.log(
-      `会话 ${sessionId} 自动分配: 选择 ${selectedAgent.role} ${selectedAgent.username} (负载: ${selectedAgent.sessions.length}, 加权负载: ${agentsWithLoad[0].load})`,
-      {
-        sessionId,
-        selectedAgentId: selectedAgent.id,
-        selectedAgentRole: selectedAgent.role,
-        selectedAgentUsername: selectedAgent.username,
-        actualLoad: selectedAgent.sessions.length,
-        weightedLoad: agentsWithLoad[0].load,
-        candidateCount: candidatePool.length,
-        agentCount: onlineAgents.length,
-        adminCount: onlineAdmins.length,
-      },
-    );
 
     // 获取会话信息（用于移动队列）
     const sessionInfo = await this.prisma.session.findUnique({
@@ -1400,13 +1379,9 @@ export class SessionService {
       // ⚠️ 关键：检查是否真的分配了客服
       if (assignedSession.agentId) {
         assignmentSucceeded = true;
-        this.logger.log(`会话 ${sessionId} 已自动分配给客服`);
-      } else {
-        this.logger.warn(`会话 ${sessionId} 未能分配客服（可能没有可分配的客服）`);
       }
     } catch (error) {
       // 自动分配失败可能是因为所有客服都忙，这是正常的，保持排队状态
-      this.logger.warn(`自动分配失败，会话 ${sessionId} 保持在排队状态: ${error.message}`);
     }
 
     // ⚠️ 关键修复：如果自动分配失败，检查是否还有在线客服
@@ -1428,8 +1403,6 @@ export class SessionService {
 
       // 如果现在没有在线客服了，关闭会话并转为工单，告知玩家
       if (stillHasOnlineAgents === 0 && stillHasOnlineAdmins === 0) {
-        this.logger.warn(`自动分配失败且无在线客服，关闭会话 ${sessionId} 并转为工单`);
-
         // 更新工单为加急状态
         await this.ticketService.updateStatus(session.ticketId, 'WAITING');
         await this.prisma.ticket.update({
@@ -1491,6 +1464,17 @@ export class SessionService {
 
     // ✅ 确保发送会话更新通知
     this.websocketGateway.notifySessionUpdate(sessionId, finalSession);
+
+    // 关键业务日志：转人工
+    this.logger.logBusiness({
+      action: 'session_transferred',
+      sessionId,
+      ticketId: session.ticketId,
+      urgency: transferDto.urgency,
+      reason: transferDto.reason,
+      agentId: finalSession.agentId,
+      queuePosition: finalSession.queuePosition,
+    });
 
     // 获取在线客服数量
     const onlineAgentsCount = await this.prisma.user.count({
@@ -1981,6 +1965,15 @@ export class SessionService {
     // 重新排序队列（移除已关闭的会话）
     await this.reorderQueue();
 
+    // 关键业务日志：会话关闭（客服端）
+    this.logger.logBusiness({
+      action: 'session_closed',
+      sessionId,
+      ticketId: session.ticketId,
+      agentId: session.agentId,
+      closedBy: 'agent',
+    });
+
     // 通过 WebSocket 通知所有客户端会话已关闭
     const normalizedSession = this.enrichSession(updatedSession);
     this.websocketGateway.notifySessionUpdate(sessionId, normalizedSession);
@@ -2069,6 +2062,15 @@ export class SessionService {
 
     // 重新排序队列（移除已关闭的会话）
     await this.reorderQueue();
+
+    // 关键业务日志：会话关闭（玩家端）
+    this.logger.logBusiness({
+      action: 'session_closed',
+      sessionId,
+      ticketId: existingSession.ticketId,
+      agentId: session.agentId,
+      closedBy: 'player',
+    });
 
     // 通过 WebSocket 通知所有客户端会话已关闭
     const normalizedSession = this.enrichSession(session);

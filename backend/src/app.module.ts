@@ -23,6 +23,8 @@ import { UserModule } from './user/user.module';
 import { IssueTypeModule } from './issue-type/issue-type.module';
 import { QuickReplyModule } from './quick-reply/quick-reply.module';
 import { LoggerModule } from './common/logger/logger.module';
+import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
+import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { RedisModule } from './redis/redis.module';
 import { EncryptionModule } from './common/encryption/encryption.module';
 import { validate } from './common/config/env.validation';
@@ -87,6 +89,8 @@ import { MetricsModule } from './metrics/metrics.module';
   controllers: [AppController],
   providers: [
     AppService,
+    LoggingInterceptor,
+    HttpExceptionFilter,
     {
       provide: APP_GUARD,
       useClass: ThrottlerGuard,

@@ -9,7 +9,6 @@ import {
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
 import {
-  Logger,
   UseGuards,
   Inject,
   OnModuleInit,
@@ -23,6 +22,7 @@ import { TicketService } from '../ticket/ticket.service';
 import { forwardRef } from '@nestjs/common';
 import Redis from 'ioredis';
 import { wsConnectionsGauge, wsMessagesCounter } from '../metrics/queue.metrics';
+import { AppLogger } from '../common/logger/app-logger.service';
 
 @WebSocketGateway({
   cors: {
@@ -46,8 +46,6 @@ export class WebsocketGateway
 {
   @WebSocketServer()
   server: Server;
-
-  private readonly logger = new Logger(WebsocketGateway.name);
   
   // 保留内存 Map 作为缓存（提高性能）
   private connectedClients = new Map<
@@ -80,7 +78,10 @@ export class WebsocketGateway
     private ticketService: TicketService,
     @Inject('REDIS_CLIENT')
     private redis: Redis,
-  ) {}
+    private readonly logger: AppLogger,
+  ) {
+    this.logger.setContext(WebsocketGateway.name);
+  }
 
   async onModuleInit() {
     // 初始化阶段不再延迟，实际恢复放在 onApplicationBootstrap

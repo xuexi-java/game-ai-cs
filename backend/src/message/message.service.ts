@@ -1,18 +1,23 @@
-import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateMessageDto } from './dto/create-message.dto';
 import { SenderType, MessageType } from '@prisma/client';
 import { TranslationService } from '../shared/translation/translation.service';
 import { SessionMetadata, MessageMetadata } from '../common/types/metadata.types';
+import { AppLogger } from '../common/logger/app-logger.service';
 
 @Injectable()
 export class MessageService {
-  private readonly logger = new Logger(MessageService.name);
+  private readonly logger: AppLogger;
 
   constructor(
     private prisma: PrismaService,
     private translationService: TranslationService,
-  ) { }
+    logger: AppLogger,
+  ) {
+    this.logger = logger;
+    this.logger.setContext(MessageService.name);
+  }
 
   // 创建消息
   async create(

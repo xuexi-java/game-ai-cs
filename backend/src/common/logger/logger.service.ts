@@ -367,6 +367,28 @@ export class LoggerService implements NestLoggerService, OnModuleDestroy {
     return this.logLevel;
   }
 
+  /**
+   * 写入格式化后的日志（供 AppLogger 调用）
+   * 接收已格式化的 JSON 日志字符串，直接写入文件
+   * 
+   * @param level 日志级别
+   * @param formattedLog 已格式化的 JSON 日志字符串
+   */
+  public writeFormattedLog(level: string, formattedLog: string): void {
+    // 直接加入写入队列（不再格式化，因为 AppLogger 已经格式化过了）
+    const fileMessage = formattedLog + '\n';
+    this.enqueueLog(fileMessage);
+    
+    // 生产环境也输出到控制台（保持兼容性，供 PM2/Docker 收集）
+    if (process.env.NODE_ENV !== 'development') {
+      if (level === 'ERROR') {
+        console.error(formattedLog);
+      } else {
+        console.log(formattedLog);
+      }
+    }
+  }
+
   // 应用关闭时刷新队列
   async onModuleDestroy() {
     await this.flushQueue();

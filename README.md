@@ -456,6 +456,7 @@ npm run preview       # 预览生产构建
 - **ORM**: Prisma 5.x
 - **认证**: JWT
 - **WebSocket**: Socket.io
+- **日志**: JSON 单行格式，stdout/stderr 分流，支持 ELK/Loki
 
 ### 前端
 - **框架**: React 18.x
@@ -589,13 +590,51 @@ docker-compose up -d --build
 - 提交前运行测试
 - 遵循 Git Commit 规范
 
+##  日志管馈理
+
+系统日志为 JSON 单行格式，stdout/stderr 分流，支持 ELK/Loki 接入。
+
+### 日志特性
+
+- ✅ **JSON 格式**: 结构化日志，易于分析和查询
+- ✅ **自动轮转**: 单个文件达到 100MB 自动轮转，保留最近 10 个文件
+- ✅ **定期清理**: 自动删除 3 个月前的日志文件
+- ✅ **链路追踪**: 每个请求自动生成 traceId，支持完整链路追踪
+- ✅ **慢请求检测**: 自动检测慢请求（>500ms WARN，>2000ms ERROR）
+- ✅ **分流输出**: stdout（INFO/WARN）和 stderr（ERROR）分流
+
+### 日志配置
+
+```bash
+# 查看日志（Docker 环境）
+docker-compose logs -f backend
+
+# 查看日志（PM2 环境）
+pm2 logs game-ai-backend
+
+# 设置定期清理（Linux/macOS）
+./scripts/setup-log-cleanup-cron.sh
+
+# 设置定期清理（Windows，以管理员身份运行）
+.\scripts\setup-log-cleanup-task.ps1
+
+# 手动清理日志
+./scripts/clean-logs.sh  # Linux/macOS
+.\scripts\clean-logs.ps1  # Windows
+```
+
+详细配置请参考：
+- [日志配置说明](./docs/日志配置说明.md)
+- [运维部署命令](./docs/运维部署命令.md)
+
 ## 🐛 问题反馈
 
 如遇到问题，请：
 
 1. 查看 [常见问题排查](./docs/生产环境部署指南.md#常见问题排查)
-2. 查看日志文件
-3. 提交 [GitHub Issue](https://github.com/xuexi-java/game-ai/issues)
+2. 查看日志文件（`backend/logs/access.log` 和 `backend/logs/error.log`）
+3. 按 traceId 查询完整请求链路：`grep "traceId" backend/logs/*.log`
+4. 提交 [GitHub Issue](https://github.com/xuexi-java/game-ai/issues)
 
 ## 🔄 更新日志
 

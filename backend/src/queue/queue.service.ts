@@ -1,14 +1,14 @@
-import { Injectable, Logger, Inject } from '@nestjs/common';
+import { Injectable, Inject } from '@nestjs/common';
 import Redis from 'ioredis';
 import { PrismaService } from '../prisma/prisma.service';
 import { queueLengthGauge, redisConnectionErrorsCounter } from '../metrics/queue.metrics';
+import { AppLogger } from '../common/logger/app-logger.service';
 
 /**
  * 排队服务 - 使用 Redis Zset 管理排队序列
  */
 @Injectable()
 export class QueueService {
-  private readonly logger = new Logger(QueueService.name);
   private readonly QUEUE_PREFIX = 'queue:';
   private readonly UNASSIGNED_QUEUE_KEY = `${this.QUEUE_PREFIX}unassigned`;
   private readonly AGENT_QUEUE_KEY_PREFIX = `${this.QUEUE_PREFIX}agent:`;
@@ -16,7 +16,10 @@ export class QueueService {
   constructor(
     @Inject('REDIS_CLIENT') private readonly redis: Redis,
     private readonly prisma: PrismaService,
-  ) {}
+    private readonly logger: AppLogger,
+  ) {
+    this.logger.setContext(QueueService.name);
+  }
 
   /**
    * 分类 Redis 错误类型并记录指标

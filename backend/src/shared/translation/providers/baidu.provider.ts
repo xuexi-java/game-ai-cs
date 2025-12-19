@@ -1,19 +1,25 @@
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
 import * as crypto from 'crypto';
 import { DetectResult, TranslateResult, TranslationProvider } from '../translation.interface';
+import { AppLogger } from '../../../common/logger/app-logger.service';
 
 @Injectable()
 export class BaiduTranslationProvider implements TranslationProvider {
-    private readonly logger = new Logger(BaiduTranslationProvider.name);
+    private readonly logger: AppLogger;
     private readonly appId: string;
     private readonly secret: string;
     // 百度翻译 API 地址（使用 HTTPS）
     private readonly apiUrl = 'https://fanyi-api.baidu.com/api/trans/vip/translate';
 
-    constructor(private readonly configService: ConfigService) {
+    constructor(
+        private readonly configService: ConfigService,
+        logger: AppLogger,
+    ) {
+        this.logger = logger;
+        this.logger.setContext(BaiduTranslationProvider.name);
         // 获取并清理环境变量，去除可能的空白字符和隐藏字符
         const rawAppId = this.configService.get<string>('BAIDU_TRANSLATE_APP_ID') || '';
         const rawSecret = this.configService.get<string>('BAIDU_TRANSLATE_SECRET') || '';

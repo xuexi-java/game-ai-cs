@@ -4,17 +4,17 @@ import {
   BadRequestException,
   Inject,
   forwardRef,
-  Logger,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { WebsocketGateway } from '../websocket/websocket.gateway';
 import { TranslationService } from '../shared/translation/translation.service';
 import { MessageMetadata, SessionMetadata } from '../common/types/metadata.types';
 import { TicketService } from '../ticket/ticket.service';
+import { AppLogger } from '../common/logger/app-logger.service';
 
 @Injectable()
 export class TicketMessageService {
-  private readonly logger = new Logger(TicketMessageService.name);
+  private readonly logger: AppLogger;
 
   constructor(
     private prisma: PrismaService,
@@ -23,7 +23,11 @@ export class TicketMessageService {
     private translationService: TranslationService,
     @Inject(forwardRef(() => TicketService))
     private ticketService: TicketService,
-  ) { }
+    logger: AppLogger,
+  ) {
+    this.logger = logger;
+    this.logger.setContext(TicketMessageService.name);
+  }
 
   // 创建工单消息（异步工单回复）
   async create(ticketId: string, senderId: string, content: string) {
