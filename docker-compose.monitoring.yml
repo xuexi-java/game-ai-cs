@@ -3,7 +3,7 @@ services:
     image: prom/prometheus:latest
     container_name: game-ai-cs-prometheus
     ports:
-      - "9090:9090" 
+      - "9090:9090"
     volumes:
       - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
       - prometheus_data:/prometheus
@@ -11,7 +11,33 @@ services:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.path=/prometheus'
     networks:
-      - game-ai_game-ai-cs-network  
+      - game-ai_game-ai-cs-network
+    restart: unless-stopped
+
+  loki:
+    image: grafana/loki:2.9.0
+    container_name: game-ai-cs-loki
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./monitoring/loki/loki-config.yml:/etc/loki/local-config.yaml
+      - loki_data:/loki
+    command: -config.file=/etc/loki/local-config.yaml
+    networks:
+      - game-ai_game-ai-cs-network
+    restart: unless-stopped
+
+  promtail:
+    image: grafana/promtail:2.9.0
+    container_name: game-ai-cs-promtail
+    volumes:
+      - ./monitoring/promtail/promtail-config.yml:/etc/promtail/config.yml
+      - ./backend/logs:/var/log/backend:ro
+    command: -config.file=/etc/promtail/config.yml
+    networks:
+      - game-ai_game-ai-cs-network
+    depends_on:
+      - loki
     restart: unless-stopped
 
   grafana:
@@ -29,11 +55,13 @@ services:
       - game-ai_game-ai-cs-network
     depends_on:
       - prometheus
+      - loki
     restart: unless-stopped
 
 volumes:
   prometheus_data:
   grafana_data:
+  loki_data:
 
 networks:
   game-ai_game-ai-cs-network:

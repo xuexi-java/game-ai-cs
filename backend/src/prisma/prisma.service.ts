@@ -123,7 +123,7 @@ export class PrismaService
   async onModuleDestroy() {
     try {
       await this.$disconnect();
-      this.logger.log('数据库连接已关闭');
+      this.logger.debug('数据库连接已关闭');
     } catch (error) {
       this.logger.error('关闭数据库连接时出错', error);
     }

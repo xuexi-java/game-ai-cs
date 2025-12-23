@@ -79,9 +79,10 @@ export interface BusinessLogContext {
 
 /**
  * 慢请求阈值（毫秒）
- * 符合 LOGGING_SPEC.md 第 8 节规范
+ * 符合《AI 日志修改宪法》第五节规范
  */
 export const SLOW_REQUEST_THRESHOLDS = {
-  WARN: 500,   // > 500ms 记录 WARN
-  ERROR: 2000, // > 2000ms 记录 ERROR
+  DEBUG: 500,   // 500~1000ms 记录 DEBUG
+  WARN: 1000,   // 1000~3000ms 记录 WARN（限流）
+  ERROR: 3000,  // > 3000ms 记录 ERROR（不限流）
 } as const;

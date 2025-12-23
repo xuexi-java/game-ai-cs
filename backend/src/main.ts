@@ -95,6 +95,7 @@ async function bootstrap() {
         'JWT-auth',
       )
       .addTag('auth', '认证相关接口')
+      .addTag('admin-auth', '认证相关接口（管理端）')
       .addTag('users', '用户管理接口')
       .addTag('games', '游戏管理接口')
       .addTag('tickets', '工单管理接口')
@@ -138,7 +139,13 @@ async function bootstrap() {
     ...adminDocument,
     paths: filterPaths(
       adminDocument.paths,
-      (operation) => operation.security && operation.security.length > 0,
+      (operation) => {
+        const tags: string[] = operation.tags || [];
+        // 保留需要鉴权的接口，或者标记为管理端认证的接口（登录/登出）
+        if (operation.security && operation.security.length > 0) return true;
+        if (tags.includes('admin-auth') || tags.includes('auth')) return true;
+        return false;
+      },
     ),
   };
   SwaggerModule.setup('api/v1/docs/admin', app, adminFilteredDocument, {
@@ -147,12 +154,6 @@ async function bootstrap() {
       tagsSorter: 'alpha',
       operationsSorter: 'alpha',
     },
-  });
-
-  // 导出管理端API文档为JSON格式（供ApiFox等工具导入）
-  app.get('/api/v1/docs/admin-json', (req, res) => {
-    res.setHeader('Content-Type', 'application/json');
-    res.send(JSON.stringify(adminFilteredDocument, null, 2));
   });
 
   // 玩家端：仅保留无需鉴权的接口（无 security 或空数组）
@@ -165,7 +166,15 @@ async function bootstrap() {
     ...playerDocument,
     paths: filterPaths(
       playerDocument.paths,
-      (operation) => !operation.security || operation.security.length === 0,
+      (operation) => {
+        const tags: string[] = operation.tags || [];
+
+        // åŽ»æŽ‰ç®¡ç†ç«¯ç”¨æˆ·é‰´æƒç±»æŽ¥å£ï¼ˆauth ç±» tag ä»…çŽ°åœ¨ admin-authï¼‰
+        if (tags.includes('admin-auth') || tags.includes('auth')) return false;
+
+        // ä¿ç•™æ— éœ€é‰´æƒçš„æŽ¥å£
+        return !operation.security || operation.security.length === 0;
+      },
     ),
   };
   SwaggerModule.setup('api/v1/docs/player', app, playerFilteredDocument, {
@@ -173,12 +182,6 @@ async function bootstrap() {
       tagsSorter: 'alpha',
       operationsSorter: 'alpha',
     },
-  });
-
-  // 导出玩家端API文档为JSON格式（供ApiFox等工具导入）
-  app.get('/api/v1/docs/player-json', (req, res) => {
-    res.setHeader('Content-Type', 'application/json');
-    res.send(JSON.stringify(playerFilteredDocument, null, 2));
   });
 
   const port = process.env.PORT || 21101;
@@ -194,8 +197,6 @@ async function bootstrap() {
   logger.log(`🚀 后端服务运行在 ${baseUrl}`);
   logger.log(`📚 Swagger 管理端文档: ${baseUrl}/api/v1/docs/admin`);
   logger.log(`📚 Swagger 玩家端文档: ${baseUrl}/api/v1/docs/player`);
-  logger.log(`📄 管理端API JSON导出: ${baseUrl}/api/v1/docs/admin-json`);
-  logger.log(`📄 玩家端API JSON导出: ${baseUrl}/api/v1/docs/player-json`);
 
   // 恢复队列数据到 Redis（如果 Redis 可用）
   try {

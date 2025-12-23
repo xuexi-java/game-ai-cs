@@ -54,14 +54,18 @@ export class AppLogger implements NestLoggerService {
 
   /**
    * 格式化日志输出
+   * @param level 日志级别
+   * @param message 日志消息
+   * @param meta 元数据（可选）
+   * @param contextOverride 上下文覆盖（可选）- 解决单例 context 污染问题
    */
-  private formatLog(level: LogLevel, message: string, meta?: Record<string, any>): string {
+  private formatLog(level: LogLevel, message: string, meta?: Record<string, any>, contextOverride?: string): string {
     const logEntry = {
       timestamp: new Date().toISOString(),
       level,
       traceId: this.traceService.getTraceId(),
       userId: this.traceService.getUserId(),
-      context: this.context,
+      context: contextOverride || this.context,
       message,
       ...meta,
     };
@@ -138,33 +142,43 @@ export class AppLogger implements NestLoggerService {
    * ERROR 级别日志
    * 用于明确失败
    * 兼容 NestJS 框架调用：error(message, trace, context)
+   *
+   * 支持的调用方式：
+   * 1. error(message) - 简单错误消息
+   * 2. error(message, context) - 带 context 字符串
+   * 3. error(message, trace, context) - 带 stack trace 和 context
+   * 4. error(message, meta) - 带 meta 对象
+   * 5. error(message, trace, meta) - 带 stack trace 和 meta 对象 ★重要★
    */
   error(message: any, traceOrContext?: any, contextOrMeta?: any): void {
     if (this.shouldLog(LogLevel.ERROR)) {
-      // NestJS 可能传递：error(message, trace, context) 或 error(message, context)
       let trace: string | undefined;
       let meta: Record<string, any> | undefined;
-      
+
       if (typeof traceOrContext === 'string' && typeof contextOrMeta === 'string') {
-        // error(message, trace, context)
+        // error(message, trace, context) - NestJS 标准调用
         trace = traceOrContext;
         if (!this.context) {
           this.setContext(contextOrMeta);
         }
+      } else if (typeof traceOrContext === 'string' && typeof contextOrMeta === 'object' && contextOrMeta !== null) {
+        // error(message, trace, meta) - 带 stack trace 和 meta 对象 ★修复★
+        trace = traceOrContext;
+        meta = contextOrMeta;
       } else if (typeof traceOrContext === 'string' && !contextOrMeta) {
         // error(message, context) - 第二个参数是 context
         if (!this.context) {
           this.setContext(traceOrContext);
         }
-      } else if (typeof traceOrContext === 'object') {
-        // error(message, meta)
+      } else if (typeof traceOrContext === 'object' && traceOrContext !== null) {
+        // error(message, meta) - 第二个参数是 meta 对象
         meta = traceOrContext;
       }
-      
+
       const messageStr = typeof message === 'string' ? message : JSON.stringify(message);
       const errorMeta = {
         ...meta,
-        exception: trace,
+        ...(trace && { exception: trace }),
       };
       this.output(LogLevel.ERROR, this.formatLog(LogLevel.ERROR, messageStr, errorMeta));
     }

@@ -1,4 +1,4 @@
-import { Injectable, HttpException, HttpStatus } from '@nestjs/common';
+import { Injectable, HttpException, HttpStatus, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import axios, { AxiosInstance } from 'axios';
 import { EncryptionService } from '../common/encryption/encryption.service';
@@ -50,7 +50,7 @@ const parseDifyResult = (payload: any): DifyMessageResult => {
           metadata.status = jsonData.status;
         }
       } catch (e) {
-        console.warn('解析 Dify JSON 失败:', e);
+        // 解析失败不影响主流程，静默处理
       }
     }
     text = text.replace(/<\/redacted_reasoning>[\s\S]*$/, '').trim();
@@ -89,7 +89,7 @@ const parseDifyResult = (payload: any): DifyMessageResult => {
 
   return {
     text,
-    status: null,
+    status: status ?? null,
     suggestedOptions: Array.isArray(suggestedOptions) ? suggestedOptions : [],
     detectedIntent: 'unknown',
     urgency: 'non_urgent',
@@ -100,6 +100,7 @@ const parseDifyResult = (payload: any): DifyMessageResult => {
 
 @Injectable()
 export class DifyService {
+  private readonly logger = new Logger(DifyService.name);
   private axiosInstance: AxiosInstance;
 
   constructor(
@@ -113,12 +114,30 @@ export class DifyService {
 
   /**
    * 解密 API Key（如果已加密）
+   * 加密格式: iv:tag:encrypted (三段由冒号分隔)
+   * 未加密格式: app-xxx (以 app- 开头)
    */
   private decryptApiKey(encryptedApiKey: string): string {
+    if (!encryptedApiKey) {
+      return encryptedApiKey;
+    }
+
+    // 检查是否是未加密的 API Key（以 app- 开头）
+    if (encryptedApiKey.startsWith('app-')) {
+      return encryptedApiKey;
+    }
+
+    // 检查是否符合加密格式（三段由冒号分隔）
+    const parts = encryptedApiKey.split(':');
+    if (parts.length !== 3) {
+      // 不符合加密格式，直接返回原值
+      return encryptedApiKey;
+    }
+
     try {
       return this.encryptionService.decrypt(encryptedApiKey);
     } catch (error) {
-      console.error('[DifyService] API Key 解密失败，使用原始值:', error);
+      this.logger.warn(`API Key 解密失败，使用原始值: ${error.message}`);
       return encryptedApiKey; // 向后兼容
     }
   }
@@ -159,13 +178,28 @@ export class DifyService {
         response.data?.outputs || response.data?.data?.outputs || response.data;
       return parseDifyResult(output);
     } catch (error: any) {
-      console.error('Dify 工作流API调用失败，尝试使用对话API:', error.message);
+      const errorResponse = error.response?.data;
+      this.logger.error(`triage 工作流API调用失败，尝试对话API: ${JSON.stringify({
+        message: errorResponse?.message || error.message,
+        code: errorResponse?.code,
+        status: error.response?.status,
+        url: `${baseUrl}/workflows/run`,
+        responseData: errorResponse,
+      })}`);
 
       // 如果工作流API失败，尝试使用对话API
+      // 注意：传入原始 apiKey，让 triageWithChatAPI 自己解密
       try {
-        return await this.triageWithChatAPI(description, decryptedApiKey, baseUrl);
+        return await this.triageWithChatAPI(description, apiKey, baseUrl);
       } catch (chatError: any) {
-        console.error('Dify 对话API调用失败:', chatError.message);
+        const chatErrorResponse = chatError.response?.data;
+        this.logger.error(`triage 对话API也失败: ${JSON.stringify({
+          message: chatErrorResponse?.message || chatError.message,
+          code: chatErrorResponse?.code,
+          status: chatError.response?.status,
+          url: `${baseUrl}/chat-messages`,
+          responseData: chatErrorResponse,
+        })}`);
 
         // 返回默认响应
         return {
@@ -218,6 +252,14 @@ export class DifyService {
       }
       return parsed;
     } catch (error: any) {
+      const errorResponse = error.response?.data;
+      this.logger.error(`triageWithChatAPI 失败: ${JSON.stringify({
+        message: errorResponse?.message || error.message,
+        code: errorResponse?.code,
+        status: error.response?.status,
+        url: `${baseUrl}/chat-messages`,
+        responseData: errorResponse,
+      })}`);
       throw error;
     }
   }
@@ -264,41 +306,85 @@ export class DifyService {
         response.data?.conversation_id ?? parsed.conversationId;
       return parsed;
     } catch (error: any) {
-      console.error('Dify发送对话消息失败:', error.message);
+      // 完整记录错误信息
+      const errorResponse = error.response?.data;
+      const errorMessage = errorResponse?.message || error.message;
+      const errorCode = errorResponse?.code;
+
+      this.logger.error(`sendChatMessage 失败: ${JSON.stringify({
+        message: errorMessage,
+        code: errorCode,
+        status: error.response?.status,
+        url: `${baseUrl}/chat-messages`,
+        responseData: errorResponse,
+      })}`);
+
       throw new HttpException(
-        `Dify API调用失败: ${error.message}`,
-        HttpStatus.INTERNAL_SERVER_ERROR,
+        errorMessage || 'Dify API调用失败',
+        error.response?.status || HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
   }
 
   /**
    * 优化客服回复（AI辅助）
-   * 使用对话API优化回复内容
+   * 使用专门的 AI 话术优化 API（从环境变量读取）
    */
   async optimizeReply(
     content: string,
     context: string,
-    apiKey: string,
-    baseUrl: string,
+    _apiKey?: string,  // 不再使用，保留参数兼容性
+    _baseUrl?: string, // 不再使用，保留参数兼容性
     conversationId?: string,
   ): Promise<string> {
-    const decryptedApiKey = this.decryptApiKey(apiKey);
-    
+    // 使用环境变量中的 AI 话术优化 API 配置
+    const optimizeApiKey = this.configService.get<string>('DIFY_API_KEY');
+    const optimizeBaseUrl = this.configService.get<string>('DIFY_BASE_URL');
+
+    if (!optimizeApiKey || !optimizeBaseUrl) {
+      this.logger.warn('AI话术优化 API 未配置，返回原文');
+      return content;
+    }
+
     try {
       const query = `请优化以下客服回复内容，使其更加专业和友好：\n${content}\n\n上下文信息：\n${context}`;
 
-      const response = await this.sendChatMessage(
+      // 环境变量中的 API Key 未加密，直接使用
+      const decryptedApiKey = optimizeApiKey;
+
+      const requestBody: any = {
+        inputs: {},
         query,
-        decryptedApiKey,
-        baseUrl,
-        conversationId,
-        'system',
+        response_mode: 'blocking',
+        user: 'system',
+      };
+
+      if (conversationId) {
+        requestBody.conversation_id = conversationId;
+      }
+
+      const response = await this.axiosInstance.post(
+        `${optimizeBaseUrl}/chat-messages`,
+        requestBody,
+        {
+          headers: {
+            Authorization: `Bearer ${decryptedApiKey}`,
+            'Content-Type': 'application/json',
+          },
+        },
       );
 
-      return response.text || content;
+      const parsed = parseDifyResult(response.data);
+      return parsed.text || content;
     } catch (error: any) {
-      console.error('Dify优化回复失败:', error.message);
+      const errorResponse = error.response?.data;
+      this.logger.error(`optimizeReply 失败: ${JSON.stringify({
+        message: errorResponse?.message || error.message,
+        code: errorResponse?.code,
+        status: error.response?.status,
+        url: `${optimizeBaseUrl}/chat-messages`,
+        responseData: errorResponse,
+      })}`);
       return content; // 失败时返回原文
     }
   }
@@ -328,7 +414,14 @@ export class DifyService {
 
       return response.data?.data || [];
     } catch (error: any) {
-      console.error('获取会话历史失败:', error.message);
+      const errorResponse = error.response?.data;
+      this.logger.error(`getConversationHistory 失败: ${JSON.stringify({
+        message: errorResponse?.message || error.message,
+        code: errorResponse?.code,
+        status: error.response?.status,
+        url: `${baseUrl}/messages`,
+        responseData: errorResponse,
+      })}`);
       return [];
     }
   }
@@ -361,7 +454,14 @@ export class DifyService {
 
       return response.data?.data || [];
     } catch (error: any) {
-      console.error('获取会话列表失败:', error.message);
+      const errorResponse = error.response?.data;
+      this.logger.error(`getConversationList 失败: ${JSON.stringify({
+        message: errorResponse?.message || error.message,
+        code: errorResponse?.code,
+        status: error.response?.status,
+        url: `${baseUrl}/conversations`,
+        responseData: errorResponse,
+      })}`);
       return [];
     }
   }

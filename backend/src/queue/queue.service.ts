@@ -267,6 +267,29 @@ export class QueueService {
   }
 
   /**
+   * 检查 Redis 是否可用（静默模式，不记录警告）
+   */
+  private async isRedisAvailableSilent(): Promise<boolean> {
+    try {
+      // 先检查连接状态
+      if (this.redis.status !== 'ready') {
+        return false;
+      }
+      
+      // 使用带超时的 ping，快速检测 Redis 是否可用
+      const result = await Promise.race([
+        this.redis.ping(),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('timeout')), 1000),
+        ),
+      ]);
+      return result === 'PONG';
+    } catch (error) {
+      return false;
+    }
+  }
+
+  /**
    * 检查 Redis 是否可用
    */
   async isRedisAvailable(): Promise<boolean> {
@@ -281,17 +304,23 @@ export class QueueService {
       return result === 'PONG';
     } catch (error) {
       this.recordRedisError(error);
-      this.logger.warn(`Redis 不可用: ${error instanceof Error ? error.message : String(error)}`);
+      // 只在首次检查时记录警告
+      if (!this._redisUnavailableLogged) {
+        this.logger.warn(`Redis 不可用: ${error instanceof Error ? error.message : String(error)}`);
+        this._redisUnavailableLogged = true;
+      }
       return false;
     }
   }
+
+  private _redisUnavailableLogged = false;
 
   /**
    * 从数据库恢复队列数据到 Redis
    */
   async recoverQueueFromDatabase(): Promise<void> {
     try {
-      this.logger.log('开始从数据库恢复队列数据到 Redis...');
+      this.logger.debug('开始从数据库恢复队列数据到 Redis...');
 
       // 检查 Redis 是否可用
       if (!(await this.isRedisAvailable())) {
@@ -341,7 +370,7 @@ export class QueueService {
       });
 
       if (queuedSessions.length === 0) {
-        this.logger.log('没有排队状态的会话，跳过恢复');
+        this.logger.debug('没有排队状态的会话，跳过恢复');
         return;
       }
 

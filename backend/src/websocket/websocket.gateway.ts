@@ -112,7 +112,7 @@ export class WebsocketGateway
   // 从 Redis 恢复状态
   private async restoreStateFromRedis() {
     try {
-      this.logger.log('开始从 Redis 恢复 WebSocket 状态...');
+      this.logger.debug('开始从 Redis 恢复 WebSocket 状态...');
 
       // 检查 Redis 是否可用
       const isAvailable = await this.isRedisAvailable();
@@ -155,7 +155,7 @@ export class WebsocketGateway
               where: { id: agentId },
               data: { isOnline: true },
             });
-            this.logger.log(`恢复客服在线状态: ${agentId}`);
+            this.logger.debug(`恢复客服在线状态: ${agentId}`);
           } catch (error) {
             this.logger.warn(`恢复客服状态失败: ${agentId}`, error);
           }

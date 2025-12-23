@@ -1135,11 +1135,10 @@ const ActivePage: React.FC = () => {
       return;
     }
 
-    // 强制使用最新的配置值（避免缓存问题）
-    // 直接硬编码最新的API Key，确保不会被缓存影响
-    const currentApiKey = 'app-mHw0Fsjq0pzuYZwrqDxoYLA6';
-    const currentBaseUrl = 'http://118.89.16.95/v1';
-    const currentAppMode = 'chat' as 'chat' | 'workflow';
+    // 使用环境变量中的配置
+    const currentApiKey = DIFY_API_KEY;
+    const currentBaseUrl = DIFY_BASE_URL;
+    const currentAppMode = DIFY_APP_MODE;
 
     // 验证API Key格式
     if (!currentApiKey || !currentApiKey.startsWith('app-')) {

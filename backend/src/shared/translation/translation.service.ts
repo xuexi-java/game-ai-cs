@@ -54,7 +54,7 @@ export class TranslationService {
         const mappedTo = this.mapToBaiduLangCode(to);
         const mappedFrom = this.mapToBaiduLangCode(from);
 
-        this.logger.log(`Translating: ${from} (${mappedFrom}) -> ${to} (${mappedTo})`);
+        this.logger.debug(`Translating: ${from} (${mappedFrom}) -> ${to} (${mappedTo})`);
 
         return this.provider.translate(text, mappedTo, mappedFrom);
     }

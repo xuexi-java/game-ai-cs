@@ -4,11 +4,14 @@ import {
   ArgumentsHost,
   HttpException,
   HttpStatus,
+  Inject,
+  Optional,
 } from '@nestjs/common';
 import { Response, Request } from 'express';
 import { AppLogger } from '../logger/app-logger.service';
 import { TraceService } from '../logger/trace.service';
 import { RequestStatus } from '../logger/logger.types';
+import { RateLimitCircuitBreakerService } from '../logger/rate-limit-circuit-breaker.service';
 
 /**
  * 全局异常过滤器
@@ -32,12 +35,13 @@ export class HttpExceptionFilter implements ExceptionFilter {
   constructor(
     logger: AppLogger,
     private readonly traceService: TraceService,
+    @Optional() @Inject(RateLimitCircuitBreakerService) private readonly circuitBreaker?: RateLimitCircuitBreakerService,
   ) {
     this.logger = logger;
     this.logger.setContext('ExceptionFilter');
   }
 
-  catch(exception: unknown, host: ArgumentsHost) {
+  async catch(exception: unknown, host: ArgumentsHost) {
     const ctx = host.switchToHttp();
     const response = ctx.getResponse<Response>();
     const request = ctx.getRequest<Request>();
@@ -47,13 +51,51 @@ export class HttpExceptionFilter implements ExceptionFilter {
     const errorMessage = this.getErrorMessage(exception);
     const stack = exception instanceof Error ? exception.stack : undefined;
 
-    // 记录异常日志（符合 LOGGING_SPEC.md 第 6 节）
-    // traceId 和 userId 由 AppLogger 自动从 TraceService 获取
-    this.logger.logError({
-      status: RequestStatus.FAIL,
-      errorCode,
-      errorMessage,
-      stack,
+    // 429 错误熔断逻辑
+    if (status === 429) {
+      // 记录 429 错误到熔断器
+      if (this.circuitBreaker) {
+        await this.circuitBreaker.record429Error();
+        
+        // 检查熔断器状态
+        const isCircuitOpen = await this.circuitBreaker.isCircuitOpen();
+        if (isCircuitOpen) {
+          // 熔断期间，只记录轻量级计数，不打印完整堆栈
+          await this.circuitBreaker.incrementSilencedCount();
+          
+          // 只记录一条简化日志（不含 stack）
+          this.logger.warn('RateLimit', {
+            st: RequestStatus.FAIL,
+            ec: errorCode,
+            em: 'Rate limit (silenced)',
+            stc: status,
+          });
+          
+          // 返回响应
+          response.status(status).json({
+            success: false,
+            statusCode: status,
+            errorCode,
+            message: errorMessage,
+            timestamp: new Date().toISOString(),
+            path: request.url,
+            traceId: this.traceService.getTraceId(),
+          });
+          return;
+        }
+      }
+    }
+
+    // 正常错误日志（符合 LOGGING_SPEC.md 第 6 节）
+    // 使用精简字段，显式传递 context 避免单例污染
+    this.logger.error('Exception', stack, {
+      ctx: 'ExceptionFilter',
+      st: RequestStatus.FAIL,
+      ec: errorCode,
+      em: errorMessage,
+      stc: status,
+      p: request.url,
+      m: request.method,
     });
 
     // 返回标准错误响应

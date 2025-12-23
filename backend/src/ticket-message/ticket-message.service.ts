@@ -165,6 +165,20 @@ export class TicketMessageService {
     }
     requestedTarget = requestedTarget || 'zh';
 
+    // ✅ 添加验证：确保目标语言是有效的语言代码，而不是消息内容
+    // 支持的语言：中文、英语、日语、韩语、西班牙语、法语、德语、俄语
+    const validLanguageCodes = ['zh', 'en', 'ja', 'jp', 'ko', 'kor', 'es', 'spa', 'fr', 'fra', 'de', 'ru', 'auto'];
+    const isValidLangCode = requestedTarget && 
+      (requestedTarget.length <= 4) && // 支持3-4位语言代码（如 kor, fra, spa） 
+      (validLanguageCodes.includes(requestedTarget.toLowerCase()) || /^[a-z]{2,3}$/i.test(requestedTarget));
+
+    if (!isValidLangCode) {
+      this.logger.warn(`Invalid target language code: "${requestedTarget}", using default "zh"`);
+      requestedTarget = 'zh';
+    } else {
+      requestedTarget = requestedTarget.toLowerCase();
+    }
+
     // 如果已有相同目标语言的翻译，直接返回（缓存命中）
     if (
       meta.translation &&
@@ -178,7 +192,7 @@ export class TicketMessageService {
 
     // 2. 调用翻译服务
     try {
-      this.logger.log(`Translating ticket message ${messageId}: content length=${message.content?.length || 0}, targetLang=${requestedTarget}`);
+      this.logger.debug(`Translating ticket message ${messageId}: content length=${message.content?.length || 0}, targetLang=${requestedTarget}`);
 
       // 确定源语言：如果是客服发送的消息（有 senderId），源语言为 'zh'；否则使用 'auto'
       const sourceLang = message.senderId ? 'zh' : 'auto';
@@ -188,7 +202,7 @@ export class TicketMessageService {
         requestedTarget,
         sourceLang, // 明确指定源语言
       );
-      this.logger.log(`Translation successful: ${result.provider}, source=${result.sourceLanguage}, target=${result.targetLanguage}`);
+      this.logger.log(`Translation success: ticket message ${messageId}, ${result.sourceLanguage} -> ${result.targetLanguage}`);
 
       // 3. 更新消息 Metadata
       const updatedMeta: MessageMetadata = {
@@ -218,7 +232,7 @@ export class TicketMessageService {
     } catch (error) {
       // 记录详细错误日志
       this.logger.error('Translation failed', error);
-      this.logger.error(`Error details: ${error instanceof Error ? error.message : JSON.stringify(error)}`);
+      this.logger.error(`Error details: ${error instanceof Error ? error.message : String(error)}`);
       this.logger.error(`Stack trace: ${error instanceof Error ? error.stack : 'N/A'}`);
 
       // 返回更详细的错误信息

@@ -9,13 +9,13 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth, ApiBody } from '@nestjs/swagger';
+import { ConfigService } from '@nestjs/config';
 import { DifyService } from './dify.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { GameService } from '../game/game.service';
-import { EncryptionService } from '../common/encryption/encryption.service';
 
 @ApiTags('dify')
 @ApiBearerAuth('JWT-auth')
@@ -26,7 +26,7 @@ export class DifyController {
   constructor(
     private readonly difyService: DifyService,
     private readonly gameService: GameService,
-    private readonly encryptionService: EncryptionService,
+    private readonly configService: ConfigService,
   ) {}
 
   @Post('chat-messages')
@@ -72,8 +72,8 @@ export class DifyController {
         if (!game.difyApiKey || !game.difyBaseUrl) {
           throw new NotFoundException('该游戏未配置 Dify API');
         }
-        // 解密 API Key
-        apiKey = this.encryptionService.decrypt(game.difyApiKey);
+        // 注意：不在这里解密，DifyService 内部会自动解密
+        apiKey = game.difyApiKey;
         baseUrl = game.difyBaseUrl;
       } catch (error) {
         if (error instanceof NotFoundException) {
@@ -82,10 +82,9 @@ export class DifyController {
         throw new NotFoundException('游戏不存在或配置错误');
       }
     } else {
-      // 如果没有提供 gameId，使用环境变量中的默认配置（向后兼容）
-      // 注意：这应该在生产环境中移除，强制要求传递 gameId
-      apiKey = process.env.DIFY_API_KEY || '';
-      baseUrl = process.env.DIFY_BASE_URL || '';
+      // 如果没有提供 gameId，使用环境变量中的 AI 话术优化 API 配置
+      apiKey = this.configService.get<string>('DIFY_API_KEY') || '';
+      baseUrl = this.configService.get<string>('DIFY_BASE_URL') || '';
 
       if (!apiKey || !baseUrl) {
         throw new BadRequestException(

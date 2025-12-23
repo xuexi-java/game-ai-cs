@@ -1236,6 +1236,9 @@ export class TicketService {
 
       // 为每个工单找到最合适的客服/管理员（负载均衡 + 最早登录优先）
       const ADMIN_WEIGHT_PENALTY = 3; // 管理员负载权重惩罚
+      let successCount = 0;
+      let failedCount = 0;
+      
       for (const ticket of waitingTickets) {
         try {
           // 检查是否已经有活跃会话
@@ -1272,19 +1275,6 @@ export class TicketService {
           });
 
           const selectedAgent = agentsWithLoad[0].agent;
-
-          // 记录分配日志
-          this.logger.log(
-            `工单 ${ticket.id} 自动分配: 选择 ${selectedAgent.role} ${selectedAgent.username} (负载: ${selectedAgent.sessions.length}, 加权负载: ${agentsWithLoad[0].load})`,
-            {
-              ticketId: ticket.id,
-              selectedAgentId: selectedAgent.id,
-              selectedAgentRole: selectedAgent.role,
-              selectedAgentUsername: selectedAgent.username,
-              actualLoad: selectedAgent.sessions.length,
-              weightedLoad: agentsWithLoad[0].load,
-            },
-          );
 
           // 创建新会话并分配给选中的客服
           const session = await this.prisma.session.create({
@@ -1346,17 +1336,9 @@ export class TicketService {
             },
           });
 
-          this.logger.log(
-            `工单 ${ticket.ticketNo} 已自动分配给 ${selectedAgent.role} ${selectedAgent.username}`,
-            {
-              ticketId: ticket.id,
-              ticketNo: ticket.ticketNo,
-              selectedAgentId: selectedAgent.id,
-              selectedAgentRole: selectedAgent.role,
-              selectedAgentUsername: selectedAgent.username,
-            },
-          );
+          successCount++;
         } catch (error) {
+          failedCount++;
           const errorMessage = error instanceof Error ? error.message : String(error);
           const errorStack = error instanceof Error ? error.stack : undefined;
           this.logger.error(
@@ -1368,7 +1350,10 @@ export class TicketService {
         }
       }
 
-      this.logger.log(`自动分配等待工单完成，处理了 ${waitingTickets.length} 个工单`);
+      // ✅ 聚合日志：循环结束后输出一次总结
+      this.logger.log(
+        `自动分配完成：total=${waitingTickets.length}, success=${successCount}, failed=${failedCount}`,
+      );
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       const errorStack = error instanceof Error ? error.stack : undefined;

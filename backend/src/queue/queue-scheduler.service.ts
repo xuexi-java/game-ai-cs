@@ -66,6 +66,8 @@ export class QueueSchedulerService {
       });
 
       let fixedCount = 0;
+      let failedCount = 0;
+      
       for (const session of queuedSessions) {
         if (!session.queuedAt) continue;
 
@@ -77,10 +79,6 @@ export class QueueSchedulerService {
 
         if (queuePosition === null) {
           // 数据库中有但 Redis 中没有，需要恢复
-          this.logger.warn(
-            `发现不一致：会话 ${session.id} 在数据库但不在 Redis，正在恢复...`,
-          );
-
           // 使用重试版本，失败时不抛出异常
           let success = false;
           if (session.agentId) {
@@ -100,8 +98,9 @@ export class QueueSchedulerService {
           
           if (success) {
             fixedCount++;
-            this.logger.log(`已恢复会话 ${session.id} 到 Redis 队列`);
           } else {
+            failedCount++;
+            // ✅ 保留 WARN 日志（符合宪法）
             this.logger.warn(
               `恢复会话 ${session.id} 失败（Redis 可能不可用，将在下次检查时重试）`,
             );
@@ -109,9 +108,11 @@ export class QueueSchedulerService {
         }
       }
 
-      if (fixedCount > 0) {
+      // ✅ 聚合日志：循环结束后输出一次总结
+      const total = fixedCount + failedCount;
+      if (total > 0) {
         this.logger.log(
-          `一致性检查完成，修复了 ${fixedCount} 个不一致的会话`,
+          `一致性检查完成：total=${total}, success=${fixedCount}, failed=${failedCount}`,
         );
       } else {
         this.logger.debug('一致性检查完成，未发现不一致');

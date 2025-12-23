@@ -209,7 +209,7 @@ export class MessageService {
 
     // 2. 调用翻译服务
     try {
-      this.logger.log(`Translating message ${messageId}: content length=${message.content?.length || 0}, targetLang=${requestedTarget}`);
+      this.logger.debug(`Translating message ${messageId}: content length=${message.content?.length || 0}, targetLang=${requestedTarget}`);
 
       // 确定源语言：如果是 AI 或客服消息，源语言为 'zh'；如果是玩家消息，使用 'auto'
       const sourceLang = (message.senderType === 'AI' || message.senderType === 'AGENT') ? 'zh' : 'auto';
@@ -219,7 +219,7 @@ export class MessageService {
         requestedTarget,
         sourceLang, // 明确指定源语言
       );
-      this.logger.log(`Translation successful: ${result.provider}, source=${result.sourceLanguage}, target=${result.targetLanguage}`);
+      this.logger.log(`Translation success: message ${messageId}, ${result.sourceLanguage} -> ${result.targetLanguage}`);
 
       // 3. 更新消息 Metadata
       const updatedMeta: MessageMetadata = {
@@ -240,7 +240,7 @@ export class MessageService {
     } catch (error) {
       // 记录详细错误日志
       this.logger.error('Translation failed', error);
-      this.logger.error(`Error details: ${error instanceof Error ? error.message : JSON.stringify(error)}`);
+      this.logger.error(`Error details: ${error instanceof Error ? error.message : String(error)}`);
       this.logger.error(`Stack trace: ${error instanceof Error ? error.stack : 'N/A'}`);
 
       // 返回更详细的错误信息

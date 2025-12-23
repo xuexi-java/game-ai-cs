@@ -2,9 +2,16 @@ import {
   Injectable,
   LoggerService as NestLoggerService,
   OnModuleDestroy,
+  Inject,
+  Optional,
 } from '@nestjs/common';
-import { createWriteStream, existsSync, mkdirSync } from 'fs';
+import { createWriteStream, existsSync, mkdirSync, promises as fs } from 'fs';
 import { join } from 'path';
+import { gzip } from 'zlib';
+import { promisify } from 'util';
+import { RedisLogBufferService } from './redis-log-buffer.service';
+
+const gzipAsync = promisify(gzip);
 
 // 简单的日期格式化函数，避免依赖 date-fns
 function formatDate(date: Date, formatStr: string): string {
@@ -42,7 +49,21 @@ export class LoggerService implements NestLoggerService, OnModuleDestroy {
   private combinedLogStream: NodeJS.WritableStream;
   private currentDate: string;
 
-  constructor() {
+  // 分离的写入队列
+  private errorWriteQueue: string[] = [];
+  private combinedWriteQueue: string[] = [];
+
+  // 内存队列保护配置
+  private readonly maxQueueSize = parseInt(process.env.LOG_MAX_QUEUE_SIZE || '10000');
+
+  // 压缩归档配置
+  private readonly enableCompression = process.env.LOG_ENABLE_COMPRESSION !== 'false';
+  private readonly archiveAfterDays = parseInt(process.env.LOG_ARCHIVE_AFTER_DAYS || '7');
+  private readonly cleanAfterDays = parseInt(process.env.LOG_CLEAN_AFTER_DAYS || '30');
+
+  constructor(
+    @Optional() @Inject(RedisLogBufferService) private readonly redisBuffer?: RedisLogBufferService,
+  ) {
     // 从环境变量读取日志级别，默认为 LOG
     const envLogLevel = process.env.LOG_LEVEL?.toUpperCase() || 'LOG';
     this.logLevel = LogLevel[envLogLevel] ?? LogLevel.LOG;
@@ -57,8 +78,11 @@ export class LoggerService implements NestLoggerService, OnModuleDestroy {
     this.currentDate = formatDate(new Date(), 'yyyy-MM-dd');
     this.initializeLogStreams();
 
-    // 每天午夜检查是否需要切换日志文件
+    // 每分钟检查是否需要切换日志文件（减少延迟）
     this.scheduleLogRotation();
+
+    // 每天凌晨2点执行归档和清理
+    this.scheduleArchive();
   }
 
   private initializeLogStreams() {
@@ -100,13 +124,122 @@ export class LoggerService implements NestLoggerService, OnModuleDestroy {
   }
 
   private scheduleLogRotation() {
-    // 每小时检查一次是否需要切换日志文件
+    // 每分钟检查一次是否需要切换日志文件（减少午夜延迟）
     setInterval(() => {
       const now = formatDate(new Date(), 'yyyy-MM-dd');
       if (now !== this.currentDate) {
-        this.initializeLogStreams();
+        this.flushQueue().then(() => {
+          this.initializeLogStreams();
+        });
       }
-    }, 3600000); // 1小时
+    }, 60000); // 1分钟
+  }
+
+  /**
+   * 定时归档和清理任务
+   * 每天凌晨2点执行
+   */
+  private scheduleArchive() {
+    const now = new Date();
+    const tomorrow = new Date(now);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    tomorrow.setHours(2, 0, 0, 0);
+
+    const msUntilArchive = tomorrow.getTime() - now.getTime();
+
+    setTimeout(() => {
+      this.runArchiveAndClean();
+      // 之后每天执行一次
+      setInterval(() => {
+        this.runArchiveAndClean();
+      }, 24 * 3600000);
+    }, msUntilArchive);
+  }
+
+  /**
+   * 执行归档和清理
+   */
+  private async runArchiveAndClean(): Promise<void> {
+    await this.archiveOldLogs();
+    await this.cleanExpiredLogs();
+  }
+
+  /**
+   * 压缩归档旧日志
+   * 将 N 天前的日志压缩到 archive/ 目录
+   */
+  private async archiveOldLogs(): Promise<void> {
+    if (!this.enableCompression) return;
+
+    try {
+      const archiveDir = join(this.logDir, 'archive');
+      if (!existsSync(archiveDir)) {
+        mkdirSync(archiveDir, { recursive: true });
+      }
+
+      const files = await fs.readdir(this.logDir);
+      const cutoffDate = new Date();
+      cutoffDate.setDate(cutoffDate.getDate() - this.archiveAfterDays);
+
+      for (const file of files) {
+        // 只处理 .log 文件，跳过 archive 目录和已压缩文件
+        if (!file.endsWith('.log') || file.includes('archive')) continue;
+
+        const filePath = join(this.logDir, file);
+        const stats = await fs.stat(filePath);
+
+        if (stats.mtime < cutoffDate) {
+          try {
+            // 压缩文件
+            const content = await fs.readFile(filePath);
+            const compressed = await gzipAsync(content);
+            const archivePath = join(archiveDir, `${file}.gz`);
+            await fs.writeFile(archivePath, compressed);
+
+            // 删除原文件
+            await fs.unlink(filePath);
+            console.log(`[LoggerService] Archived log file: ${file}`);
+          } catch (err) {
+            console.error(`[LoggerService] Failed to archive ${file}:`, err);
+          }
+        }
+      }
+    } catch (error) {
+      console.error('[LoggerService] Failed to archive logs:', error);
+    }
+  }
+
+  /**
+   * 清理过期的归档日志
+   * 删除超过 cleanAfterDays 天的 .gz 文件
+   */
+  private async cleanExpiredLogs(): Promise<void> {
+    try {
+      const archiveDir = join(this.logDir, 'archive');
+      if (!existsSync(archiveDir)) return;
+
+      const files = await fs.readdir(archiveDir);
+      const cutoffDate = new Date();
+      cutoffDate.setDate(cutoffDate.getDate() - this.cleanAfterDays);
+
+      for (const file of files) {
+        if (!file.endsWith('.gz')) continue;
+
+        const filePath = join(archiveDir, file);
+        const stats = await fs.stat(filePath);
+
+        if (stats.mtime < cutoffDate) {
+          try {
+            await fs.unlink(filePath);
+            console.log(`[LoggerService] Deleted expired archive: ${file}`);
+          } catch (err) {
+            console.error(`[LoggerService] Failed to delete ${file}:`, err);
+          }
+        }
+      }
+    } catch (error) {
+      console.error('[LoggerService] Failed to clean expired logs:', error);
+    }
   }
 
   private shouldLog(level: LogLevel): boolean {
@@ -159,7 +292,6 @@ export class LoggerService implements NestLoggerService, OnModuleDestroy {
     return `[${timestamp}] ${level} [${contextStr}] ${messageStr}${paramsStr}`;
   }
 
-  private writeQueue: string[] = [];
   private writeTimer: NodeJS.Timeout | null = null;
   private isWriting = false;
   private readonly batchSize = parseInt(process.env.LOG_BATCH_SIZE || '50');
@@ -168,11 +300,13 @@ export class LoggerService implements NestLoggerService, OnModuleDestroy {
   );
 
   private async flushQueue(): Promise<void> {
-    if (this.isWriting || this.writeQueue.length === 0) return;
+    if (this.isWriting || (this.errorWriteQueue.length === 0 && this.combinedWriteQueue.length === 0)) return;
 
     this.isWriting = true;
-    const messagesToWrite = [...this.writeQueue];
-    this.writeQueue = [];
+    const errorMessagesToWrite = [...this.errorWriteQueue];
+    const combinedMessagesToWrite = [...this.combinedWriteQueue];
+    this.errorWriteQueue = [];
+    this.combinedWriteQueue = [];
 
     if (this.writeTimer) {
       clearTimeout(this.writeTimer);
@@ -180,24 +314,13 @@ export class LoggerService implements NestLoggerService, OnModuleDestroy {
     }
 
     try {
-      // 分离错误日志和普通日志
-      const errorMessages: string[] = [];
-      const combinedMessages: string[] = [];
-
-      for (const msg of messagesToWrite) {
-        combinedMessages.push(msg);
-        if (msg.includes(' ERROR ')) {
-          errorMessages.push(msg);
-        }
-      }
-
       // 异步批量写入
       const writePromises: Promise<void>[] = [];
 
-      if (combinedMessages.length > 0) {
+      if (combinedMessagesToWrite.length > 0) {
         writePromises.push(
           new Promise<void>((resolve, reject) => {
-            this.combinedLogStream.write(combinedMessages.join(''), (err) => {
+            this.combinedLogStream.write(combinedMessagesToWrite.join(''), (err) => {
               if (err) reject(err);
               else resolve();
             });
@@ -205,10 +328,10 @@ export class LoggerService implements NestLoggerService, OnModuleDestroy {
         );
       }
 
-      if (errorMessages.length > 0) {
+      if (errorMessagesToWrite.length > 0) {
         writePromises.push(
           new Promise<void>((resolve, reject) => {
-            this.errorLogStream.write(errorMessages.join(''), (err) => {
+            this.errorLogStream.write(errorMessagesToWrite.join(''), (err) => {
               if (err) reject(err);
               else resolve();
             });
@@ -220,17 +343,51 @@ export class LoggerService implements NestLoggerService, OnModuleDestroy {
     } catch (error) {
       // 写入失败时降级到控制台
       console.error('Log write failed, falling back to console:', error);
-      messagesToWrite.forEach((msg) => console.log(msg.trim()));
+      errorMessagesToWrite.forEach((msg) => console.error(msg.trim()));
+      combinedMessagesToWrite.forEach((msg) => console.log(msg.trim()));
     } finally {
       this.isWriting = false;
     }
   }
 
-  private enqueueLog(message: string) {
-    this.writeQueue.push(message);
+  private enqueueLog(message: string, isError: boolean = false) {
+    // 优先尝试写入 Redis（异步背压缓冲）
+    if (this.redisBuffer?.isReady()) {
+      this.redisBuffer.pushLog(message.trim()).catch((err) => {
+        // Redis 写入失败，降级到内存队列
+        console.error('[LoggerService] Redis push failed, fallback to memory:', err);
+        this.enqueueToMemory(message, isError);
+      });
+    } else {
+      // Redis 不可用，直接使用内存队列
+      this.enqueueToMemory(message, isError);
+    }
+  }
+
+  private enqueueToMemory(message: string, isError: boolean = false) {
+    // 内存保护：队列满时丢弃最旧的非错误日志
+    const totalQueueSize = this.combinedWriteQueue.length + this.errorWriteQueue.length;
+    if (totalQueueSize >= this.maxQueueSize) {
+      // 丢弃最旧的日志（优先保留错误日志）
+      if (this.combinedWriteQueue.length > this.errorWriteQueue.length) {
+        this.combinedWriteQueue.shift();
+      }
+      // 每100次丢弃打印一次警告，避免日志爆炸
+      if (totalQueueSize % 100 === 0) {
+        console.warn(`[LoggerService] Queue full (${totalQueueSize}/${this.maxQueueSize}), dropping oldest logs`);
+      }
+    }
+
+    // 所有日志都写入 combined 队列
+    this.combinedWriteQueue.push(message);
+
+    // ERROR 日志额外写入 error 队列
+    if (isError) {
+      this.errorWriteQueue.push(message);
+    }
 
     // 如果队列达到批量大小，立即刷新
-    if (this.writeQueue.length >= this.batchSize) {
+    if (this.combinedWriteQueue.length >= this.batchSize) {
       this.flushQueue();
     } else if (!this.writeTimer) {
       // 设置定时器，定期刷新
@@ -295,7 +452,7 @@ export class LoggerService implements NestLoggerService, OnModuleDestroy {
 
     // 加入写入队列（异步批量写入）
     const fileMessage = formattedMessage + '\n';
-    this.enqueueLog(fileMessage);
+    this.enqueueLog(fileMessage, level === 'ERROR');
   }
 
   log(message: any, context?: string, ...optionalParams: any[]) {
@@ -375,9 +532,12 @@ export class LoggerService implements NestLoggerService, OnModuleDestroy {
    * @param formattedLog 已格式化的 JSON 日志字符串
    */
   public writeFormattedLog(level: string, formattedLog: string): void {
+    // 判断是否为 ERROR 级别
+    const isError = level === 'ERROR';
+    
     // 直接加入写入队列（不再格式化，因为 AppLogger 已经格式化过了）
     const fileMessage = formattedLog + '\n';
-    this.enqueueLog(fileMessage);
+    this.enqueueLog(fileMessage, isError);
     
     // 生产环境也输出到控制台（保持兼容性，供 PM2/Docker 收集）
     if (process.env.NODE_ENV !== 'development') {

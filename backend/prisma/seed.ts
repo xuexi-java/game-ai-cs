@@ -164,13 +164,13 @@ async function main() {
     const games = [
       {
         name: '弹弹堂',
-        difyApiKey: 'app-pDwT9wHYcXt03ZVNYgrmJQ1V', // 请替换为实际的API Key
-        difyBaseUrl: 'http://118.89.16.95/v1',
+        difyApiKey: 'app-pmj98vFtoyeLIaVYUm85J0Ud', // 请替换为实际的API Key
+        difyBaseUrl: 'http://ai.sh7road.com/v1',
       },
       {
         name: '神曲',
-        difyApiKey: 'app-pDwT9wHYcXt03ZVNYgrmJQ1V', // 请替换为实际的API Key
-        difyBaseUrl: 'http://118.89.16.95/v1',
+        difyApiKey: 'app-pmj98vFtoyeLIaVYUm85J0Ud', // 请替换为实际的API Key
+        difyBaseUrl: 'http://ai.sh7road.com/v1',
       },
     ];
 
