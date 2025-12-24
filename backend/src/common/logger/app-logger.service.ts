@@ -29,10 +29,17 @@ export class AppLogger implements NestLoggerService {
   private context?: string;
   private static instance: AppLogger;
 
+  // 缓存日志级别配置（避免每次日志调用都读取环境变量）
+  private readonly logLevelIndex: number;
+  private static readonly LOG_LEVELS = ['DEBUG', 'INFO', 'WARN', 'ERROR'];
+
   constructor(
     private readonly traceService: TraceService,
     private readonly outputEngine: LoggerService,
-  ) {}
+  ) {
+    const envLevel = process.env.LOG_LEVEL || 'INFO';
+    this.logLevelIndex = AppLogger.LOG_LEVELS.indexOf(envLevel);
+  }
 
   /**
    * 设置日志上下文（通常是类名）
@@ -42,14 +49,11 @@ export class AppLogger implements NestLoggerService {
   }
 
   /**
-   * 判断是否应该输出日志（基于日志级别）
+   * 判断是否应该输出日志（基于日志级别，使用缓存配置）
    */
   private shouldLog(level: LogLevel): boolean {
-    const envLevel = process.env.LOG_LEVEL || 'INFO';
-    const levels = ['DEBUG', 'INFO', 'WARN', 'ERROR'];
-    const currentLevelIndex = levels.indexOf(envLevel);
-    const messageLevelIndex = levels.indexOf(level);
-    return messageLevelIndex >= currentLevelIndex;
+    const messageLevelIndex = AppLogger.LOG_LEVELS.indexOf(level);
+    return messageLevelIndex >= this.logLevelIndex;
   }
 
   /**
@@ -60,6 +64,9 @@ export class AppLogger implements NestLoggerService {
    * @param contextOverride 上下文覆盖（可选）- 解决单例 context 污染问题
    */
   private formatLog(level: LogLevel, message: string, meta?: Record<string, any>, contextOverride?: string): string {
+    // 过滤敏感信息
+    const filteredMeta = meta ? this.outputEngine.filterSensitiveData(meta) : undefined;
+
     const logEntry = {
       timestamp: new Date().toISOString(),
       level,
@@ -67,7 +74,7 @@ export class AppLogger implements NestLoggerService {
       userId: this.traceService.getUserId(),
       context: contextOverride || this.context,
       message,
-      ...meta,
+      ...filteredMeta,
     };
 
     // 移除 undefined 字段

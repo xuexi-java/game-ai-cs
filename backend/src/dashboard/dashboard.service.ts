@@ -1,11 +1,102 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { Prisma } from '@prisma/client';
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 @Injectable()
 export class DashboardService {
   constructor(private prisma: PrismaService) {}
+
+  /**
+   * 使用原生 SQL 计算平均解决时间（秒）
+   * 优化：避免加载所有工单数据到应用层
+   */
+  private async getAvgResolutionTime(
+    ticketWhere: Prisma.TicketWhereInput,
+  ): Promise<number> {
+    const gameIdCondition = ticketWhere.gameId
+      ? Prisma.sql`AND "gameId" = ${ticketWhere.gameId}`
+      : Prisma.empty;
+
+    const result = await this.prisma.$queryRaw<[{ avg_seconds: number | null }]>`
+      SELECT AVG(EXTRACT(EPOCH FROM ("closedAt" - "createdAt"))) as avg_seconds
+      FROM "Ticket"
+      WHERE "deletedAt" IS NULL
+        AND "status" = 'RESOLVED'
+        AND "closedAt" IS NOT NULL
+        AND "createdAt" >= ${(ticketWhere.createdAt as any).gte}
+        AND "createdAt" <= ${(ticketWhere.createdAt as any).lte}
+        ${gameIdCondition}
+    `;
+
+    return Math.round(result[0]?.avg_seconds || 0);
+  }
+
+  /**
+   * 使用原生 SQL 计算平均响应时间（秒）
+   * 优化：避免加载所有会话数据到应用层
+   */
+  private async getAvgResponseTime(
+    sessionWhere: any,
+    gameId?: string,
+  ): Promise<number> {
+    const gameIdCondition = gameId
+      ? Prisma.sql`AND t."gameId" = ${gameId}`
+      : Prisma.empty;
+
+    const result = await this.prisma.$queryRaw<[{ avg_seconds: number | null }]>`
+      SELECT AVG(EXTRACT(EPOCH FROM (s."startedAt" - s."queuedAt"))) as avg_seconds
+      FROM "Session" s
+      JOIN "Ticket" t ON s."ticketId" = t.id
+      WHERE t."deletedAt" IS NULL
+        AND s."queuedAt" IS NOT NULL
+        AND s."startedAt" IS NOT NULL
+        AND s."createdAt" >= ${sessionWhere.createdAt.gte}
+        AND s."createdAt" <= ${sessionWhere.createdAt.lte}
+        ${gameIdCondition}
+    `;
+
+    return Math.round(result[0]?.avg_seconds || 0);
+  }
+
+  /**
+   * 使用 aggregate 计算平均满意度
+   * 优化：避免加载所有评分数据到应用层
+   */
+  private async getAvgSatisfaction(
+    createdAt: { gte: Date; lte: Date },
+    gameId?: string,
+  ): Promise<{ average: number; ratings: { rating: number; createdAt: Date }[] }> {
+    const [aggregate, ratings] = await Promise.all([
+      this.prisma.satisfactionRating.aggregate({
+        _avg: { rating: true },
+        _count: { rating: true },
+        where: {
+          createdAt,
+          ticket: gameId ? { gameId } : undefined,
+        },
+      }),
+      // 仍需获取每日评分用于 dailyStats
+      this.prisma.satisfactionRating.findMany({
+        where: {
+          createdAt,
+          ticket: gameId ? { gameId } : undefined,
+        },
+        select: {
+          rating: true,
+          createdAt: true,
+        },
+      }),
+    ]);
+
+    return {
+      average: aggregate._avg.rating
+        ? Math.round(aggregate._avg.rating * 100) / 100
+        : 0,
+      ratings,
+    };
+  }
 
   private normalizeDate(date: Date) {
     const normalized = new Date(date);
@@ -43,6 +134,7 @@ export class DashboardService {
       },
     };
 
+    // P0 性能优化：使用数据库聚合替代应用层计算
     const [
       totalSessions,
       aiResolvedSessions,
@@ -50,9 +142,9 @@ export class DashboardService {
       totalTickets,
       openTickets,
       closedTickets,
-      resolvedTicketsWithTime,
-      satisfactionRatings,
-      responseSamples,
+      avgResolutionSeconds,
+      avgResponseSeconds,
+      satisfactionResult,
       agentSessions,
       agentRatings,
       ticketsForDaily,
@@ -85,40 +177,12 @@ export class DashboardService {
           status: 'RESOLVED',
         },
       }),
-      this.prisma.ticket.findMany({
-        where: {
-          ...ticketWhere,
-          status: 'RESOLVED',
-          closedAt: { not: null },
-        },
-        select: {
-          createdAt: true,
-          closedAt: true,
-        },
-      }),
-      this.prisma.satisfactionRating.findMany({
-        where: {
-          createdAt: ticketWhere.createdAt,
-          ticket: {
-            ...(gameId ? { gameId } : {}),
-          },
-        },
-        select: {
-          rating: true,
-          createdAt: true,
-        },
-      }),
-      this.prisma.session.findMany({
-        where: {
-          ...sessionWhere,
-          queuedAt: { not: null },
-          startedAt: { not: null },
-        },
-        select: {
-          queuedAt: true,
-          startedAt: true,
-        },
-      }),
+      // 优化：使用原生 SQL 计算平均解决时间
+      this.getAvgResolutionTime(ticketWhere),
+      // 优化：使用原生 SQL 计算平均响应时间
+      this.getAvgResponseTime(sessionWhere, gameId),
+      // 优化：使用 aggregate 计算平均满意度
+      this.getAvgSatisfaction(ticketWhere.createdAt as { gte: Date; lte: Date }, gameId),
       this.prisma.session.findMany({
         where: {
           ...sessionWhere,
@@ -162,39 +226,9 @@ export class DashboardService {
       }),
     ]);
 
-    const avgResolutionSeconds =
-      resolvedTicketsWithTime.length > 0
-        ? Math.round(
-            resolvedTicketsWithTime.reduce((sum, ticket) => {
-              const diff =
-                (ticket.closedAt!.getTime() - ticket.createdAt.getTime()) /
-                1000;
-              return sum + diff;
-            }, 0) / resolvedTicketsWithTime.length,
-          )
-        : 0;
-
-    const avgResponseSeconds =
-      responseSamples.length > 0
-        ? Math.round(
-            responseSamples.reduce((sum, sample) => {
-              return (
-                sum +
-                (sample.startedAt!.getTime() - sample.queuedAt!.getTime()) /
-                  1000
-              );
-            }, 0) / responseSamples.length,
-          )
-        : 0;
-
-    const averageSatisfaction =
-      satisfactionRatings.length > 0
-        ? Math.round(
-            (satisfactionRatings.reduce((sum, r) => sum + r.rating, 0) /
-              satisfactionRatings.length) *
-              100,
-          ) / 100
-        : 0;
+    // 从优化后的结果中提取数据
+    const satisfactionRatings = satisfactionResult.ratings;
+    const averageSatisfaction = satisfactionResult.average;
 
     const dailyMap: Record<
       string,

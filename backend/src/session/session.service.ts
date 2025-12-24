@@ -227,13 +227,8 @@ export class SessionService {
       };
     }
 
-    let difyResult: DifyMessageResult | null = null;
-    let aiMessage: Awaited<
-      ReturnType<MessageService['createAIMessage']>
-    > | null = null;
-
     if (messageType === MessageDtoType.TEXT) {
-      // 如果会话状态是 QUEUED，不再调用 AI
+      // ??????? QUEUED????? AI
       if (session.status === 'QUEUED') {
         return {
           playerMessage,
@@ -242,86 +237,162 @@ export class SessionService {
         };
       }
 
-      try {
-        difyResult = await this.difyService.sendChatMessage(
-          content,
-          session.ticket.game.difyApiKey,
-          session.ticket.game.difyBaseUrl,
-          session.difyConversationId || undefined,
-          session.ticket.playerIdOrName || 'player',
+      // Fire-and-forget AI processing to avoid request timeouts.
+      this.processAiReply(sessionId, content).catch((error) => {
+        this.logger.error(
+          `AI reply failed for session ${sessionId}`,
+          error instanceof Error ? error.stack : String(error),
         );
-
-        const updateData: Record<string, any> = {};
-        if (
-          difyResult.conversationId &&
-          difyResult.conversationId !== session.difyConversationId
-        ) {
-          updateData.difyConversationId = difyResult.conversationId;
-        }
-        if (difyResult.status) {
-          updateData.difyStatus = String(difyResult.status);
-        }
-        if (Object.keys(updateData).length > 0) {
-          await this.prisma.session.update({
-            where: { id: sessionId },
-            data: updateData,
-          });
-        }
-
-        if (difyResult.text) {
-          // 简单的关键词检测，如果包含"转人工"等词，强制添加"转人工"选项
-          const transferKeywords = [
-            '转人工',
-            '人工',
-            '客服',
-            '人工客服',
-            'Human',
-            'Agent',
-          ];
-          const shouldSuggestTransfer = transferKeywords.some((k) =>
-            content.toLowerCase().includes(k.toLowerCase()),
-          );
-
-          let finalOptions = difyResult.suggestedOptions || [];
-          if (shouldSuggestTransfer && !finalOptions.includes('转人工')) {
-            finalOptions = [...finalOptions, '转人工'];
-          }
-
-          aiMessage = await this.messageService.createAIMessage(
-            sessionId,
-            difyResult.text,
-            {
-              suggestedOptions: finalOptions,
-              difyStatus: difyResult.status,
-            },
-          );
-          this.websocketGateway.notifyMessage(sessionId, aiMessage);
-        }
-
-        // 移除自动转人工逻辑，完全由玩家在前端控制
-        /*
-        if (
-          difyResult.status &&
-          ['5', 5, 'TRANSFER', 'HANDOFF', 'AGENT'].includes(
-            String(difyResult.status).toUpperCase(),
-          )
-        ) {
-          await this.transferToAgent(sessionId, { urgency: 'URGENT' });
-        }
-        */
-      } catch (error: any) {
-        console.error('Dify 瀵硅瘽澶辫触:', error.message || error);
-      }
+      });
     }
 
     return {
       playerMessage,
-      aiMessage,
-      difyStatus: difyResult?.status || session.difyStatus || null,
+      aiMessage: null,
+      difyStatus: session.difyStatus || null,
     };
   }
 
-  // 获取会话详情
+  private async processAiReply(sessionId: string, content: string) {
+    const session = await this.prisma.session.findUnique({
+      where: { id: sessionId },
+      include: {
+        ticket: {
+          include: {
+            game: true,
+          },
+        },
+      },
+    });
+
+    if (!session) {
+      this.logger.warn(`AI reply skipped: session not found (${sessionId})`);
+      return;
+    }
+
+    if (session.status === 'CLOSED') {
+      return;
+    }
+
+    if (session.ticket?.status === 'RESOLVED') {
+      return;
+    }
+
+    if (session.status === 'QUEUED') {
+      return;
+    }
+
+    if (session.status === 'IN_PROGRESS' && session.agentId) {
+      return;
+    }
+
+    if (!session.ticket?.game?.difyApiKey || !session.ticket?.game?.difyBaseUrl) {
+      await this.sendAiFallback(sessionId, 'AI ?????');
+      return;
+    }
+
+    let difyResult: DifyMessageResult | null = null;
+    try {
+      difyResult = await this.difyService.sendChatMessage(
+        content,
+        session.ticket.game.difyApiKey,
+        session.ticket.game.difyBaseUrl,
+        session.difyConversationId || undefined,
+        session.ticket.playerIdOrName || 'player',
+      );
+    } catch (error: any) {
+      this.logger.error(
+        `Dify chat failed for session ${sessionId}`,
+        error instanceof Error ? error.stack : String(error),
+      );
+      await this.sendAiFallback(sessionId, 'AI ??????????');
+      return;
+    }
+
+    const updateData: Record<string, any> = {};
+    if (
+      difyResult.conversationId &&
+      difyResult.conversationId !== session.difyConversationId
+    ) {
+      updateData.difyConversationId = difyResult.conversationId;
+    }
+    if (difyResult.status) {
+      updateData.difyStatus = String(difyResult.status);
+    }
+    if (Object.keys(updateData).length > 0) {
+      await this.prisma.session.update({
+        where: { id: sessionId },
+        data: updateData,
+      });
+    }
+
+    if (!difyResult.text) {
+      await this.sendAiFallback(sessionId, 'AI ????????');
+      return;
+    }
+
+    const latestSession = await this.prisma.session.findUnique({
+      where: { id: sessionId },
+      select: { status: true, agentId: true },
+    });
+    if (latestSession?.status === 'IN_PROGRESS' && latestSession.agentId) {
+      return;
+    }
+    if (latestSession?.status === 'QUEUED' || latestSession?.status === 'CLOSED') {
+      return;
+    }
+
+    // ?????????????????????????
+    const transferKeywords = [
+      '???',
+      '??',
+      '??',
+      '????',
+      'Human',
+      'Agent',
+    ];
+    const shouldSuggestTransfer = transferKeywords.some((k) =>
+      content.toLowerCase().includes(k.toLowerCase()),
+    );
+
+    let finalOptions = difyResult.suggestedOptions || [];
+    if (shouldSuggestTransfer && !finalOptions.includes('???')) {
+      finalOptions = [...finalOptions, '???'];
+    }
+
+    const aiMessage = await this.messageService.createAIMessage(
+      sessionId,
+      difyResult.text,
+      {
+        suggestedOptions: finalOptions,
+        difyStatus: difyResult.status,
+      },
+    );
+    this.websocketGateway.notifyMessage(sessionId, aiMessage);
+  }
+
+  private async sendAiFallback(sessionId: string, reason: string) {
+    const session = await this.prisma.session.findUnique({
+      where: { id: sessionId },
+      select: { status: true, agentId: true },
+    });
+
+    if (!session || session.status === 'CLOSED') {
+      return;
+    }
+
+    if (session.status === 'IN_PROGRESS' && session.agentId) {
+      return;
+    }
+
+    const fallbackMessage = await this.messageService.createAIMessage(
+      sessionId,
+      `AI ??????${reason}??????????????`,
+    );
+    this.websocketGateway.notifyMessage(sessionId, fallbackMessage);
+  }
+
+
   async findOne(id: string, currentUser?: { id: string; role: string }) {
     const session = await this.prisma.session.findUnique({
       where: { id },
@@ -1189,28 +1260,102 @@ export class SessionService {
     return normalizedSession;
   }
 
+  /**
+   * P0 性能优化：获取在线客服/管理员数量
+   * 使用 groupBy 将 4 次 count 查询合并为 1 次
+   */
+  private async getOnlineAgentCount(): Promise<{
+    agents: number;
+    admins: number;
+    total: number;
+  }> {
+    const counts = await this.prisma.user.groupBy({
+      by: ['role'],
+      where: {
+        isOnline: true,
+        deletedAt: null,
+        role: { in: ['AGENT', 'ADMIN'] },
+      },
+      _count: { id: true },
+    });
+
+    const agents = counts.find((c) => c.role === 'AGENT')?._count.id || 0;
+    const admins = counts.find((c) => c.role === 'ADMIN')?._count.id || 0;
+    return { agents, admins, total: agents + admins };
+  }
+
+  /**
+   * P0 性能优化：将会话转为加急工单
+   * 抽取重复代码，减少维护成本
+   */
+  private async convertToUrgentTicket(
+    sessionId: string,
+    session: { ticketId: string },
+    transferDto: TransferToAgentDto,
+    priorityScore: number,
+  ): Promise<{
+    queued: false;
+    queuePosition: null;
+    estimatedWaitTime: null;
+    onlineAgents: 0;
+    autoAssigned: false;
+    message: string;
+    ticketNo: string;
+    convertedToTicket: true;
+  }> {
+    // 1. 更新工单为加急状态
+    await this.ticketService.updateStatus(session.ticketId, 'WAITING');
+    await this.prisma.ticket.update({
+      where: { id: session.ticketId },
+      data: {
+        priority: 'URGENT',
+        priorityScore: Math.max(priorityScore, 80),
+      },
+    });
+
+    // 2. 关闭会话
+    await this.prisma.session.update({
+      where: { id: sessionId },
+      data: {
+        status: 'CLOSED',
+        closedAt: new Date(),
+        playerUrgency: transferDto.urgency,
+        priorityScore,
+        allowManualTransfer: false,
+        transferReason: transferDto.reason,
+        transferIssueTypeId: transferDto.issueTypeId,
+        transferAt: new Date(),
+      },
+    });
+
+    // 3. 创建系统消息告知玩家
+    const ticket = await this.ticketService.findOne(session.ticketId);
+    await this.messageService.createSystemMessage(
+      sessionId,
+      `当前暂无客服在线，您的问题已转为【加急工单】(${ticket.ticketNo})，我们将优先处理。您可以通过工单号查看处理进度。`,
+    );
+
+    const updatedSession = await this.findOne(sessionId);
+    this.websocketGateway.notifySessionUpdate(sessionId, updatedSession);
+
+    return {
+      queued: false,
+      queuePosition: null,
+      estimatedWaitTime: null,
+      onlineAgents: 0,
+      autoAssigned: false,
+      message:
+        '当前暂无客服在线，您的问题已转为【加急工单】，我们将优先处理。',
+      ticketNo: ticket.ticketNo,
+      convertedToTicket: true,
+    };
+  }
+
   // 转人工（步骤5：智能分流）- 默认自动分配
   async transferToAgent(sessionId: string, transferDto: TransferToAgentDto) {
-    // 只有当玩家明确选择转人工时才执行
-    // 检查是否有在线客服或管理员
-    const onlineAgents = await this.prisma.user.count({
-      where: {
-        role: 'AGENT',
-        isOnline: true,
-        deletedAt: null,
-      },
-    });
-    const onlineAdmins = await this.prisma.user.count({
-      where: {
-        role: 'ADMIN',
-        isOnline: true,
-        deletedAt: null,
-      },
-    });
-
+    // P0 性能优化：使用 groupBy 将 4 次 count 查询合并为 1 次
+    const onlineCount = await this.getOnlineAgentCount();
     const priorityScore = await this.calculatePriorityScore(sessionId);
-
-    const noAgentsOnline = onlineAgents === 0 && onlineAdmins === 0;
 
     // 获取会话和工单信息
     const session = await this.prisma.session.findUnique({
@@ -1222,121 +1367,14 @@ export class SessionService {
       throw new NotFoundException('会话不存在');
     }
 
-    if (noAgentsOnline) {
-      // 没有在线客服：关闭会话，转为加急工单
-      // 1. 更新工单为加急状态
-      await this.ticketService.updateStatus(session.ticketId, 'WAITING');
-      await this.prisma.ticket.update({
-        where: { id: session.ticketId },
-        data: {
-          priority: 'URGENT',
-          priorityScore: Math.max(priorityScore, 80), // 至少80分，确保优先级
-        },
-      });
-
-      // 2. 关闭会话
-      await this.prisma.session.update({
-        where: { id: sessionId },
-        data: {
-          status: 'CLOSED',
-          closedAt: new Date(),
-          playerUrgency: transferDto.urgency,
-          priorityScore,
-          allowManualTransfer: false,
-          transferReason: transferDto.reason,
-          transferIssueTypeId: transferDto.issueTypeId,
-          transferAt: new Date(),
-        },
-      });
-
-      // 3. 创建系统消息告知玩家
-      const ticket = await this.ticketService.findOne(session.ticketId);
-      await this.messageService.createSystemMessage(
+    // 没有在线客服：关闭会话，转为加急工单
+    if (onlineCount.total === 0) {
+      return this.convertToUrgentTicket(
         sessionId,
-        `当前暂无客服在线，您的问题已转为【加急工单】(${ticket.ticketNo})，我们将优先处理。您可以通过工单号查看处理进度。`,
+        session,
+        transferDto,
+        priorityScore,
       );
-
-      const updatedSession = await this.findOne(sessionId);
-      this.websocketGateway.notifySessionUpdate(sessionId, updatedSession);
-
-      return {
-        queued: false,
-        queuePosition: null,
-        estimatedWaitTime: null,
-        onlineAgents: 0,
-        autoAssigned: false,
-        message:
-          '当前暂无客服在线，您的问题已转为【加急工单】，我们将优先处理。',
-        ticketNo: ticket.ticketNo,
-        convertedToTicket: true, // 标记已转为工单
-      };
-    }
-
-    // 有在线客服：正常进入排队流程
-    // 但需要再次确认在线客服或管理员数量（可能在这期间客服下线了）
-    const currentOnlineAgents = await this.prisma.user.count({
-      where: {
-        role: 'AGENT',
-        isOnline: true,
-        deletedAt: null,
-      },
-    });
-    const currentOnlineAdmins = await this.prisma.user.count({
-      where: {
-        role: 'ADMIN',
-        isOnline: true,
-        deletedAt: null,
-      },
-    });
-
-    // 如果此时没有在线客服或管理员了，转为工单
-    if (currentOnlineAgents === 0 && currentOnlineAdmins === 0) {
-      // 更新工单为加急状态
-      await this.ticketService.updateStatus(session.ticketId, 'WAITING');
-      await this.prisma.ticket.update({
-        where: { id: session.ticketId },
-        data: {
-          priority: 'URGENT',
-          priorityScore: Math.max(priorityScore, 80),
-        },
-      });
-
-      // 关闭会话
-      await this.prisma.session.update({
-        where: { id: sessionId },
-        data: {
-          status: 'CLOSED',
-          closedAt: new Date(),
-          playerUrgency: transferDto.urgency,
-          priorityScore,
-          allowManualTransfer: false,
-          transferReason: transferDto.reason,
-          transferIssueTypeId: transferDto.issueTypeId,
-          transferAt: new Date(),
-        },
-      });
-
-      // 创建系统消息
-      const ticket = await this.ticketService.findOne(session.ticketId);
-      await this.messageService.createSystemMessage(
-        sessionId,
-        `当前暂无客服在线，您的问题已转为【加急工单】(${ticket.ticketNo})，我们将优先处理。您可以通过工单号查看处理进度。`,
-      );
-
-      const updatedSession = await this.findOne(sessionId);
-      this.websocketGateway.notifySessionUpdate(sessionId, updatedSession);
-
-      return {
-        queued: false,
-        queuePosition: null,
-        estimatedWaitTime: null,
-        onlineAgents: 0,
-        autoAssigned: false,
-        message:
-          '当前暂无客服在线，您的问题已转为【加急工单】，我们将优先处理。',
-        ticketNo: ticket.ticketNo,
-        convertedToTicket: true,
-      };
     }
 
     // 确认有在线客服：正常进入排队流程
@@ -1386,68 +1424,17 @@ export class SessionService {
 
     // ⚠️ 关键修复：如果自动分配失败，检查是否还有在线客服
     if (!assignmentSucceeded) {
-      const stillHasOnlineAgents = await this.prisma.user.count({
-        where: {
-          role: 'AGENT',
-          isOnline: true,
-          deletedAt: null,
-        },
-      });
-      const stillHasOnlineAdmins = await this.prisma.user.count({
-        where: {
-          role: 'ADMIN',
-          isOnline: true,
-          deletedAt: null,
-        },
-      });
+      // P0 性能优化：复用 getOnlineAgentCount 方法
+      const stillOnline = await this.getOnlineAgentCount();
 
       // 如果现在没有在线客服了，关闭会话并转为工单，告知玩家
-      if (stillHasOnlineAgents === 0 && stillHasOnlineAdmins === 0) {
-        // 更新工单为加急状态
-        await this.ticketService.updateStatus(session.ticketId, 'WAITING');
-        await this.prisma.ticket.update({
-          where: { id: session.ticketId },
-          data: {
-            priority: 'URGENT',
-            priorityScore: Math.max(priorityScore, 80),
-          },
-        });
-
-        // 关闭会话
-        await this.prisma.session.update({
-          where: { id: sessionId },
-          data: {
-            status: 'CLOSED',
-            closedAt: new Date(),
-            playerUrgency: transferDto.urgency,
-            priorityScore,
-            allowManualTransfer: false,
-            transferReason: transferDto.reason,
-            transferIssueTypeId: transferDto.issueTypeId,
-            transferAt: new Date(),
-          },
-        });
-
-        // 创建系统消息告知玩家
-        const ticket = await this.ticketService.findOne(session.ticketId);
-        await this.messageService.createSystemMessage(
+      if (stillOnline.total === 0) {
+        return this.convertToUrgentTicket(
           sessionId,
-          `当前暂无客服在线，您的问题已转为【加急工单】(${ticket.ticketNo})，我们将优先处理。您可以通过工单号查看处理进度。`,
+          session,
+          transferDto,
+          priorityScore,
         );
-
-        const updatedSession = await this.findOne(sessionId);
-        this.websocketGateway.notifySessionUpdate(sessionId, updatedSession);
-
-        return {
-          queued: false,
-          queuePosition: null,
-          estimatedWaitTime: null,
-          onlineAgents: 0,
-          autoAssigned: false,
-          message: '当前暂无客服在线，您的问题已转为【加急工单】，我们将优先处理。',
-          ticketNo: ticket.ticketNo,
-          convertedToTicket: true,
-        };
       }
     }
 
@@ -1476,15 +1463,7 @@ export class SessionService {
       queuePosition: finalSession.queuePosition,
     });
 
-    // 获取在线客服数量
-    const onlineAgentsCount = await this.prisma.user.count({
-      where: {
-        role: 'AGENT',
-        isOnline: true,
-        deletedAt: null,
-      },
-    });
-
+    // P0 性能优化：复用开始时获取的 onlineCount，避免重复查询
     const queuePosition =
       finalSession.status === 'QUEUED'
         ? (finalSession.queuePosition ??
@@ -1502,9 +1481,9 @@ export class SessionService {
       } else {
         // 如果未分配，预计等待时间 = (前面排队人数 / 在线客服数量) * 平均处理时间
         estimatedWaitTime =
-          onlineAgentsCount > 0
+          onlineCount.agents > 0
             ? Math.ceil(
-              (queuePosition / onlineAgentsCount) * averageProcessingTime,
+              (queuePosition / onlineCount.agents) * averageProcessingTime,
             )
             : null;
       }
@@ -1514,7 +1493,7 @@ export class SessionService {
       queued: true,  // ✅ 确保返回 queued: true，表示已进入排队
       queuePosition: finalSession.status === 'QUEUED' ? (finalSession.queuePosition ?? queuePosition ?? null) : null,
       estimatedWaitTime: finalSession.status === 'QUEUED' ? (finalSession.estimatedWaitTime ?? estimatedWaitTime) : null,
-      onlineAgents: currentOnlineAgents,
+      onlineAgents: onlineCount.agents,
       autoAssigned: false,  // ✅ 未自动分配，等待客服主动接入
       message: undefined,
       convertedToTicket: false,

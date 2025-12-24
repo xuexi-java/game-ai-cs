@@ -1,6 +1,15 @@
+# Game AI 客服系统 - Docker Compose 统一配置
+#
+# 使用方式:
+#   启动核心服务:     docker-compose up -d
+#   启动全部服务:     docker-compose --profile monitoring up -d
+#   停止所有服务:     docker-compose --profile monitoring down
+#   查看服务状态:     docker-compose --profile monitoring ps
+
 services:
+  # ==================== 核心服务 ====================
+
   postgres:
-    # 使用国内镜像源以避免网络问题
     image: postgres:14-alpine
     container_name: game-ai-cs-postgres
     environment:
@@ -21,7 +30,6 @@ services:
     restart: unless-stopped
 
   redis:
-    # 使用国内镜像源以避免网络问题
     image: redis:7-alpine
     container_name: game-ai-cs-redis
     ports:
@@ -60,7 +68,7 @@ services:
       - JWT_SECRET=${JWT_SECRET:-your-secret-key-change-in-production}
       - JWT_EXPIRES_IN=${JWT_EXPIRES_IN:-8h}
       - FRONTEND_URL=http://localhost:20101,http://localhost:20102
-      # Dify AI 话术优化配置（必须配置，否则AI优化功能无法使用）
+      # Dify AI 配置
       - DIFY_API_KEY=${DIFY_API_KEY:-app-pVK7Yup3O9DG6Zr1p8cSfe3p}
       - DIFY_BASE_URL=${DIFY_BASE_URL:-http://ai.sh7road.com/v1}
       - REDIS_HOST=redis
@@ -83,7 +91,6 @@ services:
     networks:
       - game-ai-cs-network
     restart: unless-stopped
-    # 日志配置（为 ELK/Loki 接入预留）
     logging:
       driver: "json-file"
       options:
@@ -117,11 +124,124 @@ services:
       - game-ai-cs-network
     restart: unless-stopped
 
+  # ==================== 监控服务 (可选) ====================
+  # Monitoring stack disabled for fast release; uncomment to re-enable.
+
+  # prometheus:
+  #   image: prom/prometheus:latest
+  #   container_name: game-ai-cs-prometheus
+  #   profiles:
+  #     - monitoring
+  #   ports:
+  #     - "23101:9090"
+  #   volumes:
+  #     - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+  #     - ./monitoring/prometheus/alert-rules.yml:/etc/prometheus/alert-rules.yml
+  #     - prometheus_data:/prometheus
+  #   command:
+  #     - '--config.file=/etc/prometheus/prometheus.yml'
+  #     - '--storage.tsdb.path=/prometheus'
+  #     - '--web.enable-lifecycle'
+  #     - '--web.enable-admin-api'
+  #   networks:
+  #     - game-ai-cs-network
+  #   restart: unless-stopped
+
+  # alertmanager:
+  #   image: prom/alertmanager:latest
+  #   container_name: game-ai-cs-alertmanager
+  #   profiles:
+  #     - monitoring
+  #   ports:
+  #     - "23104:9093"
+  #   volumes:
+  #     - ./monitoring/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml
+  #     - alertmanager_data:/alertmanager
+  #   command:
+  #     - '--config.file=/etc/alertmanager/alertmanager.yml'
+  #     - '--storage.path=/alertmanager'
+  #   networks:
+  #     - game-ai-cs-network
+  #   restart: unless-stopped
+
+  # loki:
+  #   image: grafana/loki:2.9.0
+  #   container_name: game-ai-cs-loki
+  #   profiles:
+  #     - monitoring
+  #   ports:
+  #     - "23102:3100"
+  #   volumes:
+  #     - ./monitoring/loki/loki-config.yml:/etc/loki/local-config.yaml
+  #     - loki_data:/loki
+  #   command: -config.file=/etc/loki/local-config.yaml
+  #   networks:
+  #     - game-ai-cs-network
+  #   restart: unless-stopped
+
+  # promtail:
+  #   image: grafana/promtail:2.9.0
+  #   container_name: game-ai-cs-promtail
+  #   profiles:
+  #     - monitoring
+  #   volumes:
+  #     - ./monitoring/promtail/promtail-config.yml:/etc/promtail/config.yml
+  #     - ./backend/logs:/var/log/backend:ro
+  #   command: -config.file=/etc/promtail/config.yml
+  #   networks:
+  #     - game-ai-cs-network
+  #   depends_on:
+  #     - loki
+  #   restart: unless-stopped
+
+  # jaeger:
+  #   image: jaegertracing/all-in-one:1.52
+  #   container_name: game-ai-cs-jaeger
+  #   profiles:
+  #     - monitoring
+  #   ports:
+  #     - "23105:16686"  # Jaeger UI
+  #     - "6831:6831/udp"  # Jaeger agent (Thrift compact)
+  #     - "14268:14268"  # Jaeger collector HTTP
+  #     - "14269:14269"  # Jaeger admin/health
+  #   environment:
+  #     - COLLECTOR_OTLP_ENABLED=true
+  #     - SPAN_STORAGE_TYPE=memory
+  #     - MEMORY_MAX_TRACES=100000
+  #   networks:
+  #     - game-ai-cs-network
+  #   restart: unless-stopped
+
+  # grafana:
+  #   image: grafana/grafana:latest
+  #   container_name: game-ai-cs-grafana
+  #   profiles:
+  #     - monitoring
+  #   ports:
+  #     - "23103:3000"
+  #   volumes:
+  #     - ./monitoring/grafana/provisioning:/etc/grafana/provisioning
+  #     - grafana_data:/var/lib/grafana
+  #   environment:
+  #     - GF_SECURITY_ADMIN_PASSWORD=admin
+  #     - GF_USERS_ALLOW_SIGN_UP=false
+  #     - GF_FEATURE_TOGGLES_ENABLE=traceToMetrics
+  #   networks:
+  #     - game-ai-cs-network
+  #   depends_on:
+  #     - prometheus
+  #     - loki
+  #     - jaeger
+  #   restart: unless-stopped
+
 volumes:
   postgres_data:
   redis_data:
+  # prometheus_data:
+  # grafana_data:
+  # loki_data:
+  # alertmanager_data:
 
 networks:
   game-ai-cs-network:
     driver: bridge
-

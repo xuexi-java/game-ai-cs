@@ -7,6 +7,9 @@ positions:
 
 clients:
   - url: http://loki:3100/loki/api/v1/push
+    batchwait: 1s
+    batchsize: 1048576
+    timeout: 10s
 
 scrape_configs:
   # 后端应用日志（JSON 格式）
@@ -17,42 +20,46 @@ scrape_configs:
         labels:
           job: backend
           service: game-ai-backend
-          __path__: /var/log/backend/*.log
+          env: production
+          __path__: /var/log/backend/backend-*.log
     pipeline_stages:
       # 解析 JSON 日志
       - json:
           expressions:
             level: level
-            lv: lv
             traceId: traceId
-            tid: tid
             userId: userId
-            uid: uid
             context: context
-            ctx: ctx
             message: message
-            msg: msg
             timestamp: timestamp
-            t: t
+            method: method
+            path: path
+            statusCode: statusCode
+            duration: duration
+            action: action
       # 提取标签
       - labels:
           level:
-          lv:
           context:
-          ctx:
+          method:
+          statusCode:
       # 使用日志中的时间戳
       - timestamp:
           source: timestamp
           format: RFC3339Nano
           fallback_formats:
             - "2006-01-02T15:04:05.000Z07:00"
+            - "2006-01-02T15:04:05.000Z"
             - "2006-01-02 15:04:05.000"
-      # 重写标签（统一 level 和 lv）
+      # 标准化日志级别
       - template:
           source: level
-          template: '{{ if .lv }}{{ .lv }}{{ else }}{{ .level }}{{ end }}'
+          template: '{{ ToLower .level }}'
       - labels:
           level:
+      # 添加 traceId 到日志行用于关联
+      - output:
+          source: message
 
   # 错误日志单独采集（便于告警）
   - job_name: backend-error-logs
@@ -63,15 +70,54 @@ scrape_configs:
           job: backend-errors
           service: game-ai-backend
           severity: error
-          __path__: /var/log/backend/*.error.log
+          env: production
+          __path__: /var/log/backend/backend-*.error.log
     pipeline_stages:
       - json:
           expressions:
             level: level
             traceId: traceId
+            userId: userId
+            context: context
             errorCode: errorCode
             errorMessage: errorMessage
             stack: stack
+            timestamp: timestamp
       - labels:
           level:
+          context:
           errorCode:
+      - timestamp:
+          source: timestamp
+          format: RFC3339Nano
+          fallback_formats:
+            - "2006-01-02T15:04:05.000Z07:00"
+            - "2006-01-02T15:04:05.000Z"
+      # 格式化错误日志输出
+      - template:
+          source: formatted
+          template: '[{{ .errorCode }}] {{ .errorMessage }}'
+      - output:
+          source: formatted
+
+  # Docker 容器日志（可选）
+  - job_name: docker-logs
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: docker
+          __path__: /var/lib/docker/containers/*/*.log
+    pipeline_stages:
+      - json:
+          expressions:
+            log: log
+            stream: stream
+            time: time
+      - labels:
+          stream:
+      - timestamp:
+          source: time
+          format: RFC3339Nano
+      - output:
+          source: log

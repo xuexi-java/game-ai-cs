@@ -108,6 +108,10 @@ model Ticket {
   @@index([priorityScore(desc)]) // 新增：优先级分数索引
   @@index([createdAt])
   @@index([token])
+  // P0 性能优化：新增复合索引
+  @@index([status, createdAt])   // Dashboard 按状态和时间查询
+  @@index([gameId, status])      // 按游戏和状态过滤
+  @@index([closedAt])            // 已关闭工单查询
   @@map("Ticket")
 }
 
@@ -179,6 +183,9 @@ model Session {
   @@index([status])
   @@index([queuedAt])
   @@index([priorityScore(desc), queuedAt(asc)])
+  // P0 性能优化：新增复合索引
+  @@index([status, agentId])     // 查询特定客服的会话
+  @@index([status, createdAt])   // Dashboard 按状态和时间查询
   @@map("Session")
 }
 
@@ -234,6 +241,8 @@ model TicketMessage {
 
   @@index([ticketId])
   @@index([createdAt])
+  // P0 性能优化：工单消息排序查询
+  @@index([ticketId, createdAt])
   @@map("TicketMessage")
 }
 
@@ -271,6 +280,8 @@ model User {
   @@index([username])
   @@index([role])
   @@index([isOnline])
+  // P0 性能优化：在线客服查询索引
+  @@index([role, isOnline, deletedAt])  // transferToAgent 频繁查询
   @@map("User")
 }
 
@@ -313,6 +324,9 @@ model SatisfactionRating {
   @@index([ticketId])
   @@index([agentId])
   @@index([rating])
+  // P0 性能优化：Dashboard 时间范围查询
+  @@index([createdAt])
+  @@index([agentId, createdAt])  // 客服满意度统计
   @@map("SatisfactionRating")
 }
 

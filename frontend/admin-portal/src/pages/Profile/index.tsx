@@ -9,13 +9,11 @@ import {
   Space,
   Divider,
   message,
-  Upload,
 } from 'antd';
 import { UserOutlined, SaveOutlined, CameraOutlined } from '@ant-design/icons';
 import { useAuthStore } from '../../stores/authStore';
 import apiClient from '../../services/api';
 import { resolveAvatarUrl } from '../../utils/avatar';
-import type { UploadProps } from 'antd';
 import './index.css';
 
 const { Title, Text } = Typography;
@@ -62,40 +60,23 @@ const ProfilePage: React.FC = () => {
     fileInputRef.current?.click();
   };
 
-  const handleAvatarChange: UploadProps['customRequest'] = async (options) => {
-    const { file, onSuccess, onError } = options;
+  const handleFileUpload = async (file: File) => {
     setUploading(true);
-
     try {
       const formData = new FormData();
-      formData.append('file', file as File);
-
+      formData.append('file', file);
       const response = await apiClient.post('/upload/avatar', formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
+        headers: { 'Content-Type': 'multipart/form-data' },
       });
-
       const result = response.data || response;
-      const avatarUrlToSet = resolveAvatarUrl(result.fileUrl);
-      setAvatarUrl(avatarUrlToSet);
-
-      // 更新本地用户信息
+      setAvatarUrl(resolveAvatarUrl(result.fileUrl));
       if (result.user) {
-        setUser({
-          ...user!,
-          ...result.user,
-        });
+        setUser({ ...user!, ...result.user });
       }
-
       message.success('头像上传成功');
-      onSuccess?.(result);
     } catch (error: any) {
       console.error('上传头像失败:', error);
-      const errorMessage =
-        error.response?.data?.message || error.message || '上传头像失败';
-      message.error(errorMessage);
-      onError?.(error);
+      message.error(error.response?.data?.message || error.message || '上传头像失败');
     } finally {
       setUploading(false);
     }
@@ -105,21 +86,12 @@ const ProfilePage: React.FC = () => {
     setLoading(true);
     try {
       const { confirmPassword, ...updateData } = values;
-
-      // 如果密码为空，不更新密码
       if (!updateData.password || updateData.password.trim() === '') {
         delete updateData.password;
       }
-
       const response = await apiClient.patch('/users/me', updateData);
       const updatedUser = response.data || response;
-
-      // 更新本地用户信息
-      setUser({
-        ...user!,
-        ...updatedUser,
-      });
-
+      setUser({ ...user!, ...updatedUser });
       message.success('个人资料更新成功');
       form.resetFields();
       form.setFieldsValue({
@@ -130,9 +102,7 @@ const ProfilePage: React.FC = () => {
       });
     } catch (error: any) {
       console.error('更新个人资料失败:', error);
-      const errorMessage =
-        error.response?.data?.message || error.message || '更新个人资料失败';
-      message.error(errorMessage);
+      message.error(error.response?.data?.message || error.message || '更新个人资料失败');
     } finally {
       setLoading(false);
     }
@@ -146,9 +116,7 @@ const ProfilePage: React.FC = () => {
             <Title level={3}>个人资料</Title>
             <Text type="secondary">管理您的个人信息和账户设置</Text>
           </div>
-
           <Divider />
-
           <div className="profile-avatar-section">
             <div className="avatar-upload-wrapper">
               <Avatar
@@ -156,11 +124,7 @@ const ProfilePage: React.FC = () => {
                 icon={<UserOutlined />}
                 src={avatarUrl}
                 className="profile-avatar"
-                onError={() => {
-                  // 如果头像加载失败，设置为undefined以显示默认图标
-                  setAvatarUrl(undefined);
-                  return false;
-                }}
+                onError={() => { setAvatarUrl(undefined); return false; }}
               />
               <div
                 className="avatar-upload-overlay"
@@ -179,19 +143,7 @@ const ProfilePage: React.FC = () => {
                 style={{ display: 'none' }}
                 onChange={(e) => {
                   const file = e.target.files?.[0];
-                  if (file) {
-                    const uploadFile: UploadFile = {
-                      uid: '-1',
-                      name: file.name,
-                      status: 'uploading',
-                      originFileObj: file,
-                    };
-                    handleAvatarChange({
-                      file: file,
-                      onSuccess: () => {},
-                      onError: () => {},
-                    } as any);
-                  }
+                  if (file) handleFileUpload(file);
                 }}
               />
             </div>
@@ -201,59 +153,24 @@ const ProfilePage: React.FC = () => {
               <Text type="secondary">{user?.role === 'ADMIN' ? '管理员' : '客服'}</Text>
             </div>
           </div>
-
           <Divider />
-
-          <Form
-            form={form}
-            layout="vertical"
-            onFinish={handleSubmit}
-            style={{ maxWidth: 600 }}
-          >
-            <Form.Item
-              label="用户名"
-              name="username"
-              rules={[{ required: true, message: '请输入用户名' }]}
-            >
+          <Form form={form} layout="vertical" onFinish={handleSubmit} style={{ maxWidth: 600 }}>
+            <Form.Item label="用户名" name="username" rules={[{ required: true, message: '请输入用户名' }]}>
               <Input disabled />
             </Form.Item>
-
             <Form.Item label="真实姓名" name="realName">
               <Input placeholder="请输入真实姓名" />
             </Form.Item>
-
-            <Form.Item
-              label="邮箱"
-              name="email"
-              rules={[
-                { type: 'email', message: '请输入有效的邮箱地址' },
-              ]}
-            >
+            <Form.Item label="邮箱" name="email" rules={[{ type: 'email', message: '请输入有效的邮箱地址' }]}>
               <Input placeholder="请输入邮箱地址" />
             </Form.Item>
-
-            <Form.Item
-              label="手机号"
-              name="phone"
-              rules={[
-                { pattern: /^1[3-9]\d{9}$/, message: '请输入有效的手机号' },
-              ]}
-            >
+            <Form.Item label="手机号" name="phone" rules={[{ pattern: /^1[3-9]d{9}$/, message: '请输入有效的手机号' }]}>
               <Input placeholder="请输入手机号" />
             </Form.Item>
-
             <Divider>修改密码（可选）</Divider>
-
-            <Form.Item
-              label="新密码"
-              name="password"
-              rules={[
-                { min: 6, message: '密码长度至少6位' },
-              ]}
-            >
+            <Form.Item label="新密码" name="password" rules={[{ min: 6, message: '密码长度至少6位' }]}>
               <Input.Password placeholder="留空则不修改密码" />
             </Form.Item>
-
             <Form.Item
               label="确认密码"
               name="confirmPassword"
@@ -261,9 +178,7 @@ const ProfilePage: React.FC = () => {
               rules={[
                 ({ getFieldValue }) => ({
                   validator(_, value) {
-                    if (!value || getFieldValue('password') === value) {
-                      return Promise.resolve();
-                    }
+                    if (!value || getFieldValue('password') === value) return Promise.resolve();
                     return Promise.reject(new Error('两次输入的密码不一致'));
                   },
                 }),
@@ -271,14 +186,8 @@ const ProfilePage: React.FC = () => {
             >
               <Input.Password placeholder="请再次输入新密码" />
             </Form.Item>
-
             <Form.Item>
-              <Button
-                type="primary"
-                htmlType="submit"
-                icon={<SaveOutlined />}
-                loading={loading}
-              >
+              <Button type="primary" htmlType="submit" icon={<SaveOutlined />} loading={loading}>
                 保存更改
               </Button>
             </Form.Item>

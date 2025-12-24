@@ -28,11 +28,11 @@ import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { RedisModule } from './redis/redis.module';
 import { EncryptionModule } from './common/encryption/encryption.module';
 import { validate } from './common/config/env.validation';
-import { MetricsModule } from './metrics/metrics.module';
+// import { MetricsModule } from './metrics/metrics.module'; // disabled for fast release
 
 @Module({
   imports: [
-    MetricsModule,
+    // MetricsModule, // disabled for fast release
     LoggerModule,
     RedisModule,
     EncryptionModule,

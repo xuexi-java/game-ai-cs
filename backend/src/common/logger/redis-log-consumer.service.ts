@@ -169,7 +169,10 @@ export class RedisLogConsumerService implements OnModuleInit, OnModuleDestroy {
         const logs = await this.fetchLogs();
 
         if (logs.length > 0) {
+          // 先写入文件
           await this.writeLogs(logs);
+          // 写入成功后再从 Redis 删除（避免日志丢失）
+          await this.confirmLogs(logs.length);
           this.consumedCount += logs.length;
 
           // 每消费 1000 条打印一次统计
@@ -190,20 +193,16 @@ export class RedisLogConsumerService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * 从 Redis 批量获取日志
+   * 从 Redis 批量获取日志（仅读取，不删除）
    */
   private async fetchLogs(): Promise<string[]> {
     if (!this.redis) return [];
 
     try {
-      // 使用 LRANGE + LTRIM 原子操作批量获取并删除
-      const pipeline = this.redis.pipeline();
-      pipeline.lrange(this.redisKey, -this.batchSize, -1);
-      pipeline.ltrim(this.redisKey, 0, -(this.batchSize + 1));
-      const results = await pipeline.exec();
+      // 仅读取日志，不立即删除（避免写入失败时丢失日志）
+      const logs = await this.redis.lrange(this.redisKey, -this.batchSize, -1);
 
-      if (results && results[0] && results[0][1]) {
-        const logs = results[0][1] as string[];
+      if (logs && logs.length > 0) {
         // LRANGE 返回的是从尾部开始的，需要反转以保持时间顺序
         return logs.reverse();
       }
@@ -212,6 +211,20 @@ export class RedisLogConsumerService implements OnModuleInit, OnModuleDestroy {
     } catch (error) {
       console.error('[RedisLogConsumer] Failed to fetch logs:', error);
       return [];
+    }
+  }
+
+  /**
+   * 确认日志已写入，从 Redis 删除
+   */
+  private async confirmLogs(count: number): Promise<void> {
+    if (!this.redis || count <= 0) return;
+
+    try {
+      // 删除已成功写入的日志
+      await this.redis.ltrim(this.redisKey, 0, -(count + 1));
+    } catch (error) {
+      console.error('[RedisLogConsumer] Failed to confirm logs:', error);
     }
   }
 
@@ -254,13 +267,28 @@ export class RedisLogConsumerService implements OnModuleInit, OnModuleDestroy {
 
   private writeToStream(stream: NodeJS.WritableStream, content: string): Promise<void> {
     return new Promise((resolve, reject) => {
+      let resolved = false;
+      const safeResolve = () => {
+        if (!resolved) {
+          resolved = true;
+          resolve();
+        }
+      };
+
       const canContinue = stream.write(content, 'utf8', (err) => {
-        if (err) reject(err);
-        else resolve();
+        if (err) {
+          if (!resolved) {
+            resolved = true;
+            reject(err);
+          }
+        } else {
+          safeResolve();
+        }
       });
 
-      if (!canContinue) {
-        stream.once('drain', resolve);
+      // 仅当缓冲区满且回调尚未触发时等待 drain
+      if (!canContinue && !resolved) {
+        stream.once('drain', safeResolve);
       }
     });
   }

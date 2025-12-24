@@ -3,6 +3,7 @@
  */
 import apiClient from './api';
 import type { TicketDetail } from '../types';
+export type { TicketDetail };
 
 export interface CheckOpenTicketRequest {
   gameId: string;

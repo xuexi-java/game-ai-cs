@@ -35,7 +35,9 @@ export class RateLimitCircuitBreakerService {
 
   private initRedis() {
     try {
-      const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
+      const redisHost = process.env.REDIS_HOST || 'localhost';
+      const redisPort = parseInt(process.env.REDIS_PORT || '6379');
+      const redisUrl = process.env.REDIS_URL || `redis://${redisHost}:${redisPort}`;
       this.redis = new Redis(redisUrl, {
         maxRetriesPerRequest: 3,
         enableReadyCheck: true,

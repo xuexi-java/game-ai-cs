@@ -286,7 +286,11 @@ export class WebsocketGateway
               this.ticketService
                 .autoAssignWaitingTickets(user.id)
                 .catch((error) => {
-                  this.logger.error(`自动分配工单失败: ${error.message}`);
+                  this.logger.error(
+                    `自动分配工单失败: ${error.message}`,
+                    error instanceof Error ? error.stack : undefined,
+                    { userId: user.id }
+                  );
                 });
             }
 
@@ -307,7 +311,11 @@ export class WebsocketGateway
         this.setupHeartbeat(client);
       }
     } catch (error) {
-      this.logger.error(`连接处理错误: ${error.message}`);
+      this.logger.error(
+        `连接处理错误: ${error.message}`,
+        error instanceof Error ? error.stack : undefined,
+        { clientId: client.id }
+      );
     }
   }
 
@@ -394,7 +402,14 @@ export class WebsocketGateway
 
       return { success: true, messageId: message.id };
     } catch (error) {
-      this.logger.error(`发送消息失败: ${error.message}`);
+      this.logger.error(
+        `发送消息失败: ${error.message}`,
+        error instanceof Error ? error.stack : undefined,
+        {
+          sessionId: data.sessionId,
+          content: data.content?.substring(0, 50),
+        }
+      );
       return { success: false, error: error.message };
     }
   }
@@ -516,7 +531,15 @@ export class WebsocketGateway
 
       return { success: true, messageId: message.id };
     } catch (error) {
-      this.logger.error(`客服发送消息失败: ${error.message}`);
+      this.logger.error(
+        `客服发送消息失败: ${error.message}`,
+        error instanceof Error ? error.stack : undefined,
+        {
+          sessionId: data.sessionId,
+          agentId: client.data.user.id,
+          content: data.content?.substring(0, 50),
+        }
+      );
       return { success: false, error: error.message };
     }
   }

@@ -54,16 +54,40 @@ export class LoggerService implements NestLoggerService, OnModuleDestroy {
   private combinedWriteQueue: string[] = [];
 
   // 内存队列保护配置
-  private readonly maxQueueSize = parseInt(process.env.LOG_MAX_QUEUE_SIZE || '10000');
+  private readonly maxQueueSize: number;
 
   // 压缩归档配置
-  private readonly enableCompression = process.env.LOG_ENABLE_COMPRESSION !== 'false';
-  private readonly archiveAfterDays = parseInt(process.env.LOG_ARCHIVE_AFTER_DAYS || '7');
-  private readonly cleanAfterDays = parseInt(process.env.LOG_CLEAN_AFTER_DAYS || '30');
+  private readonly enableCompression: boolean;
+  private readonly archiveAfterDays: number;
+  private readonly cleanAfterDays: number;
+
+  // 缓存的配置值（避免每次读取环境变量）
+  private readonly samplingRate: number;
+  private readonly logFormat: string;
+  private readonly sensitiveFields: string[];
+
+  // 定时器引用（用于清理）
+  private rotationTimer: NodeJS.Timeout | null = null;
+  private archiveTimer: NodeJS.Timeout | null = null;
+  private archiveIntervalTimer: NodeJS.Timeout | null = null;
 
   constructor(
     @Optional() @Inject(RedisLogBufferService) private readonly redisBuffer?: RedisLogBufferService,
   ) {
+    // 缓存所有配置值（避免每次日志调用都读取环境变量）
+    this.maxQueueSize = parseInt(process.env.LOG_MAX_QUEUE_SIZE || '10000');
+    this.enableCompression = process.env.LOG_ENABLE_COMPRESSION !== 'false';
+    this.archiveAfterDays = parseInt(process.env.LOG_ARCHIVE_AFTER_DAYS || '7');
+    this.cleanAfterDays = parseInt(process.env.LOG_CLEAN_AFTER_DAYS || '30');
+    this.samplingRate = parseFloat(process.env.LOG_SAMPLING_RATE || '1');
+    this.logFormat = process.env.LOG_FORMAT || 'text';
+    this.batchSize = parseInt(process.env.LOG_BATCH_SIZE || '50');
+    this.batchInterval = parseInt(process.env.LOG_BATCH_INTERVAL || '100');
+    this.sensitiveFields = (
+      process.env.LOG_SENSITIVE_FIELDS ||
+      'password,token,secret,apiKey,authorization'
+    ).split(',').map((s) => s.trim().toLowerCase());
+
     // 从环境变量读取日志级别，默认为 LOG
     const envLogLevel = process.env.LOG_LEVEL?.toUpperCase() || 'LOG';
     this.logLevel = LogLevel[envLogLevel] ?? LogLevel.LOG;
@@ -125,7 +149,7 @@ export class LoggerService implements NestLoggerService, OnModuleDestroy {
 
   private scheduleLogRotation() {
     // 每分钟检查一次是否需要切换日志文件（减少午夜延迟）
-    setInterval(() => {
+    this.rotationTimer = setInterval(() => {
       const now = formatDate(new Date(), 'yyyy-MM-dd');
       if (now !== this.currentDate) {
         this.flushQueue().then(() => {
@@ -147,10 +171,10 @@ export class LoggerService implements NestLoggerService, OnModuleDestroy {
 
     const msUntilArchive = tomorrow.getTime() - now.getTime();
 
-    setTimeout(() => {
+    this.archiveTimer = setTimeout(() => {
       this.runArchiveAndClean();
       // 之后每天执行一次
-      setInterval(() => {
+      this.archiveIntervalTimer = setInterval(() => {
         this.runArchiveAndClean();
       }, 24 * 3600000);
     }, msUntilArchive);
@@ -248,9 +272,8 @@ export class LoggerService implements NestLoggerService, OnModuleDestroy {
     // 错误日志始终记录（不采样）
     if (level === LogLevel.ERROR) return true;
 
-    // 其他日志按采样率记录
-    const samplingRate = parseFloat(process.env.LOG_SAMPLING_RATE || '1');
-    return Math.random() < samplingRate;
+    // 其他日志按采样率记录（使用缓存的配置值）
+    return Math.random() < this.samplingRate;
   }
 
   private formatMessage(
@@ -262,9 +285,8 @@ export class LoggerService implements NestLoggerService, OnModuleDestroy {
     const timestamp = formatDate(new Date(), 'yyyy-MM-dd HH:mm:ss.SSS');
     const contextStr = context || 'Application';
 
-    // 支持 JSON 格式输出
-    const logFormat = process.env.LOG_FORMAT || 'text';
-    if (logFormat === 'json') {
+    // 支持 JSON 格式输出（使用缓存的配置值）
+    if (this.logFormat === 'json') {
       const logEntry = {
         timestamp,
         level,
@@ -293,16 +315,20 @@ export class LoggerService implements NestLoggerService, OnModuleDestroy {
   }
 
   private writeTimer: NodeJS.Timeout | null = null;
-  private isWriting = false;
-  private readonly batchSize = parseInt(process.env.LOG_BATCH_SIZE || '50');
-  private readonly batchInterval = parseInt(
-    process.env.LOG_BATCH_INTERVAL || '100',
-  );
+  // 使用 Promise 链序列化写入操作（避免竞态条件）
+  private flushPromise: Promise<void> = Promise.resolve();
+  private readonly batchSize: number;
+  private readonly batchInterval: number;
 
-  private async flushQueue(): Promise<void> {
-    if (this.isWriting || (this.errorWriteQueue.length === 0 && this.combinedWriteQueue.length === 0)) return;
+  private flushQueue(): Promise<void> {
+    // 使用 Promise 链确保写入操作串行执行
+    this.flushPromise = this.flushPromise.then(() => this.doFlush());
+    return this.flushPromise;
+  }
 
-    this.isWriting = true;
+  private async doFlush(): Promise<void> {
+    if (this.errorWriteQueue.length === 0 && this.combinedWriteQueue.length === 0) return;
+
     const errorMessagesToWrite = [...this.errorWriteQueue];
     const combinedMessagesToWrite = [...this.combinedWriteQueue];
     this.errorWriteQueue = [];
@@ -345,8 +371,6 @@ export class LoggerService implements NestLoggerService, OnModuleDestroy {
       console.error('Log write failed, falling back to console:', error);
       errorMessagesToWrite.forEach((msg) => console.error(msg.trim()));
       combinedMessagesToWrite.forEach((msg) => console.log(msg.trim()));
-    } finally {
-      this.isWriting = false;
     }
   }
 
@@ -397,22 +421,18 @@ export class LoggerService implements NestLoggerService, OnModuleDestroy {
     }
   }
 
-  private filterSensitiveData(data: any): any {
+  /**
+   * 过滤敏感信息（使用缓存的配置值）
+   * 公开方法供 AppLogger 调用
+   */
+  public filterSensitiveData(data: any): any {
     if (!data || typeof data !== 'object') return data;
 
-    const sensitiveFields = (
-      process.env.LOG_SENSITIVE_FIELDS ||
-      'password,token,secret,apiKey,authorization'
-    )
-      .split(',')
-      .map((s) => s.trim());
     const filtered = Array.isArray(data) ? [...data] : { ...data };
 
     for (const key in filtered) {
       const lowerKey = key.toLowerCase();
-      if (
-        sensitiveFields.some((field) => lowerKey.includes(field.toLowerCase()))
-      ) {
+      if (this.sensitiveFields.some((field) => lowerKey.includes(field))) {
         filtered[key] = '***REDACTED***';
       } else if (typeof filtered[key] === 'object' && filtered[key] !== null) {
         filtered[key] = this.filterSensitiveData(filtered[key]);
@@ -549,9 +569,30 @@ export class LoggerService implements NestLoggerService, OnModuleDestroy {
     }
   }
 
-  // 应用关闭时刷新队列
+  // 应用关闭时清理资源
   async onModuleDestroy() {
+    // 清理所有定时器
+    if (this.rotationTimer) {
+      clearInterval(this.rotationTimer);
+      this.rotationTimer = null;
+    }
+    if (this.archiveTimer) {
+      clearTimeout(this.archiveTimer);
+      this.archiveTimer = null;
+    }
+    if (this.archiveIntervalTimer) {
+      clearInterval(this.archiveIntervalTimer);
+      this.archiveIntervalTimer = null;
+    }
+    if (this.writeTimer) {
+      clearTimeout(this.writeTimer);
+      this.writeTimer = null;
+    }
+
+    // 刷新队列
     await this.flushQueue();
+
+    // 关闭日志流
     if (this.errorLogStream) {
       this.errorLogStream.end();
     }

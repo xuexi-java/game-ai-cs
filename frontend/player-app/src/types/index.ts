@@ -6,6 +6,7 @@ export interface MessageMetadata {
   uploadStatus?: 'UPLOADING' | 'FAILED';
   pendingUploadId?: string;
   isLocalPreview?: boolean;
+  suggestedOptions?: string[];
   translation?: {
     translatedContent?: string;
     sourceLanguage?: string;
@@ -99,9 +100,12 @@ export type TicketStatus = 'IN_PROGRESS' | 'WAITING' | 'RESOLVED';
 export interface TicketDetail {
   id: string;
   ticketNo: string;
+  token: string;
   status: TicketStatus;
   description: string;
   playerIdOrName: string;
+  createdAt: string;
+  updatedAt?: string;
   game?: {
     id: string;
     name: string;
@@ -131,5 +135,4 @@ export interface TicketDetail {
       createdAt: string;
     }>;
   }>;
-  [key: string]: unknown;
 }

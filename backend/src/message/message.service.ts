@@ -313,7 +313,14 @@ export class MessageService {
         data: { metadata: newMeta as any },
       });
     } catch (error) {
-      console.error('Background language detection failed', error);
+      this.logger.error(
+        'Background language detection failed',
+        error instanceof Error ? error.stack : undefined,
+        {
+          sessionId: session.id,
+          contentPreview: content.substring(0, 50),
+        }
+      );
       // 不抛出异常，以免影响主流程
     }
   }

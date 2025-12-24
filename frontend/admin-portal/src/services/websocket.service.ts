@@ -7,7 +7,7 @@ import type { Session, Message } from '../types';
 import { notificationService } from './notification.service';
 
 // 页面标题更新函数
-let titleBlinkInterval: NodeJS.Timeout | null = null;
+let titleBlinkInterval: ReturnType<typeof setInterval> | null = null;
 let baseTitle = '';
 
 // 获取基础标题（去除未读数）

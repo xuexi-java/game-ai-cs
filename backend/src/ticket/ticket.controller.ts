@@ -25,11 +25,20 @@ import { Roles } from '../common/decorators/roles.decorator';
 import { PaginationDto } from '../common/dto/pagination.dto';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Public } from '../common/decorators/public.decorator';
+import { AppLogger } from '../common/logger/app-logger.service';
 
 @ApiTags('tickets')
 @Controller('tickets')
 export class TicketController {
-  constructor(private readonly ticketService: TicketService) {}
+  private readonly logger: AppLogger;
+
+  constructor(
+    private readonly ticketService: TicketService,
+    logger: AppLogger,
+  ) {
+    this.logger = logger;
+    this.logger.setContext(TicketController.name);
+  }
 
   // 玩家端API - 查询玩家未完成工单列表
   @Public()
@@ -143,10 +152,17 @@ export class TicketController {
     try {
       return await this.ticketService.create(createTicketDto);
     } catch (error) {
-      // ✅ 记录详细错误信息
-      console.error('工单创建控制器错误:', error);
-      console.error('请求数据:', JSON.stringify(createTicketDto, null, 2));
-      throw error; // 重新抛出，让异常过滤器处理
+      this.logger.error(
+        '工单创建控制器错误',
+        error instanceof Error ? error.stack : undefined,
+        {
+          gameId: createTicketDto.gameId,
+          playerIdOrName: createTicketDto.playerIdOrName,
+          issueTypeIds: createTicketDto.issueTypeIds,
+          requestData: createTicketDto,
+        }
+      );
+      throw error;
     }
   }
 

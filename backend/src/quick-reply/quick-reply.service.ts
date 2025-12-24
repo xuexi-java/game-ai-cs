@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { AppLogger } from '../common/logger/app-logger.service';
 import { CreateCategoryDto } from './dto/create-category.dto';
 import { UpdateCategoryDto } from './dto/update-category.dto';
 import { CreateReplyDto } from './dto/create-reply.dto';
@@ -13,7 +14,12 @@ import { QueryReplyDto, SortByEnum } from './dto/query-reply.dto';
 
 @Injectable()
 export class QuickReplyService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private readonly logger: AppLogger,
+  ) {
+    this.logger.setContext(QuickReplyService.name);
+  }
 
   // ========== 分类管理 ==========
 
@@ -67,7 +73,11 @@ export class QuickReplyService {
         },
       }));
     } catch (error) {
-      console.error('获取分类列表失败:', error);
+      this.logger.error(
+        '获取分类列表失败',
+        error instanceof Error ? error.stack : undefined,
+        { userId }
+      );
       throw error;
     }
   }
@@ -248,11 +258,17 @@ export class QuickReplyService {
             .then((favs) => new Set(favs.map((f) => f.replyId))),
         ]);
       } catch (dbError: any) {
-        console.error('数据库查询错误:', dbError);
-        console.error('错误类型:', dbError.constructor?.name);
-        console.error('错误代码:', dbError.code);
-        console.error('错误消息:', dbError.message);
-        console.error('错误堆栈:', dbError.stack);
+        this.logger.error(
+          '数据库查询错误',
+          dbError instanceof Error ? dbError.stack : undefined,
+          {
+            errorType: dbError.constructor?.name,
+            errorCode: dbError.code,
+            errorMessage: dbError.message,
+            userId,
+            categoryId: query.categoryId,
+          }
+        );
 
         // 如果是排序问题，尝试使用默认排序
         if (
@@ -361,13 +377,19 @@ export class QuickReplyService {
           totalPages: Math.ceil(deduplicatedData.length / pageSize),
         },
       };
-    } catch (error) {
-      console.error('获取快捷回复列表失败:', error);
-      console.error('错误详情:', {
-        message: error.message,
-        stack: error.stack,
-        name: error.name,
-      });
+    } catch (error: any) {
+      this.logger.error(
+        '获取快捷回复列表失败',
+        error instanceof Error ? error.stack : undefined,
+        {
+          errorMessage: error.message,
+          errorName: error.name,
+          userId,
+          categoryId: query.categoryId,
+          page: query.page,
+          pageSize: query.pageSize,
+        }
+      );
       throw error;
     }
   }

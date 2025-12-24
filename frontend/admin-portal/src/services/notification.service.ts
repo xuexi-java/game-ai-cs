@@ -61,7 +61,6 @@ class NotificationService {
         tag: options?.tag || 'customer-service-message', // 相同 tag 会替换旧通知
         requireInteraction: false,
         silent: false, // 允许系统提示音
-        vibrate: [200, 100, 200], // 震动模式（如果支持）
         ...options,
       });
 

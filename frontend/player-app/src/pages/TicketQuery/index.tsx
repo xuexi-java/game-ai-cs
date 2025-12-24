@@ -127,7 +127,7 @@ const TicketQueryPage = () => {
               size="large"
               showSearch
               filterOption={(input, option) =>
-                (option?.children as string)?.toLowerCase().includes(input.toLowerCase())
+                String(option?.label || '').toLowerCase().includes(input.toLowerCase())
               }
             >
               {games.map((game) => (
