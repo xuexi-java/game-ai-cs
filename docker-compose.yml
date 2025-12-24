@@ -60,13 +60,15 @@ services:
       - JWT_SECRET=${JWT_SECRET:-your-secret-key-change-in-production}
       - JWT_EXPIRES_IN=${JWT_EXPIRES_IN:-8h}
       - FRONTEND_URL=http://localhost:20101,http://localhost:20102
-      - DIFY_API_KEY=${DIFY_API_KEY:-}
-      - DIFY_BASE_URL=${DIFY_BASE_URL:-}
+      # Dify AI 话术优化配置（必须配置，否则AI优化功能无法使用）
+      - DIFY_API_KEY=${DIFY_API_KEY:-app-pVK7Yup3O9DG6Zr1p8cSfe3p}
+      - DIFY_BASE_URL=${DIFY_BASE_URL:-http://ai.sh7road.com/v1}
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - ENCRYPTION_SECRET_KEY=${ENCRYPTION_SECRET_KEY:-default-secret-key-change-in-production-32-chars!!}
-      - BAIDU_TRANSLATE_APP_ID=${BAIDU_TRANSLATE_APP_ID}
-      - BAIDU_TRANSLATE_SECRET=${BAIDU_TRANSLATE_SECRET}
+      # 百度翻译配置
+      - BAIDU_TRANSLATE_APP_ID=${BAIDU_TRANSLATE_APP_ID:-20250311002299702}
+      - BAIDU_TRANSLATE_SECRET=${BAIDU_TRANSLATE_SECRET:-H1dETwWWqk45uN2DzGxK}
     ports:
       - "21101:21101"
     volumes:
@@ -95,7 +97,7 @@ services:
       dockerfile: Dockerfile
     container_name: game-ai-cs-admin-portal
     ports:
-      - "20102:20102"
+      - "20101:20101"
     depends_on:
       - backend
     networks:
@@ -108,7 +110,7 @@ services:
       dockerfile: Dockerfile
     container_name: game-ai-cs-player-app
     ports:
-      - "20101:20101"
+      - "20102:20102"
     depends_on:
       - backend
     networks:

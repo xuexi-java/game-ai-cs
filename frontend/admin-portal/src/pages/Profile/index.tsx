@@ -15,7 +15,7 @@ import { UserOutlined, SaveOutlined, CameraOutlined } from '@ant-design/icons';
 import { useAuthStore } from '../../stores/authStore';
 import apiClient from '../../services/api';
 import { resolveAvatarUrl } from '../../utils/avatar';
-import type { UploadFile, UploadProps } from 'antd';
+import type { UploadProps } from 'antd';
 import './index.css';
 
 const { Title, Text } = Typography;
@@ -159,6 +159,7 @@ const ProfilePage: React.FC = () => {
                 onError={() => {
                   // 如果头像加载失败，设置为undefined以显示默认图标
                   setAvatarUrl(undefined);
+                  return false;
                 }}
               />
               <div

@@ -231,8 +231,8 @@ npm run db:seed      # 初始化种子数据
    ```
 
 **服务访问地址**：
-- 玩家端: http://localhost:20101
-- 管理端: http://localhost:20102
+- 管理端: http://localhost:20101
+- 玩家端: http://localhost:20102
 - 后端API: http://localhost:21101/api/v1
 - API文档: http://localhost:21101/api/v1/docs
 
@@ -327,19 +327,19 @@ npm run start:dev
 ```
 后端服务运行在: http://localhost:21101
 
-**玩家端**:
-```bash
-cd frontend/player-app
-npm run dev
-```
-玩家端运行在: http://localhost:20101
-
 **管理端**:
 ```bash
 cd frontend/admin-portal
 npm run dev
 ```
-管理端运行在: http://localhost:20102
+管理端运行在: http://localhost:20101
+
+**玩家端**:
+```bash
+cd frontend/player-app
+npm run dev
+```
+玩家端运行在: http://localhost:20102
 
 **注意**: 本地开发模式需要：
 - 确保 Docker 服务（PostgreSQL）已启动：`docker-compose up -d postgres`
