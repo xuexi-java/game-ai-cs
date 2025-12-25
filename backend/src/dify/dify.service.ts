@@ -103,12 +103,15 @@ export class DifyService {
   private readonly logger = new Logger(DifyService.name);
   private axiosInstance: AxiosInstance;
 
+  // AI 调用超时时间 (8秒)，超时则使用默认回复
+  private readonly AI_TIMEOUT = 8000;
+
   constructor(
     private configService: ConfigService,
     private encryptionService: EncryptionService,
   ) {
     this.axiosInstance = axios.create({
-      timeout: 30000,
+      timeout: this.AI_TIMEOUT,
     });
   }
 

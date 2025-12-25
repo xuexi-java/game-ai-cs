@@ -1,11 +1,7 @@
-import {
-  Injectable,
-  BadRequestException,
-  ForbiddenException,
-  NotFoundException,
-} from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
+import { BusinessException, ErrorCodes } from '../common/exceptions';
 import { AppLogger } from '../common/logger/app-logger.service';
 import { CreateCategoryDto } from './dto/create-category.dto';
 import { UpdateCategoryDto } from './dto/update-category.dto';
@@ -55,7 +51,7 @@ export class QuickReplyService {
   async getCategories(userId: string, isAdmin: boolean) {
     const cacheKey = `${this.cachePrefix}${userId}:categories`;
     const cached = await this.cacheService.getJson<any[]>(cacheKey);
-    if (cached) {
+    if (cached !== null) {
       return cached;
     }
     try {
@@ -162,7 +158,7 @@ export class QuickReplyService {
 
     // ✅ 只能更新自己创建的分类
     if (category.creatorId !== userId) {
-      throw new ForbiddenException('只能更新自己创建的分类');
+      throw new BusinessException(ErrorCodes.AUTH_PERMISSION_DENIED, '只能更新自己创建的分类');
     }
 
     // ✅ 取消全局标记，强制设置为false
@@ -188,7 +184,7 @@ export class QuickReplyService {
 
     // ✅ 只能删除自己创建的分类
     if (category.creatorId !== userId) {
-      throw new ForbiddenException('只能删除自己创建的分类');
+      throw new BusinessException(ErrorCodes.AUTH_PERMISSION_DENIED, '只能删除自己创建的分类');
     }
 
     const removed = await this.prisma.quickReplyCategory.update({
@@ -217,7 +213,7 @@ export class QuickReplyService {
         },
       )}`;
       const cached = await this.cacheService.getJson<any>(cacheKey);
-      if (cached) {
+      if (cached !== null) {
         return cached;
       }
 
@@ -247,7 +243,7 @@ export class QuickReplyService {
           where: { id: query.categoryId },
         });
         if (!category || category.creatorId !== userId) {
-          throw new ForbiddenException('无权访问此分类');
+          throw new BusinessException(ErrorCodes.AUTH_PERMISSION_DENIED, '无权访问此分类');
         }
         where.categoryId = query.categoryId;
       }
@@ -476,7 +472,7 @@ export class QuickReplyService {
 
     // ✅ 只能在自己的分类中创建回复
     if (category.creatorId !== userId) {
-      throw new ForbiddenException('只能在自己的分类中创建回复');
+      throw new BusinessException(ErrorCodes.AUTH_PERMISSION_DENIED, '只能在自己的分类中创建回复');
     }
 
     // ✅ 所有回复都是个人私有的
@@ -506,7 +502,7 @@ export class QuickReplyService {
 
       // ✅ 只能更新自己创建的回复（处理 creatorId 为 null 的情况）
       if (!reply.creatorId || reply.creatorId !== userId) {
-        throw new ForbiddenException('只能更新自己创建的快捷回复');
+        throw new BusinessException(ErrorCodes.AUTH_PERMISSION_DENIED, '只能更新自己创建的快捷回复');
       }
 
       // ✅ 如果更新了分类，确保新分类也是当前用户创建的
@@ -520,11 +516,11 @@ export class QuickReplyService {
               where: { id: updateReplyDto.categoryId },
             });
           if (!newCategory.creatorId || newCategory.creatorId !== userId) {
-            throw new ForbiddenException('只能移动到自己的分类');
+            throw new BusinessException(ErrorCodes.AUTH_PERMISSION_DENIED, '只能移动到自己的分类');
           }
         } catch (error: any) {
           if (error.code === 'P2025') {
-            throw new NotFoundException('分类不存在');
+            throw new BusinessException(ErrorCodes.SYSTEM_VALIDATION_ERROR, '分类不存在');
           }
           throw error;
         }
@@ -560,7 +556,7 @@ export class QuickReplyService {
           include: { category: true },
         });
         if (!currentReply) {
-          throw new NotFoundException('快捷回复不存在');
+          throw new BusinessException(ErrorCodes.SYSTEM_VALIDATION_ERROR, '快捷回复不存在');
         }
         return currentReply;
       }
@@ -575,7 +571,7 @@ export class QuickReplyService {
     } catch (error: any) {
       // 处理 Prisma 的 NotFoundError (P2025)
       if (error.code === 'P2025') {
-        throw new NotFoundException('快捷回复不存在');
+        throw new BusinessException(ErrorCodes.SYSTEM_VALIDATION_ERROR, '快捷回复不存在');
       }
       // 重新抛出其他错误
       throw error;
@@ -592,7 +588,7 @@ export class QuickReplyService {
 
     // ✅ 只能删除自己创建的回复
     if (reply.creatorId !== userId) {
-      throw new ForbiddenException('只能删除自己创建的快捷回复');
+      throw new BusinessException(ErrorCodes.AUTH_PERMISSION_DENIED, '只能删除自己创建的快捷回复');
     }
 
     const removed = await this.prisma.quickReply.update({
@@ -655,7 +651,7 @@ export class QuickReplyService {
   ) {
     const cacheKey = `${this.cachePrefix}${userId}:favorites:${page}:${pageSize}`;
     const cached = await this.cacheService.getJson<any>(cacheKey);
-    if (cached) {
+    if (cached !== null) {
       return cached;
     }
     const skip = (page - 1) * pageSize;

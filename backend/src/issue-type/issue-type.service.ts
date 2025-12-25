@@ -1,6 +1,7 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
+import { BusinessException, ErrorCodes } from '../common/exceptions';
 import { CreateIssueTypeDto } from './dto/create-issue-type.dto';
 import { UpdateIssueTypeDto } from './dto/update-issue-type.dto';
 import { CacheService } from '../common/cache/cache.service';
@@ -71,7 +72,7 @@ export class IssueTypeService {
       where: { id },
     });
     if (!issueType || issueType.deletedAt) {
-      throw new NotFoundException('问题类型不存在');
+      throw new BusinessException(ErrorCodes.ISSUE_TYPE_NOT_FOUND);
     }
     return issueType;
   }

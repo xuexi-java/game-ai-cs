@@ -1,6 +1,7 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
+import { throwGameNotFound, BusinessException, ErrorCodes } from '../common/exceptions';
 import { CreateGameDto, UpdateGameDto } from './dto/create-game.dto';
 import { CreateServerDto, UpdateServerDto } from './dto/create-server.dto';
 import { EncryptionService } from '../common/encryption/encryption.service';
@@ -74,7 +75,7 @@ export class GameService {
     );
 
     if (!game) {
-      throw new NotFoundException('游戏不存在');
+      throwGameNotFound();
     }
 
     return game;
@@ -182,7 +183,7 @@ export class GameService {
     });
 
     if (!server) {
-      throw new NotFoundException('区服不存在');
+      throw new BusinessException(ErrorCodes.SERVER_NOT_FOUND);
     }
 
     const updated = await this.prisma.server.update({
@@ -199,7 +200,7 @@ export class GameService {
     });
 
     if (!server) {
-      throw new NotFoundException('区服不存在');
+      throw new BusinessException(ErrorCodes.SERVER_NOT_FOUND);
     }
 
     const removed = await this.prisma.server.update({

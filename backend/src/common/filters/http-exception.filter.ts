@@ -14,6 +14,8 @@ import { RequestStatus } from '../logger/logger.types';
 import { RateLimitCircuitBreakerService } from '../logger/rate-limit-circuit-breaker.service';
 import { rateLimitRejectedCounter } from '../../metrics/queue.metrics';
 import { getClientIpFromRequest } from '../guards/throttle-keys';
+import { BusinessException } from '../exceptions/business.exception';
+import { ErrorCodes } from '../exceptions/error-codes';
 
 /**
  * 全局异常过滤器
@@ -95,9 +97,9 @@ export class HttpExceptionFilter implements ExceptionFilter {
           // 返回响应
           response.status(status).json({
             success: false,
-            statusCode: status,
-            errorCode,
+            code: errorCode,
             message: errorMessage,
+            data: null,
             timestamp: new Date().toISOString(),
             path: request.url,
             traceId: this.traceService.getTraceId(),
@@ -120,9 +122,9 @@ export class HttpExceptionFilter implements ExceptionFilter {
 
       response.status(status).json({
         success: false,
-        statusCode: status,
-        errorCode,
+        code: errorCode,
         message: errorMessage,
+        data: null,
         timestamp: new Date().toISOString(),
         path: request.url,
         traceId: this.traceService.getTraceId(),
@@ -142,12 +144,15 @@ export class HttpExceptionFilter implements ExceptionFilter {
       m: request.method,
     });
 
+    // 获取业务异常携带的额外数据
+    const errorData = exception instanceof BusinessException ? exception.getData() : null;
+
     // 返回标准错误响应
     response.status(status).json({
       success: false,
-      statusCode: status,
-      errorCode,
+      code: errorCode,
       message: errorMessage,
+      data: errorData,
       timestamp: new Date().toISOString(),
       path: request.url,
       traceId: this.traceService.getTraceId(), // 方便前端排查
@@ -167,12 +172,18 @@ export class HttpExceptionFilter implements ExceptionFilter {
   /**
    * 获取 errorCode
    *
-   * 映射规则（MVP）：
-   * 1. HttpException + 业务 code → 使用业务 code
-   * 2. HttpException（无业务 code）→ HTTP_{status}
-   * 3. 其他 Error → SYSTEM_ERROR
+   * 映射规则：
+   * 1. BusinessException → 使用预定义业务错误码
+   * 2. HttpException + 业务 code → 使用业务 code
+   * 3. HttpException（无业务 code）→ HTTP_{status}
+   * 4. 其他 Error → SYSTEM_ERROR (E9001)
    */
   private getErrorCode(exception: unknown, status: number): string {
+    // 优先处理 BusinessException
+    if (exception instanceof BusinessException) {
+      return exception.getCode();
+    }
+
     if (exception instanceof HttpException) {
       const response = exception.getResponse();
 
@@ -186,7 +197,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
     }
 
     // 其他异常统一为 SYSTEM_ERROR
-    return 'SYSTEM_ERROR';
+    return ErrorCodes.SYSTEM_INTERNAL_ERROR;
   }
 
   /**

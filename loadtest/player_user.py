@@ -1,6 +1,4 @@
-import os
 import random
-import time
 from locust import between, task
 from common import BaseHttpUser, BASE_PATH, ENV_PLAYER_NAME, OK_POST_CODES, random_text, extract_data
 
@@ -98,16 +96,10 @@ class PlayerUser(BaseHttpUser):
         if res.status_code != 200:
             self.record_failure("player_session_detail", res)
 
-    # 边缘能力（极低权重 / 可关）
+    # 边缘能力（已禁用 - 翻译功能）
     @task(0)
     def translate_message(self):
         return
 
-    # 边缘能力（极低权重 / 可关）
-    @task(1)
-    def metrics(self):
-        if os.getenv("ENABLE_EDGE_TASKS", "1") != "1":
-            return
-        res = self.client.get(f"{BASE_PATH}/metrics", name="player_metrics")
-        if res.status_code not in (200, 204):
-            self.record_failure("player_metrics", res)
+    # 注意：player 端不应调用 /metrics 接口（仅管理端可用）
+    # 已移除 player_metrics 任务

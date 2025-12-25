@@ -224,7 +224,7 @@ export class LoggerService implements NestLoggerService, OnModuleDestroy {
 
     this.archiveTimer = setTimeout(() => {
       this.runArchiveAndClean();
-      // ????????
+      // 之后每天执行一次
       this.archiveIntervalTimer = setInterval(() => {
         this.runArchiveAndClean();
       }, 24 * 3600000);

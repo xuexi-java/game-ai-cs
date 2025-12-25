@@ -1,8 +1,9 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../prisma/prisma.service';
+import { AuthException, ErrorCodes } from '../common/exceptions';
 import { LoginDto, LoginResponseDto } from './dto/login.dto';
 import { WebsocketGateway } from '../websocket/websocket.gateway';
 
@@ -21,18 +22,18 @@ export class AuthService {
     });
 
     if (!user) {
-      throw new UnauthorizedException('用户名或密码错误');
+      throw new AuthException(ErrorCodes.AUTH_INVALID_CREDENTIALS);
     }
 
     if (user.deletedAt) {
-      throw new UnauthorizedException('用户名或密码错误');
+      throw new AuthException(ErrorCodes.AUTH_INVALID_CREDENTIALS);
     }
 
     // 密码验证：只支持 BCrypt 哈希密码（生产环境标准）
     let isPasswordValid = false;
 
     if (!user.password) {
-      throw new UnauthorizedException('用户名或密码错误');
+      throw new AuthException(ErrorCodes.AUTH_INVALID_CREDENTIALS);
     }
 
     // 检查是否是 bcrypt 哈希密码
@@ -58,7 +59,7 @@ export class AuthService {
     }
 
     if (!isPasswordValid) {
-      throw new UnauthorizedException('用户名或密码错误');
+      throw new AuthException(ErrorCodes.AUTH_INVALID_CREDENTIALS);
     }
     const { password: _, ...result } = user;
     return result;
@@ -101,7 +102,7 @@ export class AuthService {
       const payload = this.jwtService.verify(token);
       return payload;
     } catch (error) {
-      throw new UnauthorizedException('Token无效或已过期');
+      throw new AuthException(ErrorCodes.AUTH_INVALID_TOKEN);
     }
   }
 
@@ -117,7 +118,7 @@ export class AuthService {
     });
 
     if (!user) {
-      throw new UnauthorizedException('用户不存在');
+      throw new AuthException(ErrorCodes.AUTH_USER_NOT_FOUND);
     }
 
     await this.prisma.user.update({

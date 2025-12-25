@@ -144,7 +144,9 @@ async function bootstrap() {
     paths: filterPaths(adminDocument.paths, (operation) => {
       const tags: string[] = operation.tags || [];
       // 保留需要鉴权的接口，或者标记为管理端认证的接口（登录/登出）
-      if (operation.security && operation.security.length > 0) return true;
+      // ?????????????auth ? tag ??? admin-auth?
+      // å»æç®¡çç«¯ç¨æ·é´æç±»æ¥å£ï¼auth ç±» tag ä»ç°å¨ admin-authï¼
+
       if (tags.includes('admin-auth') || tags.includes('auth')) return true;
       return false;
     }),
@@ -171,10 +173,16 @@ async function bootstrap() {
     paths: filterPaths(playerDocument.paths, (operation) => {
       const tags: string[] = operation.tags || [];
 
-      // åŽ»æŽ‰ç®¡ç†ç«¯ç”¨æˆ·é‰´æƒç±»æŽ¥å£ï¼ˆauth ç±» tag ä»…çŽ°åœ¨ admin-authï¼‰
-      if (tags.includes('admin-auth') || tags.includes('auth')) return false;
+      // å»æç®¡çç«¯ç¨æ·é´æç±»æ¥å£ï¼auth ç±» tag ä»ç°å¨ admin-authï¼
 
-      // ä¿ç•™æ— éœ€é‰´æƒçš„æŽ¥å£
+
+      if (tags.includes('admin-auth') || tags.includes('auth')) return false;
+      // ä¿çæ éè¦é´æçæ¥å£
+
+      // ??????????
+      // ??????????
+      // ä¿çæ éè¦é´æçæ¥å£
+
       return !operation.security || operation.security.length === 0;
     }),
   };

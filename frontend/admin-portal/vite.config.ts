@@ -14,17 +14,11 @@ export default defineConfig({
     },
   },
   build: {
-    // 生产环境移除 console
-    minify: 'terser',
-    terserOptions: {
-      compress: {
-        drop_console: true,
-        drop_debugger: true,
-      },
-    },
+    // 使用 esbuild 压缩（Vite 默认，比 terser 更快）
+    minify: 'esbuild',
   },
   esbuild: {
-    // 开发环境也移除 console（可选）
+    // 生产环境移除 console 和 debugger
     drop: ['console', 'debugger'],
   },
 })

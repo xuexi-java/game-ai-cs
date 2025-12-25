@@ -1,10 +1,7 @@
-import {
-  BadRequestException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../prisma/prisma.service';
+import { BusinessException, ErrorCodes, throwUserNotFound } from '../common/exceptions';
 import { CreateUserDto, QueryUsersDto, UpdateUserDto } from './dto/user.dto';
 
 @Injectable()
@@ -23,7 +20,7 @@ export class UserService {
     });
 
     if (existing && !existing.deletedAt) {
-      throw new BadRequestException('用户名已存在');
+      throw new BusinessException(ErrorCodes.USER_ALREADY_EXISTS);
     }
 
     const hashedPassword = await bcrypt.hash(createUserDto.password, 10);
@@ -88,7 +85,7 @@ export class UserService {
     });
 
     if (!user || user.deletedAt) {
-      throw new NotFoundException('用户不存在');
+      throwUserNotFound();
     }
 
     return this.sanitizeUser(user);
@@ -100,7 +97,7 @@ export class UserService {
     });
 
     if (!user || user.deletedAt) {
-      throw new NotFoundException('用户不存在');
+      throwUserNotFound();
     }
 
     const data: any = { ...updateUserDto };
@@ -123,7 +120,7 @@ export class UserService {
     });
 
     if (!user || user.deletedAt) {
-      throw new NotFoundException('用户不存在');
+      throwUserNotFound();
     }
 
     await this.prisma.user.update({

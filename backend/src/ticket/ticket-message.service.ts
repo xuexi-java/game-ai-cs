@@ -1,5 +1,6 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { throwTicketNotFound } from '../common/exceptions';
 
 @Injectable()
 export class TicketMessageService {
@@ -16,7 +17,7 @@ export class TicketMessageService {
     });
 
     if (!ticket) {
-      throw new NotFoundException('工单不存在');
+      throwTicketNotFound(ticketId);
     }
 
     // 获取工单的所有会话

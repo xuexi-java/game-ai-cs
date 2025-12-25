@@ -1,9 +1,6 @@
-import {
-  Injectable,
-  NotFoundException,
-  BadRequestException,
-} from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { BusinessException, ErrorCodes, throwSessionNotFound } from '../common/exceptions';
 import { CreateMessageDto } from './dto/create-message.dto';
 import { SenderType, MessageType } from '@prisma/client';
 import { TranslationService } from '../shared/translation/translation.service';
@@ -39,7 +36,7 @@ export class MessageService {
     });
 
     if (!session) {
-      throw new NotFoundException('会话不存在');
+      throwSessionNotFound(createMessageDto.sessionId);
     }
 
     // 权限检查：如果是客服发送消息，只能发送到自己处理的会话
@@ -47,13 +44,15 @@ export class MessageService {
       if (currentUser.role === 'AGENT') {
         // 客服只能发送消息到自己处理的会话
         if (session.agentId !== senderId) {
-          throw new NotFoundException(
+          throw new BusinessException(
+            ErrorCodes.SESSION_ALREADY_ASSIGNED,
             '无权发送消息：该会话已分配给其他客服，只有处理该会话的客服才能回复',
           );
         }
         // 检查会话状态，必须是IN_PROGRESS状态才能发送消息
         if (session.status !== 'IN_PROGRESS') {
-          throw new BadRequestException(
+          throw new BusinessException(
+            ErrorCodes.SESSION_INVALID_STATUS,
             '会话未接入，请先接入会话后才能发送消息',
           );
         }
@@ -131,7 +130,7 @@ export class MessageService {
     });
 
     if (!session) {
-      throw new NotFoundException('会话不存在');
+      throwSessionNotFound(sessionId);
     }
 
     return this.prisma.message.findMany({
@@ -192,7 +191,7 @@ export class MessageService {
     });
 
     if (!message) {
-      throw new NotFoundException('消息不存在');
+      throw new BusinessException(ErrorCodes.MESSAGE_NOT_FOUND);
     }
 
     // 1. 检查是否已有缓存
@@ -301,7 +300,7 @@ export class MessageService {
       // 返回更详细的错误信息
       const errorMessage =
         error instanceof Error ? error.message : '翻译失败，请稍后重试';
-      throw new BadRequestException(`翻译失败: ${errorMessage}`);
+      throw new BusinessException(ErrorCodes.SYSTEM_INTERNAL_ERROR, `翻译失败: ${errorMessage}`);
     }
   }
 

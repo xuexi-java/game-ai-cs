@@ -1,12 +1,12 @@
 {
-  "permissions": {
-    "allow": [
-      "Bash(powershell:*)",
-      "Bash(git checkout:*)",
-      "Bash(node -e:*)",
-      "Bash(npm run build:*)",
-      "Bash(node simple-test.js:*)",
-      "Bash(npx prisma migrate dev:*)"
-    ]
-  }
+    "mcpServers": {
+      "augment-context-engine": {
+        "command": "auggie.cmd",
+        "args": ["--mcp"],
+        "env": {
+          "AUGMENT_API_TOKEN": "ace_fa49182adea1f5f9fe35a12bff95f290e4576670",
+          "AUGMENT_API_URL": "https://acemcp.heroman.wtf/relay/"
+        }
+      }
+    }
 }

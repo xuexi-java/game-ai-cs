@@ -1,11 +1,6 @@
-import {
-  Injectable,
-  NotFoundException,
-  BadRequestException,
-  Inject,
-  forwardRef,
-} from '@nestjs/common';
+import { Injectable, Inject, forwardRef } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { BusinessException, ErrorCodes, throwTicketNotFound } from '../common/exceptions';
 import { WebsocketGateway } from '../websocket/websocket.gateway';
 import { TranslationService } from '../shared/translation/translation.service';
 import {
@@ -40,7 +35,7 @@ export class TicketMessageService {
     });
 
     if (!ticket) {
-      throw new NotFoundException('工单不存在');
+      throwTicketNotFound(ticketId);
     }
 
     // 创建消息
@@ -163,7 +158,7 @@ export class TicketMessageService {
     });
 
     if (!message) {
-      throw new NotFoundException('消息不存在');
+      throw new BusinessException(ErrorCodes.MESSAGE_NOT_FOUND);
     }
 
     // 1. 检查是否已有缓存
@@ -279,7 +274,7 @@ export class TicketMessageService {
       // 返回更详细的错误信息
       const errorMessage =
         error instanceof Error ? error.message : '翻译失败，请稍后重试';
-      throw new BadRequestException(`翻译失败: ${errorMessage}`);
+      throw new BusinessException(ErrorCodes.SYSTEM_INTERNAL_ERROR, `翻译失败: ${errorMessage}`);
     }
   }
 }

@@ -1,5 +1,6 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { BusinessException, ErrorCodes } from '../common/exceptions';
 import * as fs from 'fs';
 import * as path from 'path';
 import { v4 as uuidv4 } from 'uuid';
@@ -59,7 +60,8 @@ export class UploadService {
     // 验证文件类型（仅图片）
     const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
     if (!allowedTypes.includes(file.mimetype)) {
-      throw new BadRequestException(
+      throw new BusinessException(
+        ErrorCodes.FILE_TYPE_NOT_ALLOWED,
         '不支持的文件类型，仅支持 JPG、PNG、GIF、WEBP',
       );
     }
@@ -67,7 +69,7 @@ export class UploadService {
     // 验证文件大小（5MB）
     const maxSize = 5 * 1024 * 1024; // 5MB
     if (file.size > maxSize) {
-      throw new BadRequestException('文件大小超过限制（5MB）');
+      throw new BusinessException(ErrorCodes.FILE_SIZE_EXCEEDED, '文件大小超过限制（5MB）');
     }
 
     // 生成唯一文件名
@@ -98,7 +100,8 @@ export class UploadService {
     // 验证文件类型
     const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
     if (!allowedTypes.includes(file.mimetype)) {
-      throw new BadRequestException(
+      throw new BusinessException(
+        ErrorCodes.FILE_TYPE_NOT_ALLOWED,
         '不支持的文件类型，仅支持 JPG、PNG、GIF、WEBP',
       );
     }
@@ -106,7 +109,7 @@ export class UploadService {
     // 验证文件大小（10MB）
     const maxSize = this.configService.get<number>('MAX_FILE_SIZE') || 10485760;
     if (file.size > maxSize) {
-      throw new BadRequestException('文件大小超过限制（10MB）');
+      throw new BusinessException(ErrorCodes.FILE_SIZE_EXCEEDED, '文件大小超过限制（10MB）');
     }
 
     // 生成唯一文件名

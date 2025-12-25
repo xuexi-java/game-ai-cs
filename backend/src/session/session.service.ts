@@ -1,4 +1,4 @@
-import {
+﻿import {
   Injectable,
   NotFoundException,
   BadRequestException,
@@ -77,6 +77,57 @@ export class SessionService {
   private enrichSessions(sessions: any[]) {
     return sessions.map((session) => this.enrichSession(session));
   }
+  /**
+   * Async AI response trigger (non-blocking)
+   * Uses setImmediate to ensure session creation returns immediately
+   */
+  private triggerAIResponseAsync(
+    sessionId: string,
+    ticket: { description: string; game: { difyApiKey: string; difyBaseUrl: string } },
+  ): void {
+    setImmediate(async () => {
+      try {
+        const difyResponse = await this.difyService.triage(
+          ticket.description,
+          ticket.game.difyApiKey,
+          ticket.game.difyBaseUrl,
+        );
+
+        await this.prisma.session.update({
+          where: { id: sessionId },
+          data: {
+            detectedIntent: difyResponse.detectedIntent,
+            aiUrgency: difyResponse.urgency === 'urgent' ? 'URGENT' : 'NON_URGENT',
+            difyStatus: difyResponse.status ? String(difyResponse.status) : null,
+          },
+        });
+
+        const aiMessage = await this.messageService.createAIMessage(
+          sessionId,
+          difyResponse.text || 'Hello, I am analyzing your issue...',
+          { suggestedOptions: difyResponse.suggestedOptions },
+        );
+        this.websocketGateway.notifyMessage(sessionId, aiMessage);
+      } catch (error) {
+        this.logger.error(
+          `AI response failed for session ${sessionId}`,
+          error instanceof Error ? error.stack : String(error),
+        );
+        try {
+          const fallback = await this.messageService.createAIMessage(
+            sessionId,
+            'Thank you for your feedback. We are processing your request...',
+          );
+          this.websocketGateway.notifyMessage(sessionId, fallback);
+        } catch (fallbackError) {
+          this.logger.error(
+            `Fallback message failed for session ${sessionId}`,
+            fallbackError instanceof Error ? fallbackError.stack : String(fallbackError),
+          );
+        }
+      }
+    });
+  }
 
   // 鍒涘缓浼氳瘽锛堟楠?锛欰I寮曞锛?
   async create(createSessionDto: CreateSessionDto) {
@@ -117,52 +168,23 @@ export class SessionService {
       },
     });
 
-    // 璋冪敤Dify AI鑾峰彇鍒濆鍥炲
-    try {
-      const difyResponse = await this.difyService.triage(
-        ticket.description,
-        ticket.game.difyApiKey,
-        ticket.game.difyBaseUrl,
-      );
+    // Trigger AI response asynchronously (non-blocking)
+    this.triggerAIResponseAsync(session.id, ticket);
 
-      await this.prisma.session.update({
-        where: { id: session.id },
-        data: {
-          detectedIntent: difyResponse.detectedIntent,
-          aiUrgency:
-            difyResponse.urgency === 'urgent' ? 'URGENT' : 'NON_URGENT',
-          difyStatus: difyResponse.status ? String(difyResponse.status) : null,
-        },
-      });
+    // Return session immediately without waiting for AI
+    const finalSession = this.enrichSession(session);
 
-      const aiMessage = await this.messageService.createAIMessage(
-        session.id,
-        difyResponse.text || '鎮ㄥソ锛屾垜姝ｅ湪涓烘偍鍒嗘瀽闂...',
-        { suggestedOptions: difyResponse.suggestedOptions },
-      );
-      this.websocketGateway.notifyMessage(session.id, aiMessage);
-    } catch (error) {
-      console.error('Dify AI璋冪敤澶辫触:', error);
-      // 鍒涘缓榛樿鍥炲
-      const fallback = await this.messageService.createAIMessage(
-        session.id,
-        '鎮ㄥソ锛屾劅璋㈡偍鐨勫弽棣堛€傛垜浠鍦ㄤ负鎮ㄥ鐞嗭紝璇风◢鍊?..',
-      );
-      this.websocketGateway.notifyMessage(session.id, fallback);
-    }
-
-    const finalSession = await this.findOne(session.id);
-
-    // 关键业务日志：会话创建
+    // Business log: session created
     this.logger.logBusiness({
       action: 'session_created',
       sessionId: session.id,
       ticketId: createSessionDto.ticketId,
-      status: finalSession.status,
+      status: session.status,
     });
 
     return finalSession;
   }
+
 
   // 鐜╁鍙戦€佹秷鎭紝鑷姩涓?Dify 浜や簰
   async handlePlayerMessage(
@@ -1320,6 +1342,9 @@ export class SessionService {
 
     // 3. 创建系统消息告知玩家
     const ticket = await this.ticketService.findOne(session.ticketId);
+    if (!ticket) {
+      throw new NotFoundException('工单不存在');
+    }
     await this.messageService.createSystemMessage(
       sessionId,
       `当前暂无客服在线，您的问题已转为【加急工单】(${ticket.ticketNo})，我们将优先处理。您可以通过工单号查看处理进度。`,

@@ -1,11 +1,6 @@
-import {
-  Injectable,
-  NotFoundException,
-  BadRequestException,
-  Inject,
-  forwardRef,
-} from '@nestjs/common';
+import { Injectable, Inject, forwardRef } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { BusinessException, ErrorCodes, throwSessionNotFound } from '../common/exceptions';
 import { CreateRatingDto } from './dto/create-rating.dto';
 import { TicketService } from '../ticket/ticket.service';
 
@@ -26,11 +21,11 @@ export class SatisfactionService {
     });
 
     if (!session) {
-      throw new NotFoundException('会话不存在');
+      throwSessionNotFound(createRatingDto.sessionId);
     }
 
     if (session.status !== 'CLOSED') {
-      throw new BadRequestException('会话尚未结束，无法评价');
+      throw new BusinessException(ErrorCodes.SESSION_INVALID_STATUS, '会话尚未结束，无法评价');
     }
 
     // 检查是否已评价
@@ -39,7 +34,7 @@ export class SatisfactionService {
     });
 
     if (existingRating) {
-      throw new BadRequestException('该会话已评价');
+      throw new BusinessException(ErrorCodes.SYSTEM_VALIDATION_ERROR, '该会话已评价');
     }
 
     const rating = await this.prisma.satisfactionRating.create({

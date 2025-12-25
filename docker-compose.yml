@@ -15,7 +15,7 @@ services:
     environment:
       POSTGRES_DB: game_ai_cs
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_PASSWORD: ZtotRPmxUXMXd1KLpEnY170vFlKWZefX
     ports:
       - "22101:5432"
     volumes:
@@ -69,7 +69,7 @@ services:
       - LOG_BATCH_SIZE=${LOG_BATCH_SIZE:-200}
       - LOG_BATCH_INTERVAL=${LOG_BATCH_INTERVAL:-300}
       - LOG_MAX_QUEUE_SIZE=${LOG_MAX_QUEUE_SIZE:-20000}
-      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/game_ai_cs?schema=public
+      - DATABASE_URL=postgresql://postgres:ZtotRPmxUXMXd1KLpEnY170vFlKWZefX@postgres:5432/game_ai_cs?schema=public
       # 数据库连接池配置
       - DB_CONNECTION_LIMIT=${DB_CONNECTION_LIMIT:-50}
       - DB_POOL_TIMEOUT=${DB_POOL_TIMEOUT:-20}

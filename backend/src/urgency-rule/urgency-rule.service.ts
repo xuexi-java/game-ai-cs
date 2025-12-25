@@ -1,6 +1,7 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
+import { BusinessException, ErrorCodes } from '../common/exceptions';
 import {
   CreateUrgencyRuleDto,
   UpdateUrgencyRuleDto,
@@ -54,7 +55,7 @@ export class UrgencyRuleService {
     });
 
     if (!rule) {
-      throw new NotFoundException('规则不存在');
+      throw new BusinessException(ErrorCodes.SYSTEM_VALIDATION_ERROR, '规则不存在');
     }
 
     return rule;

@@ -1,10 +1,6 @@
-import {
-  Injectable,
-  NotFoundException,
-  Inject,
-  forwardRef,
-} from '@nestjs/common';
+import { Injectable, Inject, forwardRef } from '@nestjs/common';
 import { AppLogger } from '../common/logger/app-logger.service';
+import { throwTicketNotFound } from '../common/exceptions';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateTicketDto, TicketResponseDto } from './dto/create-ticket.dto';
 import { TicketPriorityService } from './ticket-priority.service';
@@ -551,7 +547,7 @@ export class TicketService {
     });
 
     if (!ticket || ticket.deletedAt) {
-      throw new NotFoundException('工单不存在');
+      throwTicketNotFound();
     }
 
     return ticket;
@@ -588,7 +584,7 @@ export class TicketService {
     });
 
     if (!ticket) {
-      throw new NotFoundException('工单不存在');
+      throwTicketNotFound(id);
     }
 
     return ticket;
@@ -691,7 +687,7 @@ export class TicketService {
     });
 
     if (!ticket) {
-      throw new NotFoundException('工单不存在');
+      throwTicketNotFound();
     }
 
     return ticket;
@@ -1074,7 +1070,7 @@ export class TicketService {
     });
 
     if (!ticket) {
-      throw new NotFoundException('工单不存在');
+      throwTicketNotFound(ticketId);
     }
 
     if (ticket.status === 'RESOLVED') {
