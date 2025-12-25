@@ -69,6 +69,9 @@ class WebSocketService {
   private socket: Socket | null = null;
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 5;
+  private rateLimitUntil = 0;
+  private rateLimitTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly rateLimitCooldownMs = 3000;
 
   private handleAgentStatusPayload(payload: {
     agentId: string;
@@ -112,6 +115,11 @@ class WebSocketService {
       this.socket.disconnect();
       this.socket = null;
     }
+    if (this.rateLimitTimer) {
+      clearTimeout(this.rateLimitTimer);
+      this.rateLimitTimer = null;
+    }
+    this.rateLimitUntil = 0;
   }
 
   private setupEventListeners() {
@@ -141,6 +149,14 @@ class WebSocketService {
       if (this.reconnectAttempts >= this.maxReconnectAttempts) {
         message.error('无法连接到服务器，请检查网络连接');
       }
+    });
+
+    this.socket.on('error', (error) => {
+      if (error?.code === 429001) {
+        this.triggerRateLimit();
+        return;
+      }
+      console.error('WebSocket错误:', error);
     });
 
     // 新会话通知
@@ -258,6 +274,10 @@ class WebSocketService {
   // 客服发送消息
   sendAgentMessage(sessionId: string, content: string, messageType: 'TEXT' | 'IMAGE' = 'TEXT'): Promise<{ success: boolean; messageId?: string; error?: string }> {
     return new Promise((resolve) => {
+      if (this.isRateLimited()) {
+        resolve({ success: false, error: '发送过快，请稍后再试' });
+        return;
+      }
       if (!this.socket?.connected) {
         resolve({ success: false, error: '连接已断开' });
         return;
@@ -266,6 +286,11 @@ class WebSocketService {
       this.socket.emit('agent:send-message', 
         { sessionId, content, messageType },
         (response: { success: boolean; messageId?: string; error?: string }) => {
+          if (response?.error === 'rate_limited') {
+            this.triggerRateLimit();
+            resolve({ success: false, error: '发送过快，请稍后再试' });
+            return;
+          }
           resolve(response);
         }
       );
@@ -309,6 +334,22 @@ class WebSocketService {
   // 获取连接状态
   isConnected(): boolean {
     return this.socket?.connected || false;
+  }
+
+  private isRateLimited(): boolean {
+    return Date.now() < this.rateLimitUntil;
+  }
+
+  private triggerRateLimit() {
+    this.rateLimitUntil = Date.now() + this.rateLimitCooldownMs;
+    if (this.rateLimitTimer) {
+      clearTimeout(this.rateLimitTimer);
+    }
+    this.rateLimitTimer = setTimeout(() => {
+      this.rateLimitUntil = 0;
+      this.rateLimitTimer = null;
+    }, this.rateLimitCooldownMs);
+    message.warning('发送过快，请稍后再试');
   }
 }
 

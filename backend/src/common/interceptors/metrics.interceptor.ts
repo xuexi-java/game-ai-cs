@@ -70,10 +70,7 @@ export class MetricsInterceptor implements NestInterceptor {
     );
   }
 
-  private getRouteFromContext(
-    context: ExecutionContext,
-    request: any,
-  ): string {
+  private getRouteFromContext(context: ExecutionContext, request: any): string {
     // 1. 优先使用 request.route.path
     if (request.route?.path) {
       return request.route.path;

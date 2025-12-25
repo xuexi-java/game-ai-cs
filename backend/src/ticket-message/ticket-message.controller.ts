@@ -62,12 +62,18 @@ export class TicketMessageController {
     schema: {
       type: 'object',
       properties: {
-        targetLang: { type: 'string', description: '目标语言，如：zh, en, th等' },
+        targetLang: {
+          type: 'string',
+          description: '目标语言，如：zh, en, th等',
+        },
       },
     },
   })
   @ApiResponse({ status: 200, description: '返回翻译后的消息' })
-  translate(@Param('messageId') messageId: string, @Body('targetLang') targetLang?: string) {
+  translate(
+    @Param('messageId') messageId: string,
+    @Body('targetLang') targetLang?: string,
+  ) {
     return this.ticketMessageService.translateMessage(messageId, targetLang);
   }
 }

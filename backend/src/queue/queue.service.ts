@@ -1,7 +1,10 @@
 import { Injectable, Inject } from '@nestjs/common';
 import Redis from 'ioredis';
 import { PrismaService } from '../prisma/prisma.service';
-import { queueLengthGauge, redisConnectionErrorsCounter } from '../metrics/queue.metrics';
+import {
+  queueLengthGauge,
+  redisConnectionErrorsCounter,
+} from '../metrics/queue.metrics';
 import { AppLogger } from '../common/logger/app-logger.service';
 
 /**
@@ -25,19 +28,25 @@ export class QueueService {
    * 分类 Redis 错误类型并记录指标
    */
   private recordRedisError(error: unknown): void {
-    const errorMsg = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
-    
+    const errorMsg =
+      error instanceof Error
+        ? error.message.toLowerCase()
+        : String(error).toLowerCase();
+
     let errorType: string;
     if (errorMsg.includes('timeout')) {
       errorType = 'timeout';
-    } else if (errorMsg.includes('econnrefused') || errorMsg.includes('connection')) {
+    } else if (
+      errorMsg.includes('econnrefused') ||
+      errorMsg.includes('connection')
+    ) {
       errorType = 'connection_refused';
     } else if (errorMsg.includes('maxretriesperrequest')) {
       errorType = 'max_retries';
     } else {
       errorType = 'other';
     }
-    
+
     redisConnectionErrorsCounter.inc({ error_type: errorType });
   }
 
@@ -53,13 +62,13 @@ export class QueueService {
     // 使用 10^10 作为倍数，确保优先级优先
     // 使用 10^13 - timestamp 是为了让时间早的排在前面（分数更高）
     const maxTimestamp = 9999999999999; // 约等于 2286年的毫秒时间戳
-    
+
     // 确保 priorityScore 非负（负数会导致排序错误）
     const safePriorityScore = Math.max(0, priorityScore || 0);
-    
+
     // 确保 timestamp 在合理范围内
     const safeTimestamp = Math.max(0, Math.min(timestamp, maxTimestamp));
-    
+
     return safePriorityScore * 10000000000 + (maxTimestamp - safeTimestamp);
   }
 
@@ -74,9 +83,7 @@ export class QueueService {
     try {
       const score = this.calculateScore(priorityScore, queuedAt);
       await this.redis.zadd(this.UNASSIGNED_QUEUE_KEY, score, sessionId);
-      this.logger.debug(
-        `添加会话 ${sessionId} 到未分配队列，分数: ${score}`,
-      );
+      this.logger.debug(`添加会话 ${sessionId} 到未分配队列，分数: ${score}`);
     } catch (error: unknown) {
       this.recordRedisError(error);
       const errorMsg = error instanceof Error ? error.message : String(error);
@@ -114,7 +121,10 @@ export class QueueService {
   /**
    * 从队列中移除会话
    */
-  async removeFromQueue(sessionId: string, agentId?: string | null): Promise<void> {
+  async removeFromQueue(
+    sessionId: string,
+    agentId?: string | null,
+  ): Promise<void> {
     try {
       // 从未分配队列移除
       await this.redis.zrem(this.UNASSIGNED_QUEUE_KEY, sessionId);
@@ -168,13 +178,17 @@ export class QueueService {
         await this.redis.zrem(this.UNASSIGNED_QUEUE_KEY, sessionId);
       } catch (error) {
         // 忽略移除失败，继续执行
-        this.logger.warn(`从未分配队列移除会话失败（可能本来就不在队列中）: ${error.message}`);
+        this.logger.warn(
+          `从未分配队列移除会话失败（可能本来就不在队列中）: ${error.message}`,
+        );
       }
 
       // 添加到客服队列
       await this.addToAgentQueue(sessionId, agentId, priorityScore, queuedAt);
 
-      this.logger.debug(`将会话 ${sessionId} 从未分配队列移动到客服 ${agentId} 的队列`);
+      this.logger.debug(
+        `将会话 ${sessionId} 从未分配队列移动到客服 ${agentId} 的队列`,
+      );
     } catch (error: unknown) {
       this.recordRedisError(error);
       const errorMsg = error instanceof Error ? error.message : String(error);
@@ -188,7 +202,10 @@ export class QueueService {
    * 获取会话在队列中的位置（排名，从1开始）
    * 位置1表示第一个被处理的会话（分数最高的）
    */
-  async getQueuePosition(sessionId: string, agentId?: string | null): Promise<number | null> {
+  async getQueuePosition(
+    sessionId: string,
+    agentId?: string | null,
+  ): Promise<number | null> {
     try {
       let queueKey: string;
       if (agentId) {
@@ -216,7 +233,10 @@ export class QueueService {
   /**
    * 获取队列中的所有会话ID（按优先级和时间排序）
    */
-  async getQueueSessionIds(agentId?: string | null, limit?: number): Promise<string[]> {
+  async getQueueSessionIds(
+    agentId?: string | null,
+    limit?: number,
+  ): Promise<string[]> {
     try {
       let queueKey: string;
       if (agentId) {
@@ -257,7 +277,7 @@ export class QueueService {
 
       return await this.redis.zcard(queueKey);
       const length = await this.redis.zcard(queueKey);
-      queueLengthGauge.set({ queue_type: queueType }, length);      
+      queueLengthGauge.set({ queue_type: queueType }, length);
       return length;
     } catch (error) {
       this.recordRedisError(error);
@@ -275,7 +295,7 @@ export class QueueService {
       if (this.redis.status !== 'ready') {
         return false;
       }
-      
+
       // 使用带超时的 ping，快速检测 Redis 是否可用
       const result = await Promise.race([
         this.redis.ping(),
@@ -306,7 +326,9 @@ export class QueueService {
       this.recordRedisError(error);
       // 只在首次检查时记录警告
       if (!this._redisUnavailableLogged) {
-        this.logger.warn(`Redis 不可用: ${error instanceof Error ? error.message : String(error)}`);
+        this.logger.warn(
+          `Redis 不可用: ${error instanceof Error ? error.message : String(error)}`,
+        );
         this._redisUnavailableLogged = true;
       }
       return false;
@@ -475,7 +497,10 @@ export class QueueService {
 
       // 更新每个会话的排队位置
       for (const session of queuedSessions) {
-        const queuePosition = await this.getQueuePosition(session.id, session.agentId);
+        const queuePosition = await this.getQueuePosition(
+          session.id,
+          session.agentId,
+        );
         if (queuePosition !== null) {
           await this.prisma.session.update({
             where: { id: session.id },
@@ -484,7 +509,9 @@ export class QueueService {
         }
       }
 
-      this.logger.debug(`同步队列数据到数据库完成，更新了 ${queuedSessions.length} 个会话`);
+      this.logger.debug(
+        `同步队列数据到数据库完成，更新了 ${queuedSessions.length} 个会话`,
+      );
     } catch (error: any) {
       // 检查是否是表不存在的错误
       if (
@@ -534,7 +561,7 @@ export class QueueService {
         return true; // 成功
       } catch (error: unknown) {
         lastError = error instanceof Error ? error : new Error(String(error));
-        
+
         // 如果是连接错误，快速失败，不重试
         const errorMsg = lastError.message.toLowerCase();
         if (
@@ -601,7 +628,7 @@ export class QueueService {
         return true; // 成功
       } catch (error: unknown) {
         lastError = error instanceof Error ? error : new Error(String(error));
-        
+
         // 如果是连接错误，快速失败，不重试
         const errorMsg = lastError.message.toLowerCase();
         if (
@@ -663,7 +690,7 @@ export class QueueService {
         return true; // 成功
       } catch (error: unknown) {
         lastError = error instanceof Error ? error : new Error(String(error));
-        
+
         // 如果是连接错误，快速失败
         const errorMsg = lastError.message.toLowerCase();
         if (
@@ -726,11 +753,16 @@ export class QueueService {
 
     for (let i = 0; i < maxRetries; i++) {
       try {
-        await this.moveToAgentQueue(sessionId, agentId, priorityScore, queuedAt);
+        await this.moveToAgentQueue(
+          sessionId,
+          agentId,
+          priorityScore,
+          queuedAt,
+        );
         return true; // 成功
       } catch (error: unknown) {
         lastError = error instanceof Error ? error : new Error(String(error));
-        
+
         // 如果是连接错误，快速失败，不重试
         const errorMsg = lastError.message.toLowerCase();
         if (
@@ -764,4 +796,3 @@ export class QueueService {
     return false; // 返回失败，但不抛出异常，允许系统继续运行
   }
 }
-

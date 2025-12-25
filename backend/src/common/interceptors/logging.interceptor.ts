@@ -18,7 +18,7 @@ import {
 /**
  * HTTP 请求日志拦截器
  * 优化版本 - 每个请求只记录 1 条日志
- * 
+ *
  * 职责：
  * 1. 在最外层调用 traceService.run() 生成 traceId
  * 2. 只在响应时记录日志（合并 request + response 信息）
@@ -26,7 +26,7 @@ import {
  * 4. 提取 userId 和 caller 类型
  * 5. 记录 handler（Controller.method）
  * 6. 慢日志分级与限流（符合《AI 日志修改宪法》）
- * 
+ *
  * 优化点：
  * - 日志量减半（1 条 vs 2 条）
  * - 删除 userAgent（节省 60% 空间）
@@ -40,20 +40,30 @@ export class LoggingInterceptor implements NestInterceptor {
   // 限流缓存：记录每个路径最后一次 WARN 日志的时间戳
   private readonly warnLogCache = new Map<string, number>();
   private readonly WARN_LOG_INTERVAL = 60000; // 60 秒
+  private readonly ignorePathPrefixes: string[];
 
   constructor(
     private readonly traceService: TraceService,
     private readonly logger: AppLogger,
   ) {
     this.logger.setContext('HTTP');
+
+    this.ignorePathPrefixes = (
+      process.env.LOG_IGNORE_PATHS || '/api/v1/metrics'
+    )
+      .split(',')
+      .map((path) => path.trim())
+      .filter(Boolean);
   }
 
   intercept(context: ExecutionContext, next: CallHandler): Observable<any> {
     const request = context.switchToHttp().getRequest<Request>();
     const response = context.switchToHttp().getResponse<Response>();
 
-    // 跳过 metrics 端点
-    if (request.url === '/api/v1/metrics') {
+    // Skip noisy endpoints (configurable).
+    const requestPath = request.url.split('?')[0];
+
+    if (this.shouldIgnorePath(requestPath)) {
       return next.handle();
     }
 
@@ -116,6 +126,18 @@ export class LoggingInterceptor implements NestInterceptor {
     }
   }
 
+  // Path filter from LOG_IGNORE_PATHS.
+  private shouldIgnorePath(path: string): boolean {
+    if (this.ignorePathPrefixes.length === 0) return false;
+    return this.ignorePathPrefixes.some((prefix) => {
+      if (prefix.endsWith('*')) {
+        const base = prefix.slice(0, -1);
+        return path.startsWith(base);
+      }
+      return path === prefix || path.startsWith(prefix);
+    });
+  }
+
   /**
    * 记录响应日志（合并 request + response 信息）
    * 优化：
@@ -136,7 +158,10 @@ export class LoggingInterceptor implements NestInterceptor {
     const statusCode = response.statusCode;
 
     // 动态采样：成功且快速的请求按采样率记录
-    if (status === RequestStatus.SUCCESS && costMs < SLOW_REQUEST_THRESHOLDS.DEBUG) {
+    if (
+      status === RequestStatus.SUCCESS &&
+      costMs < SLOW_REQUEST_THRESHOLDS.DEBUG
+    ) {
       // 检查是否完全禁用成功请求日志
       const logSuccessRequests = process.env.LOG_SUCCESS_REQUESTS !== 'false';
       if (!logSuccessRequests) {

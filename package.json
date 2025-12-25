@@ -7,6 +7,7 @@
     "db:generate": "cd backend && prisma generate",
     "db:migrate": "cd backend && prisma migrate dev",
     "db:migrate:deploy": "cd backend && prisma migrate deploy",
+    "db:migrate:verify": "cd backend && node scripts/verify-migration.js",
     "db:studio": "cd backend && prisma studio",
     "db:seed": "cd backend && ts-node prisma/seed.ts",
     "db:reset": "cd backend && prisma migrate reset",

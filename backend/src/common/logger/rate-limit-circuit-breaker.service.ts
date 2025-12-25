@@ -3,7 +3,7 @@ import Redis from 'ioredis';
 
 /**
  * 429 错误熔断器
- * 
+ *
  * 职责：
  * 1. 监测连续的 429 错误
  * 2. 达到阈值后触发熔断（记录到 Redis）
@@ -26,9 +26,15 @@ export class RateLimitCircuitBreakerService {
   private memoryCircuitOpenTime = 0;
 
   constructor() {
-    this.threshold = parseInt(process.env.RATE_LIMIT_CIRCUIT_BREAKER_THRESHOLD || '5');
-    this.windowMs = parseInt(process.env.RATE_LIMIT_CIRCUIT_BREAKER_WINDOW || '60000');
-    this.cooldownMs = parseInt(process.env.RATE_LIMIT_CIRCUIT_BREAKER_COOLDOWN || '300000');
+    this.threshold = parseInt(
+      process.env.RATE_LIMIT_CIRCUIT_BREAKER_THRESHOLD || '5',
+    );
+    this.windowMs = parseInt(
+      process.env.RATE_LIMIT_CIRCUIT_BREAKER_WINDOW || '60000',
+    );
+    this.cooldownMs = parseInt(
+      process.env.RATE_LIMIT_CIRCUIT_BREAKER_COOLDOWN || '300000',
+    );
 
     this.initRedis();
   }
@@ -37,7 +43,8 @@ export class RateLimitCircuitBreakerService {
     try {
       const redisHost = process.env.REDIS_HOST || 'localhost';
       const redisPort = parseInt(process.env.REDIS_PORT || '6379');
-      const redisUrl = process.env.REDIS_URL || `redis://${redisHost}:${redisPort}`;
+      const redisUrl =
+        process.env.REDIS_URL || `redis://${redisHost}:${redisPort}`;
       this.redis = new Redis(redisUrl, {
         maxRetriesPerRequest: 3,
         enableReadyCheck: true,
@@ -72,10 +79,10 @@ export class RateLimitCircuitBreakerService {
   private async record429ErrorRedis(): Promise<void> {
     try {
       const now = Date.now();
-      
+
       // 使用 Redis 计数器（带过期时间）
       const count = await this.redis!.incr(this.counterKey);
-      
+
       if (count === 1) {
         // 第一次计数，设置过期时间
         await this.redis!.pexpire(this.counterKey, this.windowMs);
@@ -84,8 +91,15 @@ export class RateLimitCircuitBreakerService {
       // 检查是否达到阈值
       if (count >= this.threshold) {
         // 触发熔断
-        await this.redis!.set(this.redisKey, now.toString(), 'PX', this.cooldownMs);
-        console.warn(`[CircuitBreaker] Rate limit circuit opened (${count} errors in ${this.windowMs}ms)`);
+        await this.redis!.set(
+          this.redisKey,
+          now.toString(),
+          'PX',
+          this.cooldownMs,
+        );
+        console.warn(
+          `[CircuitBreaker] Rate limit circuit opened (${count} errors in ${this.windowMs}ms)`,
+        );
       }
     } catch (error) {
       console.error('[CircuitBreaker] Record failed:', error);
@@ -109,13 +123,15 @@ export class RateLimitCircuitBreakerService {
     if (this.memoryCounter >= this.threshold) {
       this.memoryCircuitOpen = true;
       this.memoryCircuitOpenTime = now;
-      console.warn(`[CircuitBreaker] Rate limit circuit opened (memory fallback, ${this.memoryCounter} errors)`);
+      console.warn(
+        `[CircuitBreaker] Rate limit circuit opened (memory fallback, ${this.memoryCounter} errors)`,
+      );
     }
   }
 
   /**
    * 检查熔断器是否打开
-   * 
+   *
    * @returns true 表示熔断中（应静默日志），false 表示正常
    */
   async isCircuitOpen(): Promise<boolean> {
@@ -144,7 +160,9 @@ export class RateLimitCircuitBreakerService {
       // 冷却期结束，删除熔断标记
       await this.redis!.del(this.redisKey);
       await this.redis!.del(this.counterKey);
-      console.log('[CircuitBreaker] Rate limit circuit closed (cooldown expired)');
+      console.log(
+        '[CircuitBreaker] Rate limit circuit closed (cooldown expired)',
+      );
       return false;
     } catch (error) {
       console.error('[CircuitBreaker] Check failed:', error);

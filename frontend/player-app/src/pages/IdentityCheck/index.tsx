@@ -282,7 +282,6 @@ const IdentityCheckPage = () => {
         
         if (returnedSessionId) {
           // 后端已返回会话ID，直接跳转到排队页面
-          console.log('使用后端返回的会话ID，跳转到排队页面:', returnedSessionId);
           navigate(`/queue/${returnedSessionId}`);
         } else {
           // 如果后端没有返回会话ID，等待后查询
@@ -307,7 +306,6 @@ const IdentityCheckPage = () => {
           
           if (session) {
             // 后端已创建会话，跳转到排队页面
-            console.log('找到会话，跳转到排队页面:', session.id);
             navigate(`/queue/${session.id}`);
           } else {
             // 如果查询不到会话，尝试创建会话

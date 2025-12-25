@@ -22,11 +22,7 @@ import { ScheduleModule } from '@nestjs/schedule';
     ScheduleModule.forRoot(),
   ],
   controllers: [TicketController],
-  providers: [
-    TicketService,
-    TicketPriorityService,
-    TicketSchedulerService,
-  ],
+  providers: [TicketService, TicketPriorityService, TicketSchedulerService],
   exports: [TicketService],
 })
 export class TicketModule {}

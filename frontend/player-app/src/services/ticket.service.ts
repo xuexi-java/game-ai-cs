@@ -179,3 +179,19 @@ export const translateTicketMessage = async (
   return apiClient.post(`/ticket-messages/${messageId}/translate`, { targetLang });
 };
 
+/**
+ * 更新工单状态
+ */
+export interface UpdateTicketStatusRequest {
+  status: 'WAITING' | 'IN_PROGRESS' | 'RESOLVED';
+  closedBy?: string;
+}
+
+export const updateTicketStatus = async (
+  ticketId: string,
+  status: 'WAITING' | 'IN_PROGRESS' | 'RESOLVED',
+  closedBy?: string
+): Promise<TicketDetail> => {
+  return apiClient.patch(`/tickets/${ticketId}/status`, { status, closedBy });
+};
+

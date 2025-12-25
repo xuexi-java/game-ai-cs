@@ -44,12 +44,15 @@ const ChatPage = () => {
   // 移除转人工弹窗相关状态
   const [wsConnected, setWsConnected] = useState(false);
   const [aiTyping, setAiTyping] = useState(false);
+  const [wsRateLimited, setWsRateLimited] = useState(false);
   const { session, messages, setSession, addMessage, updateMessage, updateSession } =
     useSessionStore();
   const messageApi = useMessage();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const socketRef = useRef<any>(null);
   const previewUrlsRef = useRef<Set<string>>(new Set());
+  const wsRateLimitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const wsRateLimitedRef = useRef(false);
 
   // 翻译语言设置 - 记住用户选择的目标语言
   const [preferredTranslationLang, setPreferredTranslationLang] = useState<string>('en'); // 默认英语
@@ -61,12 +64,6 @@ const ChatPage = () => {
     const loadSession = async () => {
       try {
         const sessionData = await getSession(sessionId);
-        console.log('[玩家端] 加载会话成功:', {
-          sessionId: sessionData.id,
-          status: sessionData.status,
-          messageCount: sessionData.messages?.length || 0,
-          messages: sessionData.messages
-        });
         // 确保消息按时间排序
         if (sessionData.messages && Array.isArray(sessionData.messages)) {
           sessionData.messages = sessionData.messages.sort(
@@ -74,7 +71,6 @@ const ChatPage = () => {
           );
         }
         setSession(sessionData);
-        console.log('[玩家端] setSession 完成，messages数量:', sessionData.messages?.length || 0);
         // setSession 已经会设置 messages，不需要重复添加
       } catch (error) {
         console.error('加载会话失败:', error);
@@ -132,7 +128,6 @@ const ChatPage = () => {
     socketRef.current = socket;
 
     socket.on('connect', () => {
-      console.log('WebSocket 连接成功');
       setWsConnected(true);
       socket.emit('join-session', { sessionId });
 
@@ -160,7 +155,6 @@ const ChatPage = () => {
     });
 
     socket.on('disconnect', (reason) => {
-      console.log('WebSocket 断开连接:', reason);
       setWsConnected(false);
     });
 
@@ -175,12 +169,6 @@ const ChatPage = () => {
     });
 
     socket.on('session-update', (sessionData) => {
-      console.log('[玩家端] 会话更新:', {
-        sessionId: sessionData.id,
-        status: sessionData.status,
-        messageCount: sessionData.messages?.length || 0,
-        hasMessages: !!sessionData.messages
-      });
       updateSession(sessionData);
       // 当客服接入时，停止AI对话，切换到人工客服模式
       if (sessionData.status === 'IN_PROGRESS' && sessionData.agentId) {
@@ -203,7 +191,6 @@ const ChatPage = () => {
 
     // 监听工单状态更新
     socket.on('ticket-update', (ticketData: any) => {
-      console.log('工单更新:', ticketData);
       // 重新加载会话以获取最新状态
       if (sessionId) {
         getSession(sessionId).then((updatedSession) => {
@@ -215,11 +202,17 @@ const ChatPage = () => {
     });
 
     socket.on('error', (error) => {
+      if (error?.code === 429001) {
+        if (!wsRateLimitedRef.current) {
+          messageApi.warning('发送过快，请稍后再试');
+        }
+        triggerWsRateLimit();
+        return;
+      }
       console.error('WebSocket 错误:', error);
     });
 
     return () => {
-      console.log('清理 WebSocket 连接');
       // 移除所有事件监听器
       socket.removeAllListeners();
       // 断开连接
@@ -230,9 +223,34 @@ const ChatPage = () => {
     };
   }, [sessionId, addMessage, updateSession, navigate]);
 
+  useEffect(() => {
+    return () => {
+      if (wsRateLimitTimerRef.current) {
+        clearTimeout(wsRateLimitTimerRef.current);
+        wsRateLimitTimerRef.current = null;
+      }
+    };
+  }, []);
+
+  const triggerWsRateLimit = (cooldownMs = 3000) => {
+    if (wsRateLimitTimerRef.current) {
+      clearTimeout(wsRateLimitTimerRef.current);
+    }
+    wsRateLimitedRef.current = true;
+    setWsRateLimited(true);
+    wsRateLimitTimerRef.current = setTimeout(() => {
+      wsRateLimitedRef.current = false;
+      setWsRateLimited(false);
+      wsRateLimitTimerRef.current = null;
+    }, cooldownMs);
+  };
 
   const handleSend = async () => {
     if (!inputValue.trim() || !sessionId) return;
+    if (wsRateLimitedRef.current) {
+      messageApi.warning('发送过快，请稍后再试');
+      return;
+    }
 
     const content = inputValue.trim();
     setInputValue('');
@@ -604,12 +622,6 @@ const ChatPage = () => {
     // 使用工单已有的问题类型，如果没有则使用默认值
     const issueTypeId = session?.ticket?.issueTypes?.[0]?.id;
 
-    console.log('[转人工] 开始转人工请求', {
-      sessionId,
-      issueTypeId,
-      urgency: 'URGENT',
-    });
-
     submitTransferRequest({
       urgency: 'URGENT', // 默认紧急
       issueTypeId: issueTypeId || undefined,
@@ -634,6 +646,7 @@ const ChatPage = () => {
     sending ||
     uploading ||
     transferring ||
+    wsRateLimited ||
     session?.status === 'CLOSED' ||
     session?.ticket?.status === 'RESOLVED';
   const showTransferButton = Boolean(

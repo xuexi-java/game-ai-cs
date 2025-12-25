@@ -1,4 +1,5 @@
 import { Controller, Get } from '@nestjs/common';
+import { SkipThrottle } from '@nestjs/throttler';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { AppService } from './app.service';
 import { Public } from './common/decorators/public.decorator';
@@ -9,6 +10,7 @@ export class AppController {
   constructor(private readonly appService: AppService) {}
 
   @Public()
+  @SkipThrottle()
   @Get()
   @ApiOperation({ summary: '获取欢迎信息' })
   @ApiResponse({ status: 200, description: '返回欢迎信息' })
@@ -17,6 +19,7 @@ export class AppController {
   }
 
   @Public()
+  @SkipThrottle()
   @Get('health')
   @ApiOperation({ summary: '健康检查' })
   @ApiResponse({

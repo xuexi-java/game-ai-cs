@@ -22,7 +22,7 @@ export class TransformInterceptor<T>
     next: CallHandler,
   ): Observable<Response<T>> {
     const request = context.switchToHttp().getRequest();
-    
+
     // 绕过 /api/v1/metrics 端点，不进行响应包装
     if (request.url === '/api/v1/metrics') {
       return next.handle();

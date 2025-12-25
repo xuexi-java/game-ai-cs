@@ -14,7 +14,7 @@ export class EncryptionService {
     const secretKey =
       this.configService.get<string>('ENCRYPTION_SECRET_KEY') ||
       'default-secret-key-change-in-production-32-chars!!';
-    
+
     // 使用 PBKDF2 派生密钥
     this.key = crypto.pbkdf2Sync(
       secretKey,
@@ -101,7 +101,8 @@ export class EncryptionService {
       return false;
     }
     const parts = text.split(':');
-    return parts.length === 3 && parts.every((part) => /^[0-9a-f]+$/i.test(part));
+    return (
+      parts.length === 3 && parts.every((part) => /^[0-9a-f]+$/i.test(part))
+    );
   }
 }
-

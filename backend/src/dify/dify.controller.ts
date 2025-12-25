@@ -8,6 +8,7 @@ import {
   BadRequestException,
   NotFoundException,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { ApiTags, ApiOperation, ApiBearerAuth, ApiBody } from '@nestjs/swagger';
 import { ConfigService } from '@nestjs/config';
 import { DifyService } from './dify.service';
@@ -16,6 +17,7 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { GameService } from '../game/game.service';
+import { getDifyThrottleKey } from '../common/guards/throttle-keys';
 
 @ApiTags('dify')
 @ApiBearerAuth('JWT-auth')
@@ -30,6 +32,13 @@ export class DifyController {
   ) {}
 
   @Post('chat-messages')
+  @Throttle({
+    'dify-api': {
+      limit: 100,
+      ttl: 60000,
+      getTracker: getDifyThrottleKey,
+    },
+  })
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: '代理 Dify Chat API 请求（AI优化功能）' })
   @ApiBody({
@@ -37,11 +46,21 @@ export class DifyController {
       type: 'object',
       properties: {
         query: { type: 'string', description: '要发送给 Dify 的查询内容' },
-        gameId: { type: 'string', description: '游戏ID（可选，用于获取该游戏的 Dify 配置）' },
+        gameId: {
+          type: 'string',
+          description: '游戏ID（可选，用于获取该游戏的 Dify 配置）',
+        },
         inputs: { type: 'object', description: '输入参数（可选）' },
-        response_mode: { type: 'string', enum: ['blocking', 'streaming'], description: '响应模式' },
+        response_mode: {
+          type: 'string',
+          enum: ['blocking', 'streaming'],
+          description: '响应模式',
+        },
         user: { type: 'string', description: '用户标识（可选）' },
-        conversation_id: { type: 'string', description: '会话ID（可选，用于会话持久化）' },
+        conversation_id: {
+          type: 'string',
+          description: '会话ID（可选，用于会话持久化）',
+        },
       },
       required: ['query'],
     },
@@ -105,4 +124,3 @@ export class DifyController {
     );
   }
 }
-

@@ -4,7 +4,9 @@
       "Bash(powershell:*)",
       "Bash(git checkout:*)",
       "Bash(node -e:*)",
-      "Bash(npm run build:*)"
+      "Bash(npm run build:*)",
+      "Bash(node simple-test.js:*)",
+      "Bash(npx prisma migrate dev:*)"
     ]
   }
 }

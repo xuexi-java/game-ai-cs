@@ -57,7 +57,9 @@ export class RedisLogConsumerService implements OnModuleInit, OnModuleDestroy {
     this.isEnabled = process.env.LOG_USE_REDIS_BUFFER === 'true';
     this.redisKey = process.env.LOG_REDIS_KEY || 'system:logs:buffer';
     this.batchSize = parseInt(process.env.LOG_CONSUMER_BATCH_SIZE || '100');
-    this.pollInterval = parseInt(process.env.LOG_CONSUMER_POLL_INTERVAL || '200');
+    this.pollInterval = parseInt(
+      process.env.LOG_CONSUMER_POLL_INTERVAL || '200',
+    );
     this.logDir = process.env.LOG_DIR || join(process.cwd(), 'logs');
   }
 
@@ -110,7 +112,10 @@ export class RedisLogConsumerService implements OnModuleInit, OnModuleDestroy {
 
     this.currentDate = formatDate(new Date());
     const combinedPath = join(this.logDir, `backend-${this.currentDate}.log`);
-    const errorPath = join(this.logDir, `backend-${this.currentDate}.error.log`);
+    const errorPath = join(
+      this.logDir,
+      `backend-${this.currentDate}.error.log`,
+    );
 
     // 关闭旧流
     this.closeStreams();
@@ -178,7 +183,9 @@ export class RedisLogConsumerService implements OnModuleInit, OnModuleDestroy {
           // 每消费 1000 条打印一次统计
           const now = Date.now();
           if (now - this.lastLogTime > 60000) {
-            console.log(`[RedisLogConsumer] Consumed ${this.consumedCount} logs total`);
+            console.log(
+              `[RedisLogConsumer] Consumed ${this.consumedCount} logs total`,
+            );
             this.lastLogTime = now;
           }
         } else {
@@ -265,7 +272,10 @@ export class RedisLogConsumerService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  private writeToStream(stream: NodeJS.WritableStream, content: string): Promise<void> {
+  private writeToStream(
+    stream: NodeJS.WritableStream,
+    content: string,
+  ): Promise<void> {
     return new Promise((resolve, reject) => {
       let resolved = false;
       const safeResolve = () => {
@@ -314,7 +324,9 @@ export class RedisLogConsumerService implements OnModuleInit, OnModuleDestroy {
       this.redis = null;
     }
 
-    console.log(`[RedisLogConsumer] Stopped. Total consumed: ${this.consumedCount}`);
+    console.log(
+      `[RedisLogConsumer] Stopped. Total consumed: ${this.consumedCount}`,
+    );
   }
 
   /**

@@ -90,6 +90,7 @@ model Ticket {
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
   closedAt        DateTime?
+  closureMetadata Json?          // 工单关闭元数据：{ method: 'manual' | 'auto_timeout_waiting' | 'auto_timeout_replied', closedBy?: string, closedAt: string }
   deletedAt       DateTime?
 
   // 关系
@@ -103,14 +104,16 @@ model Ticket {
 
   @@index([ticketNo])
   @@index([gameId, playerIdOrName])
-  @@index([status])
+  // @@index([status]) -- 已删除：被 [status, updatedAt] 和 [status, createdAt] 复合索引覆盖
   @@index([priority])
-  @@index([priorityScore(desc)]) // 新增：优先级分数索引
+  @@index([priorityScore(desc)]) // 优先级分数索引（工单列表排序）
   @@index([createdAt])
   @@index([token])
   // P0 性能优化：新增复合索引
   @@index([status, createdAt])   // Dashboard 按状态和时间查询
+  @@index([status, updatedAt])   // 过期工单定时任务 WHERE status IN [...] AND updatedAt < ?
   @@index([gameId, status])      // 按游戏和状态过滤
+  @@index([gameId, createdAt])   // Dashboard 统计 WHERE gameId=? AND createdAt BETWEEN ? AND ?
   @@index([closedAt])            // 已关闭工单查询
   @@map("Ticket")
 }
@@ -180,12 +183,14 @@ model Session {
 
   @@index([ticketId])
   @@index([agentId])
-  @@index([status])
+  // @@index([status]) -- 已删除：被 [status, priorityScore, queuedAt] 复合索引覆盖
   @@index([queuedAt])
-  @@index([priorityScore(desc), queuedAt(asc)])
-  // P0 性能优化：新增复合索引
+  // @@index([priorityScore(desc), queuedAt(asc)]) -- 已删除：被下方带 status 前缀的复合索引覆盖
+  // P0 性能优化：排队会话查询 WHERE status='QUEUED' ORDER BY priorityScore DESC, queuedAt ASC
+  @@index([status, priorityScore(desc), queuedAt(asc)])
   @@index([status, agentId])     // 查询特定客服的会话
   @@index([status, createdAt])   // Dashboard 按状态和时间查询
+  @@index([status, updatedAt])   // 一致性检查和僵尸会话清理
   @@map("Session")
 }
 
@@ -219,9 +224,9 @@ model Message {
   session Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   agent   User?   @relation(fields: [senderId], references: [id], onDelete: SetNull)
 
-  @@index([sessionId])
+  // @@index([sessionId]) -- 已删除：被 [sessionId, createdAt] 复合索引最左前缀覆盖
   @@index([createdAt])
-  @@index([sessionId, createdAt])
+  @@index([sessionId, createdAt])  // 消息查询 WHERE sessionId=? ORDER BY createdAt
   @@map("Message")
 }
 
@@ -239,9 +244,9 @@ model TicketMessage {
   ticket Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
   sender User?  @relation("TicketMessages", fields: [senderId], references: [id], onDelete: SetNull)
 
-  @@index([ticketId])
+  // @@index([ticketId]) -- 已删除：被 [ticketId, createdAt] 复合索引最左前缀覆盖
   @@index([createdAt])
-  // P0 性能优化：工单消息排序查询
+  // P0 性能优化：工单消息查询 WHERE ticketId=? ORDER BY createdAt
   @@index([ticketId, createdAt])
   @@map("TicketMessage")
 }

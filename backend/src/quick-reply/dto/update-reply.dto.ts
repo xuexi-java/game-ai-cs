@@ -4,7 +4,11 @@ import { IsBoolean, IsOptional, IsString, IsInt } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 
 export class UpdateReplyDto extends PartialType(CreateReplyDto) {
-  @ApiProperty({ example: 'category-1', description: '分类 ID', required: false })
+  @ApiProperty({
+    example: 'category-1',
+    description: '分类 ID',
+    required: false,
+  })
   @IsString()
   @IsOptional()
   categoryId?: string;

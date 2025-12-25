@@ -8,6 +8,7 @@ import {
   UseGuards,
   Query,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import {
   ApiTags,
   ApiOperation,
@@ -19,6 +20,7 @@ import {
 } from '@nestjs/swagger';
 import { TicketService } from './ticket.service';
 import { CreateTicketDto } from './dto/create-ticket.dto';
+import { UpdateTicketStatusDto } from './dto/update-ticket-status.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -160,7 +162,7 @@ export class TicketController {
           playerIdOrName: createTicketDto.playerIdOrName,
           issueTypeIds: createTicketDto.issueTypeIds,
           requestData: createTicketDto,
-        }
+        },
       );
       throw error;
     }
@@ -228,9 +230,91 @@ export class TicketController {
     return this.ticketService.sendMessageByToken(token, body.content);
   }
 
+  // 玩家端API - 根据token更新工单状态（用于玩家手动关闭工单）
+  @Public()
+  @Patch('by-token/:token/status')
+  @ApiOperation({
+    summary: '根据token更新工单状态（玩家端）',
+    description: `
+      玩家通过此端点手动更新工单状态。主要用于玩家标记问题已解决。
+      
+      **工单状态说明：**
+      - WAITING: 等待客服响应
+      - IN_PROGRESS: 客服处理中
+      - RESOLVED: 已解决/已关闭
+      
+      **自动关闭规则：**
+      - WAITING 状态工单：72小时无活动后自动关闭
+      - IN_PROGRESS 状态工单（客服已回复）：24小时无活动后自动关闭
+      
+      **关闭元数据：**
+      当工单状态更新为 RESOLVED 时，系统会自动记录：
+      - closedAt: 关闭时间戳
+      - closureMetadata: 包含关闭方式（manual/auto_timeout_waiting/auto_timeout_replied）和关闭者信息
+    `,
+  })
+  @ApiParam({
+    name: 'token',
+    description: '工单访问令牌，用于验证玩家身份',
+  })
+  @ApiBody({ type: UpdateTicketStatusDto })
+  @ApiResponse({
+    status: 200,
+    description: '更新成功，返回更新后的工单对象',
+    schema: {
+      example: {
+        id: 'ticket-uuid',
+        ticketNo: 'T20251225001',
+        status: 'RESOLVED',
+        closedAt: '2025-12-25T10:00:00.000Z',
+        closureMetadata: {
+          method: 'manual',
+          closedBy: 'player-123',
+          closedAt: '2025-12-25T10:00:00.000Z',
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 404,
+    description: '工单不存在或token无效',
+  })
+  @ApiResponse({
+    status: 400,
+    description: '无效的状态值，状态必须是 WAITING、IN_PROGRESS 或 RESOLVED 之一',
+  })
+  async updateStatusByToken(
+    @Param('token') token: string,
+    @Body() dto: UpdateTicketStatusDto,
+  ) {
+    try {
+      // 通过 token 获取工单
+      const ticket = await this.ticketService.findByToken(token);
+
+      // 调用更新状态方法
+      return await this.ticketService.updateStatus(ticket.id, dto.status, {
+        closureMethod: dto.status === 'RESOLVED' ? 'manual' : undefined,
+        closedBy: dto.closedBy,
+      });
+    } catch (error) {
+      this.logger.error(
+        '玩家更新工单状态失败',
+        error instanceof Error ? error.stack : undefined,
+        {
+          token,
+          status: dto.status,
+        },
+      );
+      throw error;
+    }
+  }
+
   // 管理端API - 获取工单列表
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('ADMIN', 'AGENT')
+  @Throttle({
+    default: { limit: 1000, ttl: 60000 },
+  })
   @Get()
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({ summary: '获取工单列表（管理端）' })
@@ -293,23 +377,74 @@ export class TicketController {
   @Roles('ADMIN', 'AGENT')
   @Patch(':id/status')
   @ApiBearerAuth('JWT-auth')
-  @ApiOperation({ summary: '更新工单状态（管理端）' })
+  @ApiOperation({
+    summary: '更新工单状态（管理端）',
+    description: `
+      客服/管理员通过此端点更新工单状态。
+      
+      **工单状态说明：**
+      - WAITING: 等待客服响应
+      - IN_PROGRESS: 客服处理中
+      - RESOLVED: 已解决/已关闭
+      
+      **状态转换规则：**
+      - 任何状态都可以转换为 RESOLVED
+      - WAITING 可以转换为 IN_PROGRESS（客服开始处理）
+      - IN_PROGRESS 可以转换回 WAITING（需要更多信息）
+      
+      **关闭元数据：**
+      当工单状态更新为 RESOLVED 时，系统会自动记录关闭时间和关闭方式。
+    `,
+  })
   @ApiParam({ name: 'id', description: '工单ID' })
-  @ApiBody({
+  @ApiBody({ type: UpdateTicketStatusDto })
+  @ApiResponse({
+    status: 200,
+    description: '更新成功，返回更新后的工单对象',
     schema: {
-      type: 'object',
-      properties: {
-        status: {
-          type: 'string',
-          enum: ['IN_PROGRESS', 'WAITING', 'RESOLVED'],
+      example: {
+        id: 'ticket-uuid',
+        ticketNo: 'T20251225001',
+        status: 'RESOLVED',
+        closedAt: '2025-12-25T10:00:00.000Z',
+        closureMetadata: {
+          method: 'manual',
+          closedBy: 'agent-456',
+          closedAt: '2025-12-25T10:00:00.000Z',
         },
       },
-      required: ['status'],
     },
   })
-  @ApiResponse({ status: 200, description: '更新成功' })
-  updateStatus(@Param('id') id: string, @Body() body: { status: string }) {
-    return this.ticketService.updateStatus(id, body.status);
+  @ApiResponse({
+    status: 404,
+    description: '工单不存在',
+  })
+  @ApiResponse({
+    status: 400,
+    description: '无效的状态值，状态必须是 WAITING、IN_PROGRESS 或 RESOLVED 之一',
+  })
+  async updateStatus(
+    @Param('id') id: string,
+    @Body() dto: UpdateTicketStatusDto,
+    @CurrentUser() user?: any,
+  ) {
+    try {
+      return await this.ticketService.updateStatus(id, dto.status, {
+        closureMethod: dto.status === 'RESOLVED' ? 'manual' : undefined,
+        closedBy: dto.closedBy || user?.id,
+      });
+    } catch (error) {
+      this.logger.error(
+        '更新工单状态失败',
+        error instanceof Error ? error.stack : undefined,
+        {
+          ticketId: id,
+          status: dto.status,
+          userId: user?.id,
+        },
+      );
+      throw error;
+    }
   }
 
   // 管理端API - 更新工单优先级

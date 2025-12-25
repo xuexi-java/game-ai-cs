@@ -153,7 +153,7 @@ export class DifyService {
   ): Promise<DifyMessageResult> {
     // 解密 API Key
     const decryptedApiKey = this.decryptApiKey(apiKey);
-    
+
     try {
       // 尝试使用工作流API（如果配置了工作流）
       const response = await this.axiosInstance.post(
@@ -179,13 +179,15 @@ export class DifyService {
       return parseDifyResult(output);
     } catch (error: any) {
       const errorResponse = error.response?.data;
-      this.logger.error(`triage 工作流API调用失败，尝试对话API: ${JSON.stringify({
-        message: errorResponse?.message || error.message,
-        code: errorResponse?.code,
-        status: error.response?.status,
-        url: `${baseUrl}/workflows/run`,
-        responseData: errorResponse,
-      })}`);
+      this.logger.error(
+        `triage 工作流API调用失败，尝试对话API: ${JSON.stringify({
+          message: errorResponse?.message || error.message,
+          code: errorResponse?.code,
+          status: error.response?.status,
+          url: `${baseUrl}/workflows/run`,
+          responseData: errorResponse,
+        })}`,
+      );
 
       // 如果工作流API失败，尝试使用对话API
       // 注意：传入原始 apiKey，让 triageWithChatAPI 自己解密
@@ -193,13 +195,15 @@ export class DifyService {
         return await this.triageWithChatAPI(description, apiKey, baseUrl);
       } catch (chatError: any) {
         const chatErrorResponse = chatError.response?.data;
-        this.logger.error(`triage 对话API也失败: ${JSON.stringify({
-          message: chatErrorResponse?.message || chatError.message,
-          code: chatErrorResponse?.code,
-          status: chatError.response?.status,
-          url: `${baseUrl}/chat-messages`,
-          responseData: chatErrorResponse,
-        })}`);
+        this.logger.error(
+          `triage 对话API也失败: ${JSON.stringify({
+            message: chatErrorResponse?.message || chatError.message,
+            code: chatErrorResponse?.code,
+            status: chatError.response?.status,
+            url: `${baseUrl}/chat-messages`,
+            responseData: chatErrorResponse,
+          })}`,
+        );
 
         // 返回默认响应
         return {
@@ -222,7 +226,7 @@ export class DifyService {
     baseUrl: string,
   ): Promise<DifyMessageResult> {
     const decryptedApiKey = this.decryptApiKey(apiKey);
-    
+
     try {
       const response = await this.axiosInstance.post(
         `${baseUrl}/chat-messages`,
@@ -253,13 +257,15 @@ export class DifyService {
       return parsed;
     } catch (error: any) {
       const errorResponse = error.response?.data;
-      this.logger.error(`triageWithChatAPI 失败: ${JSON.stringify({
-        message: errorResponse?.message || error.message,
-        code: errorResponse?.code,
-        status: error.response?.status,
-        url: `${baseUrl}/chat-messages`,
-        responseData: errorResponse,
-      })}`);
+      this.logger.error(
+        `triageWithChatAPI 失败: ${JSON.stringify({
+          message: errorResponse?.message || error.message,
+          code: errorResponse?.code,
+          status: error.response?.status,
+          url: `${baseUrl}/chat-messages`,
+          responseData: errorResponse,
+        })}`,
+      );
       throw error;
     }
   }
@@ -276,7 +282,7 @@ export class DifyService {
     userId?: string,
   ): Promise<DifyMessageResult> {
     const decryptedApiKey = this.decryptApiKey(apiKey);
-    
+
     try {
       const requestBody: any = {
         inputs: {},
@@ -311,13 +317,15 @@ export class DifyService {
       const errorMessage = errorResponse?.message || error.message;
       const errorCode = errorResponse?.code;
 
-      this.logger.error(`sendChatMessage 失败: ${JSON.stringify({
-        message: errorMessage,
-        code: errorCode,
-        status: error.response?.status,
-        url: `${baseUrl}/chat-messages`,
-        responseData: errorResponse,
-      })}`);
+      this.logger.error(
+        `sendChatMessage 失败: ${JSON.stringify({
+          message: errorMessage,
+          code: errorCode,
+          status: error.response?.status,
+          url: `${baseUrl}/chat-messages`,
+          responseData: errorResponse,
+        })}`,
+      );
 
       throw new HttpException(
         errorMessage || 'Dify API调用失败',
@@ -333,7 +341,7 @@ export class DifyService {
   async optimizeReply(
     content: string,
     context: string,
-    _apiKey?: string,  // 不再使用，保留参数兼容性
+    _apiKey?: string, // 不再使用，保留参数兼容性
     _baseUrl?: string, // 不再使用，保留参数兼容性
     conversationId?: string,
   ): Promise<string> {
@@ -378,13 +386,15 @@ export class DifyService {
       return parsed.text || content;
     } catch (error: any) {
       const errorResponse = error.response?.data;
-      this.logger.error(`optimizeReply 失败: ${JSON.stringify({
-        message: errorResponse?.message || error.message,
-        code: errorResponse?.code,
-        status: error.response?.status,
-        url: `${optimizeBaseUrl}/chat-messages`,
-        responseData: errorResponse,
-      })}`);
+      this.logger.error(
+        `optimizeReply 失败: ${JSON.stringify({
+          message: errorResponse?.message || error.message,
+          code: errorResponse?.code,
+          status: error.response?.status,
+          url: `${optimizeBaseUrl}/chat-messages`,
+          responseData: errorResponse,
+        })}`,
+      );
       return content; // 失败时返回原文
     }
   }
@@ -400,7 +410,7 @@ export class DifyService {
     limit: number = 20,
   ): Promise<any[]> {
     const decryptedApiKey = this.decryptApiKey(apiKey);
-    
+
     try {
       const response = await this.axiosInstance.get(`${baseUrl}/messages`, {
         params: {
@@ -415,13 +425,15 @@ export class DifyService {
       return response.data?.data || [];
     } catch (error: any) {
       const errorResponse = error.response?.data;
-      this.logger.error(`getConversationHistory 失败: ${JSON.stringify({
-        message: errorResponse?.message || error.message,
-        code: errorResponse?.code,
-        status: error.response?.status,
-        url: `${baseUrl}/messages`,
-        responseData: errorResponse,
-      })}`);
+      this.logger.error(
+        `getConversationHistory 失败: ${JSON.stringify({
+          message: errorResponse?.message || error.message,
+          code: errorResponse?.code,
+          status: error.response?.status,
+          url: `${baseUrl}/messages`,
+          responseData: errorResponse,
+        })}`,
+      );
       return [];
     }
   }
@@ -437,7 +449,7 @@ export class DifyService {
     limit: number = 20,
   ): Promise<any[]> {
     const decryptedApiKey = this.decryptApiKey(apiKey);
-    
+
     try {
       const response = await this.axiosInstance.get(
         `${baseUrl}/conversations`,
@@ -455,13 +467,15 @@ export class DifyService {
       return response.data?.data || [];
     } catch (error: any) {
       const errorResponse = error.response?.data;
-      this.logger.error(`getConversationList 失败: ${JSON.stringify({
-        message: errorResponse?.message || error.message,
-        code: errorResponse?.code,
-        status: error.response?.status,
-        url: `${baseUrl}/conversations`,
-        responseData: errorResponse,
-      })}`);
+      this.logger.error(
+        `getConversationList 失败: ${JSON.stringify({
+          message: errorResponse?.message || error.message,
+          code: errorResponse?.code,
+          status: error.response?.status,
+          url: `${baseUrl}/conversations`,
+          responseData: errorResponse,
+        })}`,
+      );
       return [];
     }
   }

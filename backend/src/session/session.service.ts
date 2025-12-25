@@ -4,7 +4,6 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { AppLogger } from '../common/logger/app-logger.service';
-import { Throttle } from '@nestjs/throttler';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateSessionDto, TransferToAgentDto } from './dto/create-session.dto';
 import {
@@ -80,10 +79,6 @@ export class SessionService {
   }
 
   // 鍒涘缓浼氳瘽锛堟楠?锛欰I寮曞锛?
-  @Throttle({
-    default: { limit: 10000, ttl: 60000 }, // 全局限制：10000次/分钟
-    'dify-api': { limit: 3000, ttl: 60000 } // Dify API 限制：3000次/分钟
-  })
   async create(createSessionDto: CreateSessionDto) {
     const ticket = await this.prisma.ticket.findUnique({
       where: { id: createSessionDto.ticketId },
@@ -170,10 +165,6 @@ export class SessionService {
   }
 
   // 鐜╁鍙戦€佹秷鎭紝鑷姩涓?Dify 浜や簰
-  @Throttle({
-    default: { limit: 10000, ttl: 60000 }, // 全局限制：10000次/分钟
-    'dify-api': { limit: 3000, ttl: 60000 } // Dify API 限制：3000次/分钟
-  })
   async handlePlayerMessage(
     sessionId: string,
     content: string,
@@ -286,7 +277,10 @@ export class SessionService {
       return;
     }
 
-    if (!session.ticket?.game?.difyApiKey || !session.ticket?.game?.difyBaseUrl) {
+    if (
+      !session.ticket?.game?.difyApiKey ||
+      !session.ticket?.game?.difyBaseUrl
+    ) {
       await this.sendAiFallback(sessionId, 'AI ?????');
       return;
     }
@@ -338,19 +332,15 @@ export class SessionService {
     if (latestSession?.status === 'IN_PROGRESS' && latestSession.agentId) {
       return;
     }
-    if (latestSession?.status === 'QUEUED' || latestSession?.status === 'CLOSED') {
+    if (
+      latestSession?.status === 'QUEUED' ||
+      latestSession?.status === 'CLOSED'
+    ) {
       return;
     }
 
     // ?????????????????????????
-    const transferKeywords = [
-      '???',
-      '??',
-      '??',
-      '????',
-      'Human',
-      'Agent',
-    ];
+    const transferKeywords = ['???', '??', '??', '????', 'Human', 'Agent'];
     const shouldSuggestTransfer = transferKeywords.some((k) =>
       content.toLowerCase().includes(k.toLowerCase()),
     );
@@ -391,7 +381,6 @@ export class SessionService {
     );
     this.websocketGateway.notifyMessage(sessionId, fallbackMessage);
   }
-
 
   async findOne(id: string, currentUser?: { id: string; role: string }) {
     const session = await this.prisma.session.findUnique({
@@ -440,10 +429,7 @@ export class SessionService {
     // 如果是管理员角色，返回所有待接入会话
     if (currentUser && currentUser.role === 'AGENT') {
       // ✅ 客服可以看到：分配给自己的会话 OR 未分配的会话（agentId 为 null）
-      queuedWhere.OR = [
-        { agentId: currentUser.id },
-        { agentId: null },
-      ];
+      queuedWhere.OR = [{ agentId: currentUser.id }, { agentId: null }];
     } else if (currentUser && currentUser.role === 'ADMIN') {
       // ✅ 管理员可以看到所有待接入会话，不需要过滤
     } else {
@@ -780,9 +766,7 @@ export class SessionService {
       oldSession?.agentId || null,
     );
     if (!removed) {
-      this.logger.warn(
-        `从 Redis 队列移除会话失败，将在下次一致性检查时修复`,
-      );
+      this.logger.warn(`从 Redis 队列移除会话失败，将在下次一致性检查时修复`);
     }
 
     const normalizedSession = this.enrichSession(updatedSession);
@@ -828,19 +812,20 @@ export class SessionService {
     const startTime = Date.now();
 
     try {
-      this.logger.log(
-        `开始手动分配会话 ${sessionId} 给 ${agentId}`,
-        { sessionId, agentId, timestamp: new Date().toISOString() },
-      );
+      this.logger.log(`开始手动分配会话 ${sessionId} 给 ${agentId}`, {
+        sessionId,
+        agentId,
+        timestamp: new Date().toISOString(),
+      });
 
       const session = await this.findOne(sessionId);
 
       // 检查会话状态：已结束的会话不能分配
       if (session.status === 'CLOSED') {
-        this.logger.warn(
-          `会话 ${sessionId} 已结束，无法分配`,
-          { sessionId, sessionStatus: session.status },
-        );
+        this.logger.warn(`会话 ${sessionId} 已结束，无法分配`, {
+          sessionId,
+          sessionStatus: session.status,
+        });
         throw new BadRequestException('该会话已结束，无法分配');
       }
 
@@ -848,7 +833,11 @@ export class SessionService {
       if (session.ticket?.status === 'RESOLVED') {
         this.logger.warn(
           `工单 ${session.ticket?.id} 已解决，无法分配会话 ${sessionId}`,
-          { sessionId, ticketId: session.ticket?.id, ticketStatus: session.ticket?.status },
+          {
+            sessionId,
+            ticketId: session.ticket?.id,
+            ticketStatus: session.ticket?.status,
+          },
         );
         throw new BadRequestException('该工单已解决，无法分配客服');
       }
@@ -859,20 +848,20 @@ export class SessionService {
       });
 
       if (!agent) {
-        this.logger.error(
-          `分配失败：用户 ${agentId} 不存在`,
-          undefined,
-          { sessionId, agentId },
-        );
+        this.logger.error(`分配失败：用户 ${agentId} 不存在`, undefined, {
+          sessionId,
+          agentId,
+        });
         throw new NotFoundException('用户不存在');
       }
 
       // 只允许分配给客服或管理员
       if (agent.role !== 'AGENT' && agent.role !== 'ADMIN') {
-        this.logger.warn(
-          `分配失败：用户 ${agentId} 不是客服或管理员`,
-          { sessionId, agentId, agentRole: agent.role },
-        );
+        this.logger.warn(`分配失败：用户 ${agentId} 不是客服或管理员`, {
+          sessionId,
+          agentId,
+          agentRole: agent.role,
+        });
         throw new BadRequestException('只能分配给客服或管理员');
       }
 
@@ -886,7 +875,8 @@ export class SessionService {
         },
       });
 
-      const isReassignment = oldSession?.agentId && oldSession.agentId !== agentId;
+      const isReassignment =
+        oldSession?.agentId && oldSession.agentId !== agentId;
       const previousAgentId = oldSession?.agentId;
 
       // 更新会话，分配给指定客服，标记为手动分配
@@ -900,7 +890,8 @@ export class SessionService {
           status: session.status === 'QUEUED' ? 'IN_PROGRESS' : session.status,
           startedAt: session.startedAt || new Date(),
           queuedAt: session.status === 'QUEUED' ? null : session.queuedAt, // 如果从 QUEUED 变为 IN_PROGRESS，清除排队状态
-          queuePosition: session.status === 'QUEUED' ? null : session.queuePosition, // 清除排队位置
+          queuePosition:
+            session.status === 'QUEUED' ? null : session.queuePosition, // 清除排队位置
           manuallyAssigned: true, // 标记为手动分配
         },
         include: {
@@ -956,7 +947,8 @@ export class SessionService {
       return normalizedSession;
     } catch (error) {
       const duration = Date.now() - startTime;
-      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
       const errorStack = error instanceof Error ? error.stack : undefined;
 
       this.logger.error(
@@ -1110,9 +1102,7 @@ export class SessionService {
       oldSession?.agentId || null,
     );
     if (!removed) {
-      this.logger.warn(
-        `从 Redis 队列移除会话失败，将在下次一致性检查时修复`,
-      );
+      this.logger.warn(`从 Redis 队列移除会话失败，将在下次一致性检查时修复`);
     }
 
     const normalizedSession = this.enrichSession(updatedSession);
@@ -1184,7 +1174,9 @@ export class SessionService {
     const ADMIN_WEIGHT_PENALTY = 3; // 管理员负载权重惩罚
     const agentsWithLoad = candidatePool.map((agent) => ({
       agent,
-      load: agent.sessions.length + (agent.role === 'ADMIN' ? ADMIN_WEIGHT_PENALTY : 0),
+      load:
+        agent.sessions.length +
+        (agent.role === 'ADMIN' ? ADMIN_WEIGHT_PENALTY : 0),
       loginTime: agent.lastLoginAt || agent.createdAt,
       role: agent.role,
     }));
@@ -1246,9 +1238,7 @@ export class SessionService {
         sessionInfo.queuedAt,
       );
       if (!moved) {
-        this.logger.warn(
-          `移动会话到客服队列失败，将在下次一致性检查时修复`,
-        );
+        this.logger.warn(`移动会话到客服队列失败，将在下次一致性检查时修复`);
       }
     }
 
@@ -1344,8 +1334,7 @@ export class SessionService {
       estimatedWaitTime: null,
       onlineAgents: 0,
       autoAssigned: false,
-      message:
-        '当前暂无客服在线，您的问题已转为【加急工单】，我们将优先处理。',
+      message: '当前暂无客服在线，您的问题已转为【加急工单】，我们将优先处理。',
       ticketNo: ticket.ticketNo,
       convertedToTicket: true,
     };
@@ -1402,9 +1391,7 @@ export class SessionService {
       queuedAt,
     );
     if (!added) {
-      this.logger.warn(
-        `添加到 Redis 队列失败，将在下次一致性检查时修复`,
-      );
+      this.logger.warn(`添加到 Redis 队列失败，将在下次一致性检查时修复`);
     }
 
     // 重新排序队列
@@ -1441,7 +1428,10 @@ export class SessionService {
     const finalSession = await this.findOne(sessionId);
 
     // ✅ 确保发送排队更新通知到玩家端
-    if (finalSession.queuePosition !== null && finalSession.queuePosition !== undefined) {
+    if (
+      finalSession.queuePosition !== null &&
+      finalSession.queuePosition !== undefined
+    ) {
       this.websocketGateway.notifyQueueUpdate(
         sessionId,
         finalSession.queuePosition,
@@ -1483,18 +1473,24 @@ export class SessionService {
         estimatedWaitTime =
           onlineCount.agents > 0
             ? Math.ceil(
-              (queuePosition / onlineCount.agents) * averageProcessingTime,
-            )
+                (queuePosition / onlineCount.agents) * averageProcessingTime,
+              )
             : null;
       }
     }
 
     return {
-      queued: true,  // ✅ 确保返回 queued: true，表示已进入排队
-      queuePosition: finalSession.status === 'QUEUED' ? (finalSession.queuePosition ?? queuePosition ?? null) : null,
-      estimatedWaitTime: finalSession.status === 'QUEUED' ? (finalSession.estimatedWaitTime ?? estimatedWaitTime) : null,
+      queued: true, // ✅ 确保返回 queued: true，表示已进入排队
+      queuePosition:
+        finalSession.status === 'QUEUED'
+          ? (finalSession.queuePosition ?? queuePosition ?? null)
+          : null,
+      estimatedWaitTime:
+        finalSession.status === 'QUEUED'
+          ? (finalSession.estimatedWaitTime ?? estimatedWaitTime)
+          : null,
       onlineAgents: onlineCount.agents,
-      autoAssigned: false,  // ✅ 未自动分配，等待客服主动接入
+      autoAssigned: false, // ✅ 未自动分配，等待客服主动接入
       message: undefined,
       convertedToTicket: false,
     };
@@ -1696,8 +1692,8 @@ export class SessionService {
             const estimatedWaitTime =
               onlineAgentsCount > 0
                 ? Math.ceil(
-                  (queuePosition / onlineAgentsCount) * averageProcessingTime,
-                )
+                    (queuePosition / onlineAgentsCount) * averageProcessingTime,
+                  )
                 : null;
 
             // 发送 WebSocket 通知
@@ -1714,7 +1710,10 @@ export class SessionService {
         `队列重新排序完成：已分配 ${assignedSessions.length} 个，未分配 ${unassignedSessions.length} 个`,
       );
     } catch (error) {
-      this.logger.error(`使用 Redis 重新排序队列失败: ${error.message}`, error.stack);
+      this.logger.error(
+        `使用 Redis 重新排序队列失败: ${error.message}`,
+        error.stack,
+      );
       // 回退到数据库方案
       this.logger.warn('回退到数据库方案重新排序队列');
       return this.reorderQueueFallback();
@@ -1803,8 +1802,8 @@ export class SessionService {
       const estimatedWaitTime =
         onlineAgentsCount > 0
           ? Math.ceil(
-            (queuePosition / onlineAgentsCount) * averageProcessingTime,
-          )
+              (queuePosition / onlineAgentsCount) * averageProcessingTime,
+            )
           : null;
 
       // 发送 WebSocket 通知
@@ -2034,9 +2033,7 @@ export class SessionService {
       oldSessionInfo?.agentId || null,
     );
     if (!removed) {
-      this.logger.warn(
-        `从 Redis 队列移除会话失败，将在下次一致性检查时修复`,
-      );
+      this.logger.warn(`从 Redis 队列移除会话失败，将在下次一致性检查时修复`);
     }
 
     // 重新排序队列（移除已关闭的会话）
@@ -2137,7 +2134,10 @@ export class SessionService {
     }
 
     // 5. 如果有活跃会话，直接接入
-    if (latestSession && ['PENDING', 'QUEUED', 'IN_PROGRESS'].includes(latestSession.status)) {
+    if (
+      latestSession &&
+      ['PENDING', 'QUEUED', 'IN_PROGRESS'].includes(latestSession.status)
+    ) {
       return await this.joinSession(latestSession.id, agentId);
     }
 
@@ -2195,7 +2195,10 @@ export class SessionService {
     const normalizedSession = this.enrichSession(newSession);
 
     // 通知 WebSocket 客户端
-    this.websocketGateway.notifySessionUpdate(normalizedSession.id, normalizedSession);
+    this.websocketGateway.notifySessionUpdate(
+      normalizedSession.id,
+      normalizedSession,
+    );
 
     return normalizedSession;
   }
@@ -2221,7 +2224,7 @@ export class SessionService {
       orderBy: { createdAt: 'asc' },
     });
 
-    const sessionIds = sessions.map(s => s.id);
+    const sessionIds = sessions.map((s) => s.id);
 
     if (sessionIds.length === 0) {
       return [];
@@ -2244,7 +2247,9 @@ export class SessionService {
       },
     });
 
-    this.logger.log(`[getTicketMessages] 工单=${ticketId}，会话数=${sessions.length}，消息数=${messages.length}`);
+    this.logger.log(
+      `[getTicketMessages] 工单=${ticketId}，会话数=${sessions.length}，消息数=${messages.length}`,
+    );
 
     return messages;
   }

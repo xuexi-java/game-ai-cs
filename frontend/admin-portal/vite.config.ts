@@ -13,4 +13,18 @@ export default defineConfig({
       },
     },
   },
+  build: {
+    // 生产环境移除 console
+    minify: 'terser',
+    terserOptions: {
+      compress: {
+        drop_console: true,
+        drop_debugger: true,
+      },
+    },
+  },
+  esbuild: {
+    // 开发环境也移除 console（可选）
+    drop: ['console', 'debugger'],
+  },
 })

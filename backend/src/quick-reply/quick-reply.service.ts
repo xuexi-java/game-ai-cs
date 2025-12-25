@@ -4,6 +4,7 @@ import {
   ForbiddenException,
   NotFoundException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { AppLogger } from '../common/logger/app-logger.service';
 import { CreateCategoryDto } from './dto/create-category.dto';
@@ -11,14 +12,39 @@ import { UpdateCategoryDto } from './dto/update-category.dto';
 import { CreateReplyDto } from './dto/create-reply.dto';
 import { UpdateReplyDto } from './dto/update-reply.dto';
 import { QueryReplyDto, SortByEnum } from './dto/query-reply.dto';
+import { CacheService } from '../common/cache/cache.service';
 
 @Injectable()
 export class QuickReplyService {
+  private readonly cachePrefix = 'cache:quick-reply:';
+  private readonly cacheTtlSeconds: number;
+
   constructor(
     private prisma: PrismaService,
     private readonly logger: AppLogger,
+    private readonly cacheService: CacheService,
+    private readonly configService: ConfigService,
   ) {
+    const ttl = Number(
+      this.configService.get<number>('CACHE_QUICK_REPLY_TTL_SECONDS') ?? 60,
+    );
+    this.cacheTtlSeconds = Number.isFinite(ttl) && ttl > 0 ? ttl : 60;
     this.logger.setContext(QuickReplyService.name);
+  }
+
+  private buildQueryKey(query: QueryReplyDto): string {
+    const entries = Object.entries(query).filter(
+      ([, value]) => value !== undefined,
+    );
+    entries.sort(([a], [b]) => a.localeCompare(b));
+    return entries
+      .map(([key, value]) => `${key}=${encodeURIComponent(String(value))}`)
+      .join('&');
+  }
+
+  private async clearUserCache(userId: string) {
+    const prefix = `${this.cachePrefix}${userId}:`;
+    await this.cacheService.delByPrefix(prefix);
   }
 
   // ========== 分类管理 ==========
@@ -27,6 +53,11 @@ export class QuickReplyService {
    * 获取分类列表 - 只返回当前用户自己创建的分类
    */
   async getCategories(userId: string, isAdmin: boolean) {
+    const cacheKey = `${this.cachePrefix}${userId}:categories`;
+    const cached = await this.cacheService.getJson<any[]>(cacheKey);
+    if (cached) {
+      return cached;
+    }
     try {
       const where: any = {
         isActive: true,
@@ -42,7 +73,13 @@ export class QuickReplyService {
 
       // 如果分类为空，直接返回空数组
       if (categories.length === 0) {
-        return [];
+        const result: any[] = [];
+        await this.cacheService.setJson(
+          cacheKey,
+          result,
+          this.cacheTtlSeconds,
+        );
+        return result;
       }
 
       // 批量查询所有分类的回复数量（只统计当前用户的回复）
@@ -66,17 +103,23 @@ export class QuickReplyService {
       );
 
       // 为每个分类添加回复数量
-      return categories.map((category) => ({
+      const result = categories.map((category) => ({
         ...category,
         _count: {
           replies: countMap.get(category.id) || 0,
         },
       }));
+      await this.cacheService.setJson(
+        cacheKey,
+        result,
+        this.cacheTtlSeconds,
+      );
+      return result;
     } catch (error) {
       this.logger.error(
         '获取分类列表失败',
         error instanceof Error ? error.stack : undefined,
-        { userId }
+        { userId },
       );
       throw error;
     }
@@ -91,13 +134,17 @@ export class QuickReplyService {
     createCategoryDto: CreateCategoryDto,
   ) {
     // ✅ 所有分类都是个人私有的，取消全局分类
-    return this.prisma.quickReplyCategory.create({
+    const created = await this.prisma.quickReplyCategory.create({
       data: {
         ...createCategoryDto,
         creatorId: userId, // 始终设置为当前用户
         isGlobal: false, // 强制设置为false
       },
     });
+    await this.clearUserCache(userId);
+    return created;
+    await this.clearUserCache(userId);
+    return created;
   }
 
   /**
@@ -123,11 +170,12 @@ export class QuickReplyService {
       ...updateCategoryDto,
       isGlobal: false, // 强制设置为false
     };
-
-    return this.prisma.quickReplyCategory.update({
+    const updated = await this.prisma.quickReplyCategory.update({
       where: { id: categoryId },
       data: updateData,
     });
+    await this.clearUserCache(userId);
+    return updated;
   }
 
   /**
@@ -143,10 +191,12 @@ export class QuickReplyService {
       throw new ForbiddenException('只能删除自己创建的分类');
     }
 
-    return this.prisma.quickReplyCategory.update({
+    const removed = await this.prisma.quickReplyCategory.update({
       where: { id: categoryId },
       data: { deletedAt: new Date() },
     });
+    await this.clearUserCache(userId);
+    return removed;
   }
 
   // ========== 快捷回复管理 ==========
@@ -159,6 +209,17 @@ export class QuickReplyService {
       const page = query.page ?? 1;
       const pageSize = query.pageSize ?? 20;
       const skip = (page - 1) * pageSize;
+      const cacheKey = `${this.cachePrefix}${userId}:replies:${this.buildQueryKey(
+        {
+          ...query,
+          page,
+          pageSize,
+        },
+      )}`;
+      const cached = await this.cacheService.getJson<any>(cacheKey);
+      if (cached) {
+        return cached;
+      }
 
       // 构建 WHERE 条件
       const where: any = {
@@ -205,7 +266,7 @@ export class QuickReplyService {
 
         if (favoriteIds.length === 0) {
           // 如果没有收藏，直接返回空结果
-          return {
+          const result = {
             data: [],
             pagination: {
               total: 0,
@@ -214,6 +275,12 @@ export class QuickReplyService {
               totalPages: 0,
             },
           };
+          await this.cacheService.setJson(
+            cacheKey,
+            result,
+            this.cacheTtlSeconds,
+          );
+          return result;
         }
 
         where.id = { in: favoriteIds };
@@ -267,7 +334,7 @@ export class QuickReplyService {
             errorMessage: dbError.message,
             userId,
             categoryId: query.categoryId,
-          }
+          },
         );
 
         // 如果是排序问题，尝试使用默认排序
@@ -363,13 +430,13 @@ export class QuickReplyService {
       });
       deduplicatedData = Array.from(uniqueRepliesByContent.values());
 
-       // ✅ 返回数据（不需要个人偏好，因为所有回复都是个人的）
-       return {
-         data: deduplicatedData.map((reply) => ({
-           ...reply,
-           isFavorited: favoriteIdsSet.has(reply.id),
-           hasPersonalPreference: false, // 所有回复都是个人的，不需要个人偏好
-         })),
+      // ✅ 返回数据（不需要个人偏好，因为所有回复都是个人的）
+      const result = {
+        data: deduplicatedData.map((reply) => ({
+          ...reply,
+          isFavorited: favoriteIdsSet.has(reply.id),
+          hasPersonalPreference: false, // 所有回复都是个人的，不需要个人偏好
+        })),
         pagination: {
           total: deduplicatedData.length, // 使用去重后的数量
           page,
@@ -388,7 +455,7 @@ export class QuickReplyService {
           categoryId: query.categoryId,
           page: query.page,
           pageSize: query.pageSize,
-        }
+        },
       );
       throw error;
     }
@@ -413,7 +480,7 @@ export class QuickReplyService {
     }
 
     // ✅ 所有回复都是个人私有的
-    return this.prisma.quickReply.create({
+    const created = await this.prisma.quickReply.create({
       data: {
         ...createReplyDto,
         creatorId: userId, // 始终设置为当前用户
@@ -443,11 +510,15 @@ export class QuickReplyService {
       }
 
       // ✅ 如果更新了分类，确保新分类也是当前用户创建的
-      if (updateReplyDto.categoryId && updateReplyDto.categoryId !== reply.categoryId) {
+      if (
+        updateReplyDto.categoryId &&
+        updateReplyDto.categoryId !== reply.categoryId
+      ) {
         try {
-          const newCategory = await this.prisma.quickReplyCategory.findUniqueOrThrow({
-            where: { id: updateReplyDto.categoryId },
-          });
+          const newCategory =
+            await this.prisma.quickReplyCategory.findUniqueOrThrow({
+              where: { id: updateReplyDto.categoryId },
+            });
           if (!newCategory.creatorId || newCategory.creatorId !== userId) {
             throw new ForbiddenException('只能移动到自己的分类');
           }
@@ -479,7 +550,9 @@ export class QuickReplyService {
       }
 
       // 确保至少有一个字段要更新（除了 isGlobal）
-      const fieldsToUpdate = Object.keys(updateData).filter(key => key !== 'isGlobal');
+      const fieldsToUpdate = Object.keys(updateData).filter(
+        (key) => key !== 'isGlobal',
+      );
       if (fieldsToUpdate.length === 0) {
         // 如果没有要更新的字段，直接返回当前记录
         const currentReply = await this.prisma.quickReply.findUnique({
@@ -492,11 +565,13 @@ export class QuickReplyService {
         return currentReply;
       }
 
-      return this.prisma.quickReply.update({
+      const updated = await this.prisma.quickReply.update({
         where: { id: replyId },
         data: updateData,
         include: { category: true },
       });
+      await this.clearUserCache(userId);
+      return updated;
     } catch (error: any) {
       // 处理 Prisma 的 NotFoundError (P2025)
       if (error.code === 'P2025') {
@@ -506,7 +581,6 @@ export class QuickReplyService {
       throw error;
     }
   }
-
 
   /**
    * 删除快捷回复 - 只能删除自己创建的回复
@@ -521,10 +595,12 @@ export class QuickReplyService {
       throw new ForbiddenException('只能删除自己创建的快捷回复');
     }
 
-    return this.prisma.quickReply.update({
+    const removed = await this.prisma.quickReply.update({
       where: { id: replyId },
       data: { deletedAt: new Date() },
     });
+    await this.clearUserCache(userId);
+    return removed;
   }
 
   // ========== 收藏管理 ==========
@@ -566,6 +642,7 @@ export class QuickReplyService {
         });
       }
     });
+    await this.clearUserCache(userId);
   }
 
   /**
@@ -576,6 +653,11 @@ export class QuickReplyService {
     page: number = 1,
     pageSize: number = 20,
   ) {
+    const cacheKey = `${this.cachePrefix}${userId}:favorites:${page}:${pageSize}`;
+    const cached = await this.cacheService.getJson<any>(cacheKey);
+    if (cached) {
+      return cached;
+    }
     const skip = (page - 1) * pageSize;
 
     const [data, total] = await Promise.all([
@@ -607,7 +689,7 @@ export class QuickReplyService {
       }),
     ]);
 
-    return {
+    const result = {
       data: data.map((fav) => ({
         ...fav.reply,
         isFavorited: true, // 收藏列表中的都是已收藏的
@@ -627,17 +709,22 @@ export class QuickReplyService {
    * 增加使用次数
    */
   async incrementUsage(replyId: string): Promise<void> {
-    await this.prisma.quickReply.update({
+    const updated = await this.prisma.quickReply.update({
       where: { id: replyId },
       data: {
         usageCount: { increment: 1 },
         lastUsedAt: new Date(),
       },
+      select: {
+        creatorId: true,
+      },
     });
+    if (updated?.creatorId) {
+      await this.clearUserCache(updated.creatorId);
+    }
   }
 
   // ========== 辅助方法 ==========
-
 
   /**
    * 构建排序条件

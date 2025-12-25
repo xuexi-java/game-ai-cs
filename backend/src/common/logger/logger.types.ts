@@ -56,7 +56,7 @@ export interface ResponseLogContext extends RequestLogContext {
 /**
  * 错误日志上下文
  * 符合 LOGGING_SPEC.md 第 6 节规范
- * 
+ *
  * 注意：traceId 和 userId 由 TraceService 自动注入，不需要手动传递
  */
 export interface ErrorLogContext {
@@ -82,7 +82,7 @@ export interface BusinessLogContext {
  * 符合《AI 日志修改宪法》第五节规范
  */
 export const SLOW_REQUEST_THRESHOLDS = {
-  DEBUG: 500,   // 500~1000ms 记录 DEBUG
-  WARN: 1000,   // 1000~3000ms 记录 WARN（限流）
-  ERROR: 3000,  // > 3000ms 记录 ERROR（不限流）
+  DEBUG: 500, // 500~1000ms 记录 DEBUG
+  WARN: 1000, // 1000~3000ms 记录 WARN（限流）
+  ERROR: 3000, // > 3000ms 记录 ERROR（不限流）
 } as const;

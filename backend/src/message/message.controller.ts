@@ -26,7 +26,7 @@ import { Public } from '../common/decorators/public.decorator';
 @ApiTags('messages')
 @Controller('messages')
 export class MessageController {
-  constructor(private readonly messageService: MessageService) { }
+  constructor(private readonly messageService: MessageService) {}
 
   // 玩家端API - 发送消息
   @Public()
@@ -70,12 +70,7 @@ export class MessageController {
     @Body() createMessageDto: CreateMessageDto,
     @CurrentUser() user: any,
   ) {
-    return this.messageService.create(
-      createMessageDto,
-      'AGENT',
-      user.id,
-      user,
-    );
+    return this.messageService.create(createMessageDto, 'AGENT', user.id, user);
   }
   // 翻译消息
   @Public()

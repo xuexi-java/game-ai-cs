@@ -9,22 +9,24 @@ import { v4 as uuidv4 } from 'uuid';
  */
 @Injectable()
 export class TraceService {
-  private readonly asyncLocalStorage = new AsyncLocalStorage<Map<string, any>>();
+  private readonly asyncLocalStorage = new AsyncLocalStorage<
+    Map<string, any>
+  >();
 
   /**
    * 启动一个新的追踪上下文
    * 自动生成 traceId
-   * 
+   *
    * 如果已存在上下文，则复用现有 store，避免重置 traceId
    */
   run<T>(callback: () => T): T {
     const existingStore = this.asyncLocalStorage.getStore();
-    
+
     // 如果已有上下文，直接执行回调，避免重置 traceId
     if (existingStore) {
       return callback();
     }
-    
+
     // 创建新的上下文
     const store = new Map<string, any>();
     store.set('traceId', uuidv4());
@@ -109,7 +111,7 @@ export class TraceService {
   getAll(): Record<string, any> {
     const store = this.asyncLocalStorage.getStore();
     if (!store) return {};
-    
+
     const result: Record<string, any> = {};
     store.forEach((value, key) => {
       result[key] = value;

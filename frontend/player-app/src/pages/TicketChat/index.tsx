@@ -3,16 +3,18 @@
  */
 import { useEffect, useState, useRef } from 'react';
 import { useParams } from 'react-router-dom';
-import { Input, Button, Spin, message as antdMessage, Tag } from 'antd';
-import { SendOutlined, CustomerServiceOutlined, UserOutlined } from '@ant-design/icons';
+import { Input, Button, Spin, message as antdMessage, Tag, Modal } from 'antd';
+import { SendOutlined, UserOutlined, CheckCircleOutlined } from '@ant-design/icons';
 import { io, Socket } from 'socket.io-client';
 import {
   getTicketByToken,
   getTicketMessagesByToken,
   sendTicketMessageByToken,
+  updateTicketStatus,
   type TicketMessage,
 } from '../../services/ticket.service';
 import { getSessionMessages } from '../../services/message.service';
+import { closeSession, getActiveSessionByTicket } from '../../services/session.service';
 import type { Message, TicketDetail } from '../../types';
 import MessageList from '../../components/Chat/MessageList';
 import { WS_URL, API_BASE_URL } from '../../config/api';
@@ -29,6 +31,9 @@ const TicketChatPage = () => {
   const [sending, setSending] = useState(false);
   const [wsConnected, setWsConnected] = useState(false);
   const [playerLanguage, setPlayerLanguage] = useState<string | undefined>(undefined);
+  const [showResolveModal, setShowResolveModal] = useState(false);
+  const [resolving, setResolving] = useState(false);
+  const [showExitModal, setShowExitModal] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const socketRef = useRef<Socket | null>(null);
   const tempMessageIdRef = useRef<string | null>(null); // 跟踪临时消息 ID
@@ -65,37 +70,17 @@ const TicketChatPage = () => {
     const loadData = async () => {
       setLoading(true);
       try {
-        // 并行加载工单和消息
-        const [ticketData, messagesData] = await Promise.all([
-          getTicketByToken(token),
-          getTicketMessagesByToken(token),
-        ]);
-
-        console.log('[工单聊天] 后端返回的工单数据:', {
-          ticketId: ticketData.id,
-          sessionsCount: ticketData.sessions?.length || 0,
-          sessions: ticketData.sessions,
-          fullTicketData: ticketData
-        });
-        console.log('[工单聊天] 后端返回的工单消息数据:', {
-          messagesCount: messagesData.length,
-          messages: messagesData
-        });
-
+        // 加载工单数据
+        const ticketData = await getTicketByToken(token);
         setTicket(ticketData);
 
-        // 尝试获取会话信息以获取玩家语言和会话消息
-        let sessionMessages: Message[] = [];
+        // ✅ 修复：优先使用会话消息，避免重复
+        let finalMessages: Message[] = [];
+        
         if (ticketData.sessions && ticketData.sessions.length > 0) {
           const session = ticketData.sessions[0];
-          console.log('[工单聊天] 会话数据:', {
-            sessionId: session.id,
-            status: session.status,
-            hasMessages: !!session.messages,
-            messagesCount: session.messages?.length || 0,
-            messages: session.messages
-          });
           
+          // 提取玩家语言
           if (session.metadata && typeof session.metadata === 'object') {
             const metadata = session.metadata as any;
             if (metadata.playerLanguage) {
@@ -103,10 +88,10 @@ const TicketChatPage = () => {
             }
           }
           
-          // ✅ 修复：同时加载会话消息（如果会话存在且有消息）
+          // 优先使用会话消息
           if (session.messages && Array.isArray(session.messages) && session.messages.length > 0) {
             // 将会话消息转换为 Message 格式
-            sessionMessages = session.messages.map((msg: any) => ({
+            finalMessages = session.messages.map((msg: any) => ({
               id: msg.id,
               sessionId: session.id,
               senderType: msg.senderType,
@@ -115,16 +100,12 @@ const TicketChatPage = () => {
               metadata: msg.metadata || {},
               createdAt: msg.createdAt,
             }));
-            console.log('[工单聊天] 转换后的会话消息:', sessionMessages);
           } else {
-            // ✅ 修复：如果后端没有返回消息，主动调用 API 获取会话消息
-            console.warn('[工单聊天] 会话数据中没有消息，尝试通过 API 获取:', {
-              sessionId: session.id
-            });
+            // 如果后端没有返回消息，主动调用 API 获取会话消息
             try {
               const apiMessages = await getSessionMessages(session.id);
               if (apiMessages && apiMessages.length > 0) {
-                sessionMessages = apiMessages.map((msg: any) => ({
+                finalMessages = apiMessages.map((msg: any) => ({
                   id: msg.id,
                   sessionId: session.id,
                   senderType: msg.senderType,
@@ -133,37 +114,25 @@ const TicketChatPage = () => {
                   metadata: msg.metadata || {},
                   createdAt: msg.createdAt,
                 }));
-                console.log('[工单聊天] 通过 API 获取的会话消息:', sessionMessages);
-              } else {
-                console.warn('[工单聊天] API 返回的会话消息为空');
               }
             } catch (error) {
               console.error('[工单聊天] 获取会话消息失败:', error);
             }
           }
-        } else {
-          console.warn('[工单聊天] 工单没有关联的会话');
         }
 
-        // 转换工单消息格式
-        const convertedTicketMessages = messagesData.map(convertTicketMessageToMessage);
+        // 如果没有会话消息，才加载工单消息
+        if (finalMessages.length === 0) {
+          const ticketMessages = await getTicketMessagesByToken(token);
+          finalMessages = ticketMessages.map(convertTicketMessageToMessage);
+        }
         
-        // ✅ 修复：合并会话消息和工单消息，去重并按时间排序
-        const allMessages = [...sessionMessages, ...convertedTicketMessages];
-        const uniqueMessages = allMessages.filter(
-          (msg, index, self) => index === self.findIndex((m) => m.id === msg.id)
-        );
-        const sortedMessages = uniqueMessages.sort(
+        // 按时间排序
+        finalMessages.sort(
           (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
         );
         
-        console.log('[工单聊天] 加载消息完成:', {
-          会话消息数: sessionMessages.length,
-          工单消息数: convertedTicketMessages.length,
-          合并后总数: sortedMessages.length
-        });
-        
-        setMessages(sortedMessages);
+        setMessages(finalMessages);
       } catch (error: any) {
         console.error('加载数据失败:', error);
         antdMessage.error(error?.response?.data?.message || '加载数据失败，请刷新重试');
@@ -190,7 +159,6 @@ const TicketChatPage = () => {
     socketRef.current = socket;
 
     socket.on('connect', () => {
-      console.log('WebSocket 连接成功（工单）');
       setWsConnected(true);
       // 加入工单房间
       socket.emit('join-ticket', { ticketId: ticket.id });
@@ -202,7 +170,6 @@ const TicketChatPage = () => {
     });
 
     socket.on('disconnect', (reason) => {
-      console.log('WebSocket 断开连接:', reason);
       setWsConnected(false);
     });
 
@@ -214,7 +181,6 @@ const TicketChatPage = () => {
         // 检查是否已存在该消息（避免重复）- 使用 ID 和内容双重检查
         const existsById = prev.some((msg) => msg.id === convertedMessage.id);
         if (existsById) {
-          console.log('消息已存在，跳过:', convertedMessage.id);
           return prev;
         }
 
@@ -228,7 +194,6 @@ const TicketChatPage = () => {
               tempMsg.content === convertedMessage.content &&
               tempMsg.senderType === convertedMessage.senderType
             ) {
-              console.log('替换临时消息:', tempMessageIdRef.current, '->', convertedMessage.id);
               tempMessageIdRef.current = null;
               return prev.map((msg, index) =>
                 index === tempIndex ? convertedMessage : msg
@@ -245,19 +210,16 @@ const TicketChatPage = () => {
             Math.abs(new Date(msg.createdAt).getTime() - new Date(convertedMessage.createdAt).getTime()) < 5000 // 5秒内的相同消息视为重复
         );
         if (existsByContent) {
-          console.log('检测到重复消息（内容相同），跳过');
           return prev;
         }
 
         // 添加新消息
-        console.log('添加新消息:', convertedMessage.id);
         return [...prev, convertedMessage];
       });
     });
 
     // 监听工单状态更新
     socket.on('ticket-update', (data: Partial<TicketDetail>) => {
-      console.log('工单状态更新:', data);
       setTicket((prev) => {
         if (!prev) return null;
         return { ...prev, ...data };
@@ -266,14 +228,12 @@ const TicketChatPage = () => {
 
     // 监听会话状态更新（如果工单关联了会话）
     socket.on('session-update', (sessionData: any) => {
-      console.log('会话状态更新:', sessionData);
       if (sessionData.status === 'CLOSED') {
         setTicket((prev) => (prev ? { ...prev, status: 'RESOLVED' } : null));
       }
     });
 
     return () => {
-      console.log('清理 WebSocket 连接（工单）');
       if (socketRef.current) {
         socketRef.current.disconnect();
         socketRef.current = null;
@@ -302,49 +262,87 @@ const TicketChatPage = () => {
     }
   }, [messages]);
 
-  const handleExitSession = async () => {
+  const handleExitClick = () => {
+    // 显示退出确认 Modal
+    setShowExitModal(true);
+  };
+
+  const handleConfirmExit = async () => {
     if (!ticket?.id) return;
 
     try {
-      // 先尝试从工单数据中获取会话ID
+      // 直接断开 WebSocket 并返回主页，不关闭工单
+      if (socketRef.current) {
+        socketRef.current.disconnect();
+        socketRef.current = null;
+      }
+      
+      antdMessage.info('返回主页');
+      setTimeout(() => {
+        window.location.href = '/identity-check';
+      }, 500);
+    } catch (error) {
+      console.error('返回主页失败:', error);
+      antdMessage.error('操作失败');
+    } finally {
+      setShowExitModal(false);
+    }
+  };
+
+  const handleResolveTicket = async () => {
+    if (!ticket?.id) return;
+
+    setResolving(true);
+    try {
+      // 1. 先尝试从工单数据中获取会话ID
       let sessionId = ticket.sessions?.[0]?.id;
 
-      // 如果没有找到，通过工单ID查找活跃会话
+      // 2. 如果没有找到，通过 API 查询活跃会话
       if (!sessionId) {
-        const response = await fetch(`${API_BASE_URL}/sessions/by-ticket/${ticket.id}/active`);
-        if (response.ok) {
-          const activeSession = await response.json();
+        try {
+          const activeSession = await getActiveSessionByTicket(ticket.id);
           sessionId = activeSession?.id;
+        } catch (error) {
+          // 查询失败，将直接更新工单状态
         }
       }
 
+      // 3. 如果有活跃会话，调用 close-player 接口（会同时关闭会话和更新工单）
       if (sessionId) {
-        // 调用退出会话API
-        const response = await fetch(`${API_BASE_URL}/sessions/${sessionId}/close-player`, {
-          method: 'PATCH',
-        });
-
-        if (response.ok) {
-          // 系统消息会通过 WebSocket 自动推送，不需要手动添加
-          antdMessage.success('已退出会话');
-          // 返回主页
-          setTimeout(() => {
-            window.location.href = '/identity-check';
-          }, 1000);
-        } else {
-          const errorData = await response.json().catch(() => ({}));
-          antdMessage.error(errorData.message || '退出会话失败');
+        await closeSession(sessionId);
+        antdMessage.success('工单已关闭');
+        
+        // 断开 WebSocket 连接并返回主页
+        if (socketRef.current) {
+          socketRef.current.disconnect();
+          socketRef.current = null;
         }
-      } else {
-        // 如果没有活跃会话，直接返回主页
-        antdMessage.info('返回主页');
+        
         setTimeout(() => {
           window.location.href = '/identity-check';
-        }, 500);
+        }, 1000);
+      } else {
+        // 4. 如果没有活跃会话（客服不在线），直接更新工单状态
+        await updateTicketStatus(ticket.id, 'RESOLVED');
+        antdMessage.success('工单已关闭');
+        
+        // 断开 WebSocket 连接并返回主页
+        if (socketRef.current) {
+          socketRef.current.disconnect();
+          socketRef.current = null;
+        }
+        
+        setTimeout(() => {
+          window.location.href = '/identity-check';
+        }, 1000);
       }
-    } catch (error) {
-      console.error('退出会话失败:', error);
-      antdMessage.error('退出会话失败');
+
+      setShowResolveModal(false);
+    } catch (error: any) {
+      console.error('关闭工单失败:', error);
+      antdMessage.error(error?.message || error?.response?.data?.message || '关闭失败，请重试');
+    } finally {
+      setResolving(false);
     }
   };
 
@@ -449,9 +447,19 @@ const TicketChatPage = () => {
           </div>
         </div>
         <div className="header-actions">
+          {ticket.status !== 'RESOLVED' && (
+            <Button
+              type="primary"
+              icon={<CheckCircleOutlined />}
+              onClick={() => setShowResolveModal(true)}
+              style={{ marginRight: 8 }}
+            >
+              问题已解决
+            </Button>
+          )}
           <Button
-            type="text"
-            onClick={handleExitSession}
+            type="default"
+            onClick={handleExitClick}
             style={{ marginRight: 8 }}
           >
             返回主页
@@ -527,6 +535,37 @@ const TicketChatPage = () => {
           />
         </div>
       </footer>
+
+      {/* 确认关闭工单 Modal */}
+      <Modal
+        title="确认关闭工单"
+        open={showResolveModal}
+        onOk={handleResolveTicket}
+        onCancel={() => setShowResolveModal(false)}
+        confirmLoading={resolving}
+        okText="确认关闭"
+        cancelText="取消"
+      >
+        <p>确认您的问题已经解决了吗？</p>
+        <p style={{ color: '#666', fontSize: '14px' }}>
+          关闭后，工单将标记为已解决状态，您将无法继续发送消息。
+        </p>
+      </Modal>
+
+      {/* 退出确认 Modal */}
+      <Modal
+        title="返回主页"
+        open={showExitModal}
+        onOk={handleConfirmExit}
+        onCancel={() => setShowExitModal(false)}
+        okText="确认"
+        cancelText="取消"
+      >
+        <p>确认要返回主页吗？</p>
+        <p style={{ color: '#666', fontSize: '14px' }}>
+          您的工单将保持开启状态，客服可能会继续回复您的问题。
+        </p>
+      </Modal>
     </div>
   );
 };

@@ -36,7 +36,11 @@ export class AuthService {
     }
 
     // 检查是否是 bcrypt 哈希密码
-    if (user.password.startsWith('$2b$') || user.password.startsWith('$2a$') || user.password.startsWith('$2y$')) {
+    if (
+      user.password.startsWith('$2b$') ||
+      user.password.startsWith('$2a$') ||
+      user.password.startsWith('$2y$')
+    ) {
       try {
         isPasswordValid = await bcrypt.compare(password, user.password);
       } catch (error) {

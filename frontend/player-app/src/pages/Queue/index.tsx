@@ -28,7 +28,6 @@ const QueuePage = () => {
     const loadSession = async () => {
       try {
         const sessionData = await getSession(sessionId);
-        console.log('排队页面加载会话:', sessionData);
         setSession(sessionData);
         
         // 如果会话已关闭（转为工单），不需要显示排队信息
@@ -38,7 +37,6 @@ const QueuePage = () => {
         
         // 如果会话状态为 IN_PROGRESS，说明客服已接入，立即跳转到聊天页面
         if (sessionData.status === 'IN_PROGRESS') {
-          console.log('检测到会话状态为 IN_PROGRESS，跳转到聊天页面');
           // 立即跳转，使用 replace 避免返回时回到排队页面
           navigate(`/chat/${sessionId}`, { replace: true });
           return;
@@ -65,12 +63,10 @@ const QueuePage = () => {
     });
 
     newSocket.on('connect', () => {
-      console.log('排队页面 WebSocket 已连接，加入会话房间:', sessionId);
       newSocket.emit('join-session', { sessionId });
     });
 
     newSocket.on('disconnect', () => {
-      console.log('排队页面 WebSocket 已断开连接');
     });
 
     newSocket.on('connect_error', (error) => {
@@ -87,7 +83,6 @@ const QueuePage = () => {
     });
 
     newSocket.on('session-update', (sessionData) => {
-      console.log('排队页面收到会话更新:', sessionData);
       // 更新会话状态
       setSession(sessionData);
       updateSession(sessionData);
@@ -102,7 +97,6 @@ const QueuePage = () => {
       
       // 如果会话状态为 IN_PROGRESS，说明客服已接入，立即跳转到聊天页面
       if (sessionData.status === 'IN_PROGRESS') {
-        console.log('客服已接入，跳转到聊天页面');
         // 立即跳转，使用 replace 避免返回时回到排队页面
         navigate(`/chat/${sessionId}`, { replace: true });
       }

@@ -15,7 +15,7 @@ async function bootstrap() {
   // 创建临时 TraceService 和 LoggerService 用于框架日志
   const tempTraceService = new TraceService();
   const tempLoggerService = new LoggerService();
-  
+
   const app = await NestFactory.create(AppModule, {
     logger: AppLogger.createGlobal(tempTraceService, tempLoggerService),
     bufferLogs: true, // 缓冲日志，等待应用启动后再输出
@@ -24,6 +24,7 @@ async function bootstrap() {
   // 使用依赖注入的 AppLogger（已正确注入 LoggerService）
   const logger = app.get(AppLogger);
   app.useLogger(logger); // 替换临时 logger
+  app.enableShutdownHooks();
 
   // 全局验证管道
   app.useGlobalPipes(
@@ -130,23 +131,23 @@ async function bootstrap() {
   };
 
   // 管理端：仅保留需要鉴权的接口（operation.security 存在且非空）
-  const adminConfig = buildDoc('AI客服系统 - 管理端API', 'AI客服系统管理端后端API文档（需要认证）');
+  const adminConfig = buildDoc(
+    'AI客服系统 - 管理端API',
+    'AI客服系统管理端后端API文档（需要认证）',
+  );
   const adminDocument = SwaggerModule.createDocument(app, adminConfig, {
     operationIdFactory: (controllerKey: string, methodKey: string) =>
       `${controllerKey}_${methodKey}`,
   });
   const adminFilteredDocument = {
     ...adminDocument,
-    paths: filterPaths(
-      adminDocument.paths,
-      (operation) => {
-        const tags: string[] = operation.tags || [];
-        // 保留需要鉴权的接口，或者标记为管理端认证的接口（登录/登出）
-        if (operation.security && operation.security.length > 0) return true;
-        if (tags.includes('admin-auth') || tags.includes('auth')) return true;
-        return false;
-      },
-    ),
+    paths: filterPaths(adminDocument.paths, (operation) => {
+      const tags: string[] = operation.tags || [];
+      // 保留需要鉴权的接口，或者标记为管理端认证的接口（登录/登出）
+      if (operation.security && operation.security.length > 0) return true;
+      if (tags.includes('admin-auth') || tags.includes('auth')) return true;
+      return false;
+    }),
   };
   SwaggerModule.setup('api/v1/docs/admin', app, adminFilteredDocument, {
     swaggerOptions: {
@@ -157,25 +158,25 @@ async function bootstrap() {
   });
 
   // 玩家端：仅保留无需鉴权的接口（无 security 或空数组）
-  const playerConfig = buildDoc('AI客服系统 - 玩家端API', 'AI客服系统玩家端后端API文档（无需认证）');
+  const playerConfig = buildDoc(
+    'AI客服系统 - 玩家端API',
+    'AI客服系统玩家端后端API文档（无需认证）',
+  );
   const playerDocument = SwaggerModule.createDocument(app, playerConfig, {
     operationIdFactory: (controllerKey: string, methodKey: string) =>
       `${controllerKey}_${methodKey}`,
   });
   const playerFilteredDocument = {
     ...playerDocument,
-    paths: filterPaths(
-      playerDocument.paths,
-      (operation) => {
-        const tags: string[] = operation.tags || [];
+    paths: filterPaths(playerDocument.paths, (operation) => {
+      const tags: string[] = operation.tags || [];
 
-        // åŽ»æŽ‰ç®¡ç†ç«¯ç”¨æˆ·é‰´æƒç±»æŽ¥å£ï¼ˆauth ç±» tag ä»…çŽ°åœ¨ admin-authï¼‰
-        if (tags.includes('admin-auth') || tags.includes('auth')) return false;
+      // åŽ»æŽ‰ç®¡ç†ç«¯ç”¨æˆ·é‰´æƒç±»æŽ¥å£ï¼ˆauth ç±» tag ä»…çŽ°åœ¨ admin-authï¼‰
+      if (tags.includes('admin-auth') || tags.includes('auth')) return false;
 
-        // ä¿ç•™æ— éœ€é‰´æƒçš„æŽ¥å£
-        return !operation.security || operation.security.length === 0;
-      },
-    ),
+      // ä¿ç•™æ— éœ€é‰´æƒçš„æŽ¥å£
+      return !operation.security || operation.security.length === 0;
+    }),
   };
   SwaggerModule.setup('api/v1/docs/player', app, playerFilteredDocument, {
     swaggerOptions: {
@@ -190,10 +191,10 @@ async function bootstrap() {
   const host = process.env.HOST || 'localhost';
   const protocol = process.env.NODE_ENV === 'production' ? 'https' : 'http';
   const baseUrl = `${protocol}://${host}:${port}`;
-  
+
   // 设置 logger 的 context
   logger.setContext('Bootstrap');
-  
+
   logger.log(`🚀 后端服务运行在 ${baseUrl}`);
   logger.log(`📚 Swagger 管理端文档: ${baseUrl}/api/v1/docs/admin`);
   logger.log(`📚 Swagger 玩家端文档: ${baseUrl}/api/v1/docs/player`);

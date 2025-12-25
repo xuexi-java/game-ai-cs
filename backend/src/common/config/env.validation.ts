@@ -41,6 +41,54 @@ class EnvironmentVariables {
 
   @IsOptional()
   @IsString()
+  METRICS_KEY?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  CACHE_ENABLED?: boolean;
+
+  @IsOptional()
+  @IsNumber()
+  CACHE_CONFIG_TTL_SECONDS?: number;
+
+  @IsOptional()
+  @IsNumber()
+  CACHE_QUICK_REPLY_TTL_SECONDS?: number;
+
+  @IsOptional()
+  @IsNumber()
+  CACHE_JITTER_PCT?: number;
+
+  @IsOptional()
+  @IsNumber()
+  DASHBOARD_CACHE_TTL_SECONDS?: number;
+
+  @IsOptional()
+  @IsNumber()
+  DASHBOARD_SNAPSHOT_TTL_SECONDS?: number;
+
+  @IsOptional()
+  @IsNumber()
+  DASHBOARD_DEGRADED_TTL_SECONDS?: number;
+
+  @IsOptional()
+  @IsNumber()
+  DASHBOARD_DEGRADE_EVENT_LOOP_MS?: number;
+
+  @IsOptional()
+  @IsNumber()
+  DASHBOARD_DEGRADE_CPU_LOAD_RATIO?: number;
+
+  @IsOptional()
+  @IsNumber()
+  DASHBOARD_DEGRADE_QUERY_MS?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  DASHBOARD_DEGRADED?: boolean;
+
+  @IsOptional()
+  @IsString()
   UPLOAD_DIR?: string;
 
   @IsOptional()

@@ -2,7 +2,8 @@ import { Module } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { ServeStaticModule } from '@nestjs/serve-static';
-import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
+import { ThrottlerModule } from '@nestjs/throttler';
+import { ThrottlerStorageRedisService } from 'nestjs-throttler-storage-redis';
 import { join, isAbsolute } from 'path';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
@@ -27,7 +28,13 @@ import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { RedisModule } from './redis/redis.module';
 import { EncryptionModule } from './common/encryption/encryption.module';
+import { CacheModule } from './common/cache/cache.module';
 import { validate } from './common/config/env.validation';
+import { AppThrottlerGuard } from './common/guards/app-throttler.guard';
+import {
+  getDifyThrottleKey,
+  isDifyHttpRequest,
+} from './common/guards/throttle-keys';
 // import { MetricsModule } from './metrics/metrics.module'; // disabled for fast release
 
 @Module({
@@ -36,17 +43,46 @@ import { validate } from './common/config/env.validation';
     LoggerModule,
     RedisModule,
     EncryptionModule,
-    ThrottlerModule.forRoot([
-      {
-        ttl: 60000, // 时间窗口：60秒（1分钟）
-        limit: 10000, // 每个IP在1分钟内最多10000次请求
+    CacheModule,
+    ThrottlerModule.forRootAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (configService: ConfigService) => {
+        const redisUrl = configService.get<string>('REDIS_URL');
+        const redisHost =
+          configService.get<string>('REDIS_HOST') || 'localhost';
+        const redisPort = configService.get<number>('REDIS_PORT') || 6379;
+        const storage = redisUrl
+          ? new ThrottlerStorageRedisService(redisUrl)
+          : new ThrottlerStorageRedisService({
+              host: redisHost,
+              port: redisPort,
+            });
+
+        return {
+          throttlers: [
+            {
+              ttl: 60000,
+              limit: 200,
+            },
+            {
+              name: 'dify-api',
+              ttl: 60000,
+              limit: 100,
+              getTracker: getDifyThrottleKey,
+              skipIf: (context) => {
+                if (context.getType() !== 'http') {
+                  return true;
+                }
+                const req = context.switchToHttp().getRequest();
+                return !isDifyHttpRequest(req);
+              },
+            },
+          ],
+          storage,
+        };
       },
-      {
-        name: 'dify-api', // 针对 Dify API 的严格限制
-        ttl: 60000, // 60秒（1分钟）
-        limit: 3000, // 每个IP在1分钟内最多3000次 Dify API 调用
-      },
-    ]),
+    }),
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: ['.env'],
@@ -93,7 +129,7 @@ import { validate } from './common/config/env.validation';
     HttpExceptionFilter,
     {
       provide: APP_GUARD,
-      useClass: ThrottlerGuard,
+      useClass: AppThrottlerGuard,
     },
   ],
 })

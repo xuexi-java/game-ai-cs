@@ -1,20 +1,50 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   CreateUrgencyRuleDto,
   UpdateUrgencyRuleDto,
 } from './dto/create-urgency-rule.dto';
+import { CacheService } from '../common/cache/cache.service';
 
 @Injectable()
 export class UrgencyRuleService {
-  constructor(private prisma: PrismaService) {}
+  private readonly cachePrefix = 'cache:urgency-rule:';
+  private readonly cacheTtlSeconds: number;
+
+  constructor(
+    private prisma: PrismaService,
+    private readonly cacheService: CacheService,
+    private readonly configService: ConfigService,
+  ) {
+    const ttl = Number(
+      this.configService.get<number>('CACHE_CONFIG_TTL_SECONDS') ?? 900,
+    );
+    this.cacheTtlSeconds = Number.isFinite(ttl) && ttl > 0 ? ttl : 900;
+  }
+
+  private async clearCache() {
+    await this.cacheService.delByPrefix(this.cachePrefix);
+  }
+
+  private async getEnabledRules() {
+    const cacheKey = `${this.cachePrefix}enabled`;
+    return this.cacheService.getOrSet(cacheKey, this.cacheTtlSeconds, () =>
+      this.prisma.urgencyRule.findMany({
+        where: { enabled: true, deletedAt: null },
+      }),
+    );
+  }
 
   // 获取所有规则
   async findAll() {
-    return this.prisma.urgencyRule.findMany({
-      where: { deletedAt: null },
-      orderBy: { createdAt: 'desc' },
-    });
+    const cacheKey = `${this.cachePrefix}all`;
+    return this.cacheService.getOrSet(cacheKey, this.cacheTtlSeconds, () =>
+      this.prisma.urgencyRule.findMany({
+        where: { deletedAt: null },
+        orderBy: { createdAt: 'desc' },
+      }),
+    );
   }
 
   // 获取单个规则
@@ -32,18 +62,20 @@ export class UrgencyRuleService {
 
   // 创建规则
   async create(createUrgencyRuleDto: CreateUrgencyRuleDto) {
-    return this.prisma.urgencyRule.create({
+    const created = await this.prisma.urgencyRule.create({
       data: {
         ...createUrgencyRuleDto,
         conditions: createUrgencyRuleDto.conditions as any,
       },
     });
+    await this.clearCache();
+    return created;
   }
 
   // 更新规则
   async update(id: string, updateUrgencyRuleDto: UpdateUrgencyRuleDto) {
     await this.findOne(id);
-    return this.prisma.urgencyRule.update({
+    const updated = await this.prisma.urgencyRule.update({
       where: { id },
       data: {
         ...updateUrgencyRuleDto,
@@ -52,15 +84,19 @@ export class UrgencyRuleService {
           : undefined,
       },
     });
+    await this.clearCache();
+    return updated;
   }
 
   // 删除规则
   async remove(id: string) {
     await this.findOne(id);
-    return this.prisma.urgencyRule.update({
+    const removed = await this.prisma.urgencyRule.update({
       where: { id },
       data: { deletedAt: new Date() },
     });
+    await this.clearCache();
+    return removed;
   }
 
   // 重新计算队列排序
@@ -70,9 +106,7 @@ export class UrgencyRuleService {
       include: { ticket: true },
     });
 
-    const rules = await this.prisma.urgencyRule.findMany({
-      where: { enabled: true, deletedAt: null },
-    });
+    const rules = await this.getEnabledRules();
 
     for (const session of queuedSessions) {
       let totalScore = 0;

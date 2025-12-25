@@ -5,6 +5,7 @@ import {
   httpRequestDurationHistogram,
   wsConnectionsGauge,
   wsMessagesCounter,
+  rateLimitRejectedCounter,
   queueLengthGauge,
   queueWaitTimeHistogram,
 } from './queue.metrics';
@@ -93,38 +94,94 @@ export class MetricsService implements OnModuleInit {
   }
 
   // ========== HTTP/WS 指标方法 (使用 queue.metrics.ts 中的指标) ==========
-  recordHttpRequest(method: string, path: string, statusCode: number, duration: number) {
+  recordHttpRequest(
+    method: string,
+    path: string,
+    statusCode: number,
+    duration: number,
+  ) {
     const normalizedPath = this.normalizePath(path);
-    httpRequestsCounter.inc({ method, route: normalizedPath, status_code: String(statusCode) });
-    httpRequestDurationHistogram.observe({ method, route: normalizedPath }, duration);
+    httpRequestsCounter.inc({
+      method,
+      route: normalizedPath,
+      status_code: String(statusCode),
+    });
+    httpRequestDurationHistogram.observe(
+      { method, route: normalizedPath },
+      duration,
+    );
   }
 
-  incWsConnection(type: string) { wsConnectionsGauge.inc({ client_type: type }); }
-  decWsConnection(type: string) { wsConnectionsGauge.dec({ client_type: type }); }
-  recordWsMessage(direction: string) { wsMessagesCounter.inc({ direction }); }
+  incWsConnection(type: string) {
+    wsConnectionsGauge.inc({ client_type: type });
+  }
+  decWsConnection(type: string) {
+    wsConnectionsGauge.dec({ client_type: type });
+  }
+  recordWsMessage(direction: string) {
+    wsMessagesCounter.inc({ direction });
+  }
+
+  recordRateLimitRejected(
+    type: 'http' | 'ws',
+    endpoint: string,
+    role?: string,
+  ) {
+    const normalizedEndpoint =
+      type === 'http' ? this.normalizePath(endpoint) : endpoint;
+    rateLimitRejectedCounter.inc({
+      type,
+      endpoint: normalizedEndpoint || 'unknown',
+      user_role: role || 'unknown',
+    });
+  }
 
   // ========== 业务指标方法 ==========
-  recordTicketCreated(priority: string) { this.ticketsCreatedTotal.inc({ priority }); }
-  recordTicketResolved(resolutionType: string) { this.ticketsResolvedTotal.inc({ resolution_type: resolutionType }); }
-  setActiveTickets(status: string, count: number) { this.ticketsActiveGauge.set({ status }, count); }
-  setActiveSessions(count: number) { this.sessionsActiveGauge.set(count); }
-  recordMessage(senderType: string, messageType: string) { this.messagesTotal.inc({ sender_type: senderType, message_type: messageType }); }
+  recordTicketCreated(priority: string) {
+    this.ticketsCreatedTotal.inc({ priority });
+  }
+  recordTicketResolved(resolutionType: string) {
+    this.ticketsResolvedTotal.inc({ resolution_type: resolutionType });
+  }
+  setActiveTickets(status: string, count: number) {
+    this.ticketsActiveGauge.set({ status }, count);
+  }
+  setActiveSessions(count: number) {
+    this.sessionsActiveGauge.set(count);
+  }
+  recordMessage(senderType: string, messageType: string) {
+    this.messagesTotal.inc({
+      sender_type: senderType,
+      message_type: messageType,
+    });
+  }
 
   recordDifyRequest(endpoint: string, status: string, duration: number) {
     this.difyRequestsTotal.inc({ endpoint, status });
-    if (status === 'success') this.difyRequestDuration.observe({ endpoint }, duration);
+    if (status === 'success')
+      this.difyRequestDuration.observe({ endpoint }, duration);
   }
 
   // ========== 队列指标方法 (使用 queue.metrics.ts 中的指标) ==========
-  setQueueLength(queueType: string, length: number) { queueLengthGauge.set({ queue_type: queueType }, length); }
-  recordQueueWaitTime(queueType: string, waitTime: number) { queueWaitTimeHistogram.observe({ queue_type: queueType }, waitTime); }
+  setQueueLength(queueType: string, length: number) {
+    queueLengthGauge.set({ queue_type: queueType }, length);
+  }
+  recordQueueWaitTime(queueType: string, waitTime: number) {
+    queueWaitTimeHistogram.observe({ queue_type: queueType }, waitTime);
+  }
 
-  recordDbQuery(operation: string, duration: number) { this.dbQueryDuration.observe({ operation }, duration); }
+  recordDbQuery(operation: string, duration: number) {
+    this.dbQueryDuration.observe({ operation }, duration);
+  }
 
   private normalizePath(path: string): string {
     return path.replace(/\/[0-9a-f-]{36}/gi, '/:id').replace(/\/\d+/g, '/:id');
   }
 
-  getMetrics(): Promise<string> { return client.register.metrics(); }
-  getContentType(): string { return client.register.contentType; }
+  getMetrics(): Promise<string> {
+    return client.register.metrics();
+  }
+  getContentType(): string {
+    return client.register.contentType;
+  }
 }

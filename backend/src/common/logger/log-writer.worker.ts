@@ -72,7 +72,10 @@ class LogWriterWorker {
 
   private initStreams() {
     const combinedPath = join(this.logDir, `backend-${this.currentDate}.log`);
-    const errorPath = join(this.logDir, `backend-${this.currentDate}.error.log`);
+    const errorPath = join(
+      this.logDir,
+      `backend-${this.currentDate}.error.log`,
+    );
 
     // 关闭旧流
     this.closeStreams();
@@ -148,7 +151,11 @@ class LogWriterWorker {
       } catch (error) {
         console.error(`[LogWriter Worker] Error handling ${msg.type}:`, error);
         if (msg.id) {
-          parentPort?.postMessage({ type: 'error', id: msg.id, error: String(error) });
+          parentPort?.postMessage({
+            type: 'error',
+            id: msg.id,
+            error: String(error),
+          });
         }
       }
     });
@@ -180,7 +187,10 @@ class LogWriterWorker {
     }
   }
 
-  private writeToStream(stream: NodeJS.WritableStream, content: string): Promise<void> {
+  private writeToStream(
+    stream: NodeJS.WritableStream,
+    content: string,
+  ): Promise<void> {
     return new Promise((resolve, reject) => {
       const canContinue = stream.write(content, 'utf8', (err) => {
         if (err) reject(err);

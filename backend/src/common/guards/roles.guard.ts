@@ -5,14 +5,14 @@ import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
 
 @Injectable()
 export class RolesGuard implements CanActivate {
-  constructor(private reflector: Reflector) { }
+  constructor(private reflector: Reflector) {}
 
   canActivate(context: ExecutionContext): boolean {
     // 检查是否为公开接口
-    const isPublic = this.reflector.getAllAndOverride<boolean>(
-      IS_PUBLIC_KEY,
-      [context.getHandler(), context.getClass()],
-    );
+    const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
 
     if (isPublic) {
       return true;

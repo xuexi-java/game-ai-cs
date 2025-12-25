@@ -31,7 +31,10 @@ export class QueueSchedulerService {
     try {
       await this.queueService.syncQueueToDatabase();
     } catch (error) {
-      this.logger.error(`同步队列数据到数据库失败: ${error.message}`, error.stack);
+      this.logger.error(
+        `同步队列数据到数据库失败: ${error.message}`,
+        error.stack,
+      );
     }
   }
 
@@ -67,7 +70,7 @@ export class QueueSchedulerService {
 
       let fixedCount = 0;
       let failedCount = 0;
-      
+
       for (const session of queuedSessions) {
         if (!session.queuedAt) continue;
 
@@ -95,7 +98,7 @@ export class QueueSchedulerService {
               session.queuedAt,
             );
           }
-          
+
           if (success) {
             fixedCount++;
           } else {
@@ -122,4 +125,3 @@ export class QueueSchedulerService {
     }
   }
 }
-

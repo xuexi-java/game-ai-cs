@@ -23,11 +23,6 @@ export const useSessionStore = create<SessionState>((set) => ({
   setSession: (session) => {
     // 确保消息按时间排序并去重
     let messages = Array.isArray(session.messages) ? session.messages : [];
-    console.log('[sessionStore] setSession 调用:', {
-      sessionId: session.id,
-      inputMessageCount: messages.length,
-      messages: messages
-    });
     // 按时间排序
     messages = messages.sort(
       (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
@@ -36,9 +31,6 @@ export const useSessionStore = create<SessionState>((set) => ({
     const uniqueMessages = messages.filter(
       (msg, index, self) => index === self.findIndex((m) => m.id === msg.id)
     );
-    console.log('[sessionStore] setSession 完成:', {
-      uniqueMessageCount: uniqueMessages.length
-    });
     set({
       session: {
         ...session,
@@ -104,18 +96,11 @@ export const useSessionStore = create<SessionState>((set) => ({
 
   updateSession: (updates) => {
     set((state) => {
-      console.log('[sessionStore] updateSession 调用:', {
-        hasMessages: !!updates.messages,
-        messageCount: updates.messages?.length || 0,
-        currentMessageCount: state.messages.length
-      });
-      
       // ✅ 修复：如果传入的 messages 是空数组，不应该清空现有消息
       if (updates.messages !== undefined) {
         if (Array.isArray(updates.messages)) {
           // 如果传入空数组，保留现有消息（可能是会话更新但消息列表为空）
           if (updates.messages.length === 0 && state.messages.length > 0) {
-            console.log('[sessionStore] updateSession: 收到空消息数组，保留现有消息');
             return {
               session: state.session ? { ...state.session, ...updates } : null,
               messages: state.messages, // 保留现有消息
@@ -136,10 +121,6 @@ export const useSessionStore = create<SessionState>((set) => ({
             (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
           );
 
-          console.log('[sessionStore] updateSession 完成（合并消息）:', {
-            mergedMessageCount: sortedMessages.length
-          });
-
           return {
             session: state.session ? { ...state.session, ...updates } : null,
             messages: sortedMessages,
@@ -148,7 +129,6 @@ export const useSessionStore = create<SessionState>((set) => ({
       }
 
       // If no messages in update, just update session fields
-      console.log('[sessionStore] updateSession 完成（只更新session）');
       return {
         session: state.session ? { ...state.session, ...updates } : null,
         messages: state.messages, // ✅ 修复：保留现有消息

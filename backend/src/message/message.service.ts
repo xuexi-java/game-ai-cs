@@ -1,9 +1,16 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateMessageDto } from './dto/create-message.dto';
 import { SenderType, MessageType } from '@prisma/client';
 import { TranslationService } from '../shared/translation/translation.service';
-import { SessionMetadata, MessageMetadata } from '../common/types/metadata.types';
+import {
+  SessionMetadata,
+  MessageMetadata,
+} from '../common/types/metadata.types';
 import { AppLogger } from '../common/logger/app-logger.service';
 
 @Injectable()
@@ -65,14 +72,14 @@ export class MessageService {
       include: {
         ...(senderType === 'AGENT' && senderId
           ? {
-            agent: {
-              select: {
-                id: true,
-                username: true,
-                realName: true,
+              agent: {
+                select: {
+                  id: true,
+                  username: true,
+                  realName: true,
+                },
               },
-            },
-          }
+            }
           : {}),
         session: true, // 加载 session 以获取 metadata
       },
@@ -84,20 +91,33 @@ export class MessageService {
     }
 
     // 自动翻译：如果是 AI 或 客服发出的消息，且已知玩家语言非中文，自动翻译给玩家
-    if ((senderType === 'AI' || senderType === 'AGENT') && createdMessage.messageType === 'TEXT') {
-      const sessionMeta = (createdMessage.session?.metadata || {}) as SessionMetadata;
+    if (
+      (senderType === 'AI' || senderType === 'AGENT') &&
+      createdMessage.messageType === 'TEXT'
+    ) {
+      const sessionMeta = (createdMessage.session?.metadata ||
+        {}) as SessionMetadata;
       const playerLang = sessionMeta.playerLanguage;
 
-      this.logger.debug(`[AutoTranslate] Checking message ${createdMessage.id} from ${senderType}. PlayerLang: ${playerLang}`);
+      this.logger.debug(
+        `[AutoTranslate] Checking message ${createdMessage.id} from ${senderType}. PlayerLang: ${playerLang}`,
+      );
 
       // 假设系统/客服默认语言是 zh，如果玩家语言存在且不是 zh，则翻译
       if (playerLang && playerLang !== 'zh') {
-        this.logger.log(`[AutoTranslate] Triggering translation for message ${createdMessage.id} to ${playerLang}`);
-        this.translateMessage(createdMessage.id, playerLang).catch(err =>
-          this.logger.error(`Auto-translation for message ${createdMessage.id} failed:`, err)
+        this.logger.log(
+          `[AutoTranslate] Triggering translation for message ${createdMessage.id} to ${playerLang}`,
+        );
+        this.translateMessage(createdMessage.id, playerLang).catch((err) =>
+          this.logger.error(
+            `Auto-translation for message ${createdMessage.id} failed:`,
+            err,
+          ),
         );
       } else {
-        this.logger.debug(`[AutoTranslate] Skipped. PlayerLang is ${playerLang}`);
+        this.logger.debug(
+          `[AutoTranslate] Skipped. PlayerLang is ${playerLang}`,
+        );
       }
     }
 
@@ -132,14 +152,18 @@ export class MessageService {
 
   // 创建AI消息
   async createAIMessage(sessionId: string, content: string, metadata?: any) {
-    this.logger.log(`[createAIMessage] 创建AI消息: sessionId=${sessionId}, content长度=${content.length}`);
+    this.logger.log(
+      `[createAIMessage] 创建AI消息: sessionId=${sessionId}, content长度=${content.length}`,
+    );
     const createDto = {
       sessionId,
       content,
       messageType: MessageType.TEXT as any,
     };
     return this.create(createDto, 'AI').then((message) => {
-      this.logger.log(`[createAIMessage] AI消息创建成功: messageId=${message.id}`);
+      this.logger.log(
+        `[createAIMessage] AI消息创建成功: messageId=${message.id}`,
+      );
       if (metadata) {
         return this.prisma.message.update({
           where: { id: message.id },
@@ -184,13 +208,31 @@ export class MessageService {
 
     // ✅ 添加验证：确保目标语言是有效的语言代码，而不是消息内容
     // 支持的语言：中文、英语、日语、韩语、西班牙语、法语、德语、俄语
-    const validLanguageCodes = ['zh', 'en', 'ja', 'jp', 'ko', 'kor', 'es', 'spa', 'fr', 'fra', 'de', 'ru', 'auto'];
-    const isValidLangCode = requestedTarget && 
-      (requestedTarget.length <= 4) && // 支持3-4位语言代码（如 kor, fra, spa） 
-      (validLanguageCodes.includes(requestedTarget.toLowerCase()) || /^[a-z]{2,3}$/i.test(requestedTarget));
+    const validLanguageCodes = [
+      'zh',
+      'en',
+      'ja',
+      'jp',
+      'ko',
+      'kor',
+      'es',
+      'spa',
+      'fr',
+      'fra',
+      'de',
+      'ru',
+      'auto',
+    ];
+    const isValidLangCode =
+      requestedTarget &&
+      requestedTarget.length <= 4 && // 支持3-4位语言代码（如 kor, fra, spa）
+      (validLanguageCodes.includes(requestedTarget.toLowerCase()) ||
+        /^[a-z]{2,3}$/i.test(requestedTarget));
 
     if (!isValidLangCode) {
-      this.logger.warn(`Invalid target language code: "${requestedTarget}", using default "zh"`);
+      this.logger.warn(
+        `Invalid target language code: "${requestedTarget}", using default "zh"`,
+      );
       requestedTarget = 'zh';
     } else {
       requestedTarget = requestedTarget.toLowerCase();
@@ -203,23 +245,32 @@ export class MessageService {
       meta.translation.translatedContent &&
       meta.translation.translatedContent.trim().length > 0
     ) {
-      this.logger.log(`Translation cache hit for message ${messageId}, target: ${requestedTarget}`);
+      this.logger.log(
+        `Translation cache hit for message ${messageId}, target: ${requestedTarget}`,
+      );
       return message;
     }
 
     // 2. 调用翻译服务
     try {
-      this.logger.debug(`Translating message ${messageId}: content length=${message.content?.length || 0}, targetLang=${requestedTarget}`);
+      this.logger.debug(
+        `Translating message ${messageId}: content length=${message.content?.length || 0}, targetLang=${requestedTarget}`,
+      );
 
       // 确定源语言：如果是 AI 或客服消息，源语言为 'zh'；如果是玩家消息，使用 'auto'
-      const sourceLang = (message.senderType === 'AI' || message.senderType === 'AGENT') ? 'zh' : 'auto';
+      const sourceLang =
+        message.senderType === 'AI' || message.senderType === 'AGENT'
+          ? 'zh'
+          : 'auto';
 
       const result = await this.translationService.translate(
         message.content,
         requestedTarget,
         sourceLang, // 明确指定源语言
       );
-      this.logger.log(`Translation success: message ${messageId}, ${result.sourceLanguage} -> ${result.targetLanguage}`);
+      this.logger.log(
+        `Translation success: message ${messageId}, ${result.sourceLanguage} -> ${result.targetLanguage}`,
+      );
 
       // 3. 更新消息 Metadata
       const updatedMeta: MessageMetadata = {
@@ -240,11 +291,16 @@ export class MessageService {
     } catch (error) {
       // 记录详细错误日志
       this.logger.error('Translation failed', error);
-      this.logger.error(`Error details: ${error instanceof Error ? error.message : String(error)}`);
-      this.logger.error(`Stack trace: ${error instanceof Error ? error.stack : 'N/A'}`);
+      this.logger.error(
+        `Error details: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      this.logger.error(
+        `Stack trace: ${error instanceof Error ? error.stack : 'N/A'}`,
+      );
 
       // 返回更详细的错误信息
-      const errorMessage = error instanceof Error ? error.message : '翻译失败，请稍后重试';
+      const errorMessage =
+        error instanceof Error ? error.message : '翻译失败，请稍后重试';
       throw new BadRequestException(`翻译失败: ${errorMessage}`);
     }
   }
@@ -269,13 +325,32 @@ export class MessageService {
 
       // ✅ 验证检测结果：确保是有效的语言代码
       // 支持的语言：中文、英语、日语、韩语、西班牙语、法语、德语、俄语
-      const validLanguageCodes = ['zh', 'en', 'ja', 'jp', 'ko', 'kor', 'es', 'spa', 'fr', 'fra', 'de', 'ru'];
+      const validLanguageCodes = [
+        'zh',
+        'en',
+        'ja',
+        'jp',
+        'ko',
+        'kor',
+        'es',
+        'spa',
+        'fr',
+        'fra',
+        'de',
+        'ru',
+      ];
       let detectedLang = result.language;
 
       // 如果检测结果不是有效的语言代码，使用默认值
       // 支持3-4位的语言代码（如 kor, fra, spa）
-      if (!detectedLang || detectedLang.length > 4 || !validLanguageCodes.includes(detectedLang.toLowerCase())) {
-        this.logger.warn(`[Language Detection] Invalid detected language: "${detectedLang}", using "zh"`);
+      if (
+        !detectedLang ||
+        detectedLang.length > 4 ||
+        !validLanguageCodes.includes(detectedLang.toLowerCase())
+      ) {
+        this.logger.warn(
+          `[Language Detection] Invalid detected language: "${detectedLang}", using "zh"`,
+        );
         detectedLang = 'zh';
       } else {
         detectedLang = detectedLang.toLowerCase();
@@ -293,7 +368,14 @@ export class MessageService {
 
       // 简单策略：如果置信度高，或者连续3次一致，则锁定
       const isConfident = (result.confidence || 0) > 0.9;
-      const confirmLang = isConfident ? detectedLang : (sessionMeta.playerLanguage && validLanguageCodes.includes(sessionMeta.playerLanguage.toLowerCase()) ? sessionMeta.playerLanguage.toLowerCase() : detectedLang);
+      const confirmLang = isConfident
+        ? detectedLang
+        : sessionMeta.playerLanguage &&
+            validLanguageCodes.includes(
+              sessionMeta.playerLanguage.toLowerCase(),
+            )
+          ? sessionMeta.playerLanguage.toLowerCase()
+          : detectedLang;
 
       const newMeta: SessionMetadata = {
         ...sessionMeta,
@@ -304,8 +386,8 @@ export class MessageService {
           detected: confirmLang,
           confidence: result.confidence || 0,
           isLocked: isConfident, // 锁定条件可优化
-          detectedAt: new Date().toISOString()
-        }
+          detectedAt: new Date().toISOString(),
+        },
       };
 
       await this.prisma.session.update({
@@ -319,7 +401,7 @@ export class MessageService {
         {
           sessionId: session.id,
           contentPreview: content.substring(0, 50),
-        }
+        },
       );
       // 不抛出异常，以免影响主流程
     }

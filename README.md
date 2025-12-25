@@ -445,6 +445,7 @@ npm run preview       # 预览生产构建
 ### 配置文档
 - [Dify配置指南](./docs/Dify配置指南.md)
 - [AI优化功能配置指南](./docs/AI优化功能配置指南.md)
+- [工单自动关闭配置指南](./docs/工单自动关闭配置指南.md) - **工单管理必读**
 - [功能测试指南](./docs/功能测试指南.md)
 
 ## 🛠️ 技术栈
@@ -481,11 +482,23 @@ FRONTEND_URL="http://localhost:20101,http://localhost:20102"
 REDIS_HOST=localhost
 REDIS_PORT=6379
 ENCRYPTION_SECRET_KEY="your-32-char-secret-key-here-change-in-production"
+
+# 工单自动关闭配置（可选）
+ENABLE_AUTO_CLOSURE="true"              # 启用工单自动关闭功能（默认: true）
+WAITING_TIMEOUT_HOURS="72"              # WAITING 状态工单超时时间（小时，默认: 72）
+REPLIED_TIMEOUT_HOURS="24"              # IN_PROGRESS 状态工单（客服已回复）超时时间（小时，默认: 24）
 ```
 
 ⚠️ **重要**: 
 - `ENCRYPTION_SECRET_KEY`: 用于加密敏感数据（如 Dify API Key），生产环境必须设置为至少32字符的强随机字符串
 - 如果修改了 `ENCRYPTION_SECRET_KEY`，数据库中已加密的数据将无法解密，需要重新加密
+
+**工单自动关闭说明**：
+- `ENABLE_AUTO_CLOSURE`: 控制是否启用工单自动关闭功能。设置为 `false` 可以临时禁用自动关闭
+- `WAITING_TIMEOUT_HOURS`: 等待客服响应的工单超时时间。默认 72 小时（3天）后自动关闭
+- `REPLIED_TIMEOUT_HOURS`: 客服已回复但玩家未响应的工单超时时间。默认 24 小时后自动关闭
+- 系统每小时自动检查一次过期工单并执行关闭操作
+- 所有关闭操作都会记录详细的元数据（关闭时间、关闭方式、关闭者）供后续分析
 
 ### 玩家端 (.env) - 仅本地开发需要
 

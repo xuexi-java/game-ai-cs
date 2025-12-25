@@ -8,6 +8,7 @@ import {
   UseGuards,
   Query,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import {
   ApiTags,
   ApiOperation,
@@ -24,14 +25,22 @@ import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Public } from '../common/decorators/public.decorator';
+import { getDifyThrottleKey } from '../common/guards/throttle-keys';
 
 @ApiTags('sessions')
 @Controller('sessions')
 export class SessionController {
-  constructor(private readonly sessionService: SessionService) { }
+  constructor(private readonly sessionService: SessionService) {}
 
   // 玩家端API - 创建会话
   @Public()
+  @Throttle({
+    'dify-api': {
+      limit: 100,
+      ttl: 60000,
+      getTracker: getDifyThrottleKey,
+    },
+  })
   @Post()
   @ApiOperation({ summary: '创建会话（玩家端）' })
   @ApiResponse({ status: 201, description: '创建成功' })
@@ -41,6 +50,13 @@ export class SessionController {
 
   // 玩家端API - 发送消息并触发AI回复
   @Public()
+  @Throttle({
+    'dify-api': {
+      limit: 100,
+      ttl: 60000,
+      getTracker: getDifyThrottleKey,
+    },
+  })
   @Post(':id/messages')
   @ApiOperation({ summary: '发送消息并触发AI回复（玩家端）' })
   @ApiParam({ name: 'id', description: '会话ID' })
@@ -97,6 +113,9 @@ export class SessionController {
   // 管理端API - 获取待接入会话列表
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('ADMIN', 'AGENT')
+  @Throttle({
+    default: { limit: 1000, ttl: 60000 },
+  })
   @Get('workbench/queued')
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({ summary: '获取待接入会话列表（管理端）' })
@@ -108,6 +127,9 @@ export class SessionController {
   // 管理端API - 会话列表（支持管理员查看全部，客服仅查看自己的会话）
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('ADMIN', 'AGENT')
+  @Throttle({
+    default: { limit: 1000, ttl: 60000 },
+  })
   @Get()
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({ summary: '获取会话列表（管理端）' })
@@ -189,7 +211,10 @@ export class SessionController {
   @ApiOperation({ summary: '通过工单ID接入会话（管理端）' })
   @ApiParam({ name: 'ticketId', description: '工单ID' })
   @ApiResponse({ status: 200, description: '接入成功' })
-  joinSessionByTicketId(@Param('ticketId') ticketId: string, @CurrentUser() user: any) {
+  joinSessionByTicketId(
+    @Param('ticketId') ticketId: string,
+    @CurrentUser() user: any,
+  ) {
     return this.sessionService.joinSessionByTicketId(ticketId, user.id);
   }
 

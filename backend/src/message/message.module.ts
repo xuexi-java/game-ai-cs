@@ -9,4 +9,4 @@ import { TranslationModule } from '../shared/translation/translation.module';
   providers: [MessageService],
   exports: [MessageService],
 })
-export class MessageModule { }
+export class MessageModule {}

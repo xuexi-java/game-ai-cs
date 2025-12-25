@@ -158,5 +158,4 @@ export class QuickReplyController {
     await this.quickReplyService.incrementUsage(id);
     return { success: true };
   }
-
 }

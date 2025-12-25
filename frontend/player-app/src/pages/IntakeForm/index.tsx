@@ -109,11 +109,6 @@ const IntakeFormPage = () => {
         // 注意：attachments 不在创建工单时发送，而是在创建后单独上传
       };
 
-      console.log('提交工单数据:', {
-        ...ticketData,
-        issueTypeIds: validIssueTypeIds,
-      });
-
       const ticket = await createTicket(ticketData);
       let resolvedTicketId =
         ticket.id || (ticket as { ticketId?: string }).ticketId;

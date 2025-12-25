@@ -3,7 +3,7 @@ import Redis from 'ioredis';
 
 /**
  * Redis 日志缓冲服务
- * 
+ *
  * 职责：
  * 1. 将日志异步写入 Redis 队列
  * 2. 提供降级机制（Redis 不可用时返回 false）
@@ -63,7 +63,7 @@ export class RedisLogBufferService implements OnModuleDestroy {
 
   /**
    * 将日志推入 Redis 队列
-   * 
+   *
    * @param logLine 日志字符串（JSON 格式）
    * @returns 是否成功写入 Redis（失败时调用方应降级到内存队列）
    */
@@ -76,7 +76,9 @@ export class RedisLogBufferService implements OnModuleDestroy {
       // 检查队列长度，防止内存溢出
       const queueSize = await this.redis.llen(this.redisKey);
       if (queueSize >= this.maxSize) {
-        console.warn(`[RedisLogBuffer] Queue full (${queueSize}/${this.maxSize}), dropping log`);
+        console.warn(
+          `[RedisLogBuffer] Queue full (${queueSize}/${this.maxSize}), dropping log`,
+        );
         return false;
       }
 

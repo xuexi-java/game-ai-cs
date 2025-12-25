@@ -17,7 +17,7 @@ export class PrismaService
   ) {
     // 构建完整的数据库连接字符串（包含连接池参数）
     const databaseUrl = PrismaService.buildDatabaseUrl(configService);
-    
+
     super({
       datasources: {
         db: {
@@ -29,7 +29,7 @@ export class PrismaService
       // 错误格式化
       errorFormat: 'pretty',
     });
-    
+
     // Initialize logger after super()
     this.logger = logger;
     this.logger.setContext(PrismaService.name);
@@ -41,8 +41,8 @@ export class PrismaService
   private static buildDatabaseUrl(configService: ConfigService): string {
     // Note: Static method cannot use instance logger, using console for static context
     const logPrefix = `[${PrismaService.name}]`;
-    
-    const baseUrl = 
+
+    const baseUrl =
       configService.get<string>('DATABASE_URL_BASE') ||
       configService.get<string>('DATABASE_URL') ||
       process.env.DATABASE_URL;
@@ -52,17 +52,25 @@ export class PrismaService
     }
 
     // 如果已经包含连接池参数，直接返回
-    if (baseUrl.includes('connection_limit') || baseUrl.includes('pool_timeout')) {
-      console.warn(`${logPrefix} DATABASE_URL 已包含连接池参数，将使用现有配置`);
+    if (
+      baseUrl.includes('connection_limit') ||
+      baseUrl.includes('pool_timeout')
+    ) {
+      console.warn(
+        `${logPrefix} DATABASE_URL 已包含连接池参数，将使用现有配置`,
+      );
       return baseUrl;
     }
 
     // 从环境变量读取连接池参数（带默认值）
-    const connectionLimit = configService.get<number>('DB_CONNECTION_LIMIT') || 50;
+    const connectionLimit =
+      configService.get<number>('DB_CONNECTION_LIMIT') || 50;
     const poolTimeout = configService.get<number>('DB_POOL_TIMEOUT') || 20;
-    const connectTimeout = configService.get<number>('DB_CONNECT_TIMEOUT') || 10;
+    const connectTimeout =
+      configService.get<number>('DB_CONNECT_TIMEOUT') || 10;
     const queryTimeout = configService.get<number>('DB_QUERY_TIMEOUT') || 30;
-    const statementTimeout = configService.get<number>('DB_STATEMENT_TIMEOUT') || 30000;
+    const statementTimeout =
+      configService.get<number>('DB_STATEMENT_TIMEOUT') || 30000;
     const idleTimeout = configService.get<number>('DB_IDLE_TIMEOUT') || 600;
 
     // 构建连接字符串
@@ -77,11 +85,11 @@ export class PrismaService
     ].join('&');
 
     const fullUrl = `${baseUrl}${separator}${poolParams}`;
-    
+
     console.log(
       `${logPrefix} 数据库连接池配置: 最大连接数=${connectionLimit}, 连接超时=${connectTimeout}s, 查询超时=${queryTimeout}s`,
     );
-    
+
     return fullUrl;
   }
 

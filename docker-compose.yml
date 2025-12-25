@@ -54,7 +54,21 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=21101
-      - LOG_LEVEL=INFO
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - LOG_FORMAT=${LOG_FORMAT:-json}
+      - LOG_TIMEZONE_OFFSET=${LOG_TIMEZONE_OFFSET:-480}
+      - LOG_SUCCESS_REQUESTS=${LOG_SUCCESS_REQUESTS:-false}
+      - LOG_SAMPLING_RATE=${LOG_SAMPLING_RATE:-0.1}
+      - LOG_STDOUT=${LOG_STDOUT:-true}
+      - LOG_FILE=${LOG_FILE:-true}
+      - LOG_IGNORE_PATHS=${LOG_IGNORE_PATHS:-/api/v1/metrics,/api/v1/docs,/uploads}
+      - LOG_USE_REDIS_BUFFER=${LOG_USE_REDIS_BUFFER:-false}
+      - LOG_REDIS_MAX_SIZE=${LOG_REDIS_MAX_SIZE:-20000}
+      - LOG_CONSUMER_BATCH_SIZE=${LOG_CONSUMER_BATCH_SIZE:-500}
+      - LOG_CONSUMER_POLL_INTERVAL=${LOG_CONSUMER_POLL_INTERVAL:-500}
+      - LOG_BATCH_SIZE=${LOG_BATCH_SIZE:-200}
+      - LOG_BATCH_INTERVAL=${LOG_BATCH_INTERVAL:-300}
+      - LOG_MAX_QUEUE_SIZE=${LOG_MAX_QUEUE_SIZE:-20000}
       - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/game_ai_cs?schema=public
       # 数据库连接池配置
       - DB_CONNECTION_LIMIT=${DB_CONNECTION_LIMIT:-50}
@@ -71,6 +85,7 @@ services:
       # Dify AI 配置
       - DIFY_API_KEY=${DIFY_API_KEY:-app-pVK7Yup3O9DG6Zr1p8cSfe3p}
       - DIFY_BASE_URL=${DIFY_BASE_URL:-http://ai.sh7road.com/v1}
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379}
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - ENCRYPTION_SECRET_KEY=${ENCRYPTION_SECRET_KEY:-default-secret-key-change-in-production-32-chars!!}

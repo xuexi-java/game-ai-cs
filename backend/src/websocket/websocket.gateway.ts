@@ -21,7 +21,11 @@ import { MessageService } from '../message/message.service';
 import { TicketService } from '../ticket/ticket.service';
 import { forwardRef } from '@nestjs/common';
 import Redis from 'ioredis';
-import { wsConnectionsGauge, wsMessagesCounter } from '../metrics/queue.metrics';
+import {
+  wsConnectionsGauge,
+  wsMessagesCounter,
+  rateLimitRejectedCounter,
+} from '../metrics/queue.metrics';
 import { AppLogger } from '../common/logger/app-logger.service';
 
 @WebSocketGateway({
@@ -46,7 +50,7 @@ export class WebsocketGateway
 {
   @WebSocketServer()
   server: Server;
-  
+
   // 保留内存 Map 作为缓存（提高性能）
   private connectedClients = new Map<
     string,
@@ -61,6 +65,16 @@ export class WebsocketGateway
   >();
   private playerSessions = new Map<string, string>(); // clientId -> sessionId
   private heartbeatIntervals = new Map<string, NodeJS.Timeout>(); // clientId -> interval
+  private wsRateLimiters = new Map<
+    string,
+    { tokens: number; lastRefill: number }
+  >();
+  private wsRateLimitNoticeAt = new Map<string, number>();
+  private readonly wsPlayerRateLimitPerMinute = 200;
+  private readonly wsAgentRateLimitPerMinute = 600;
+  private readonly wsPlayerRateLimitBurst = 20;
+  private readonly wsAgentRateLimitBurst = 60;
+  private readonly wsRateLimitNoticeCooldownMs = 1000;
 
   // Redis Key 前缀
   private readonly REDIS_PREFIX = {
@@ -104,7 +118,9 @@ export class WebsocketGateway
       ]);
       return result === 'PONG';
     } catch (error) {
-      this.logger.warn(`Redis 不可用: ${error instanceof Error ? error.message : String(error)}`);
+      this.logger.warn(
+        `Redis 不可用: ${error instanceof Error ? error.message : String(error)}`,
+      );
       return false;
     }
   }
@@ -124,7 +140,9 @@ export class WebsocketGateway
       // 检查 Redis 连接状态（使用 ping 而不是 status，因为 status 类型不包含 'ready'）
       const pingResult = await this.isRedisAvailable();
       if (!pingResult) {
-        this.logger.warn(`Redis 连接未就绪 (状态: ${this.redis.status})，等待连接...`);
+        this.logger.warn(
+          `Redis 连接未就绪 (状态: ${this.redis.status})，等待连接...`,
+        );
         // 等待连接就绪，最多等待 5 秒
         let retries = 0;
         while (retries < 10) {
@@ -143,7 +161,9 @@ export class WebsocketGateway
       }
 
       // 恢复在线客服状态
-      const onlineAgentKeys = await this.redis.keys(`${this.REDIS_PREFIX.AGENT_ONLINE}*`);
+      const onlineAgentKeys = await this.redis.keys(
+        `${this.REDIS_PREFIX.AGENT_ONLINE}*`,
+      );
       for (const key of onlineAgentKeys) {
         const agentId = key.replace(this.REDIS_PREFIX.AGENT_ONLINE, '');
         const agentData = await this.redis.get(key);
@@ -163,7 +183,9 @@ export class WebsocketGateway
       }
 
       // 清理过期的连接数据（超过24小时）
-      const allClientKeys = await this.redis.keys(`${this.REDIS_PREFIX.CLIENT}*`);
+      const allClientKeys = await this.redis.keys(
+        `${this.REDIS_PREFIX.CLIENT}*`,
+      );
       for (const key of allClientKeys) {
         const ttl = await this.redis.ttl(key);
         if (ttl === -1) {
@@ -175,10 +197,18 @@ export class WebsocketGateway
       this.logger.log('WebSocket 状态恢复完成');
     } catch (error) {
       // 如果是连接错误，只记录警告，不阻止应用启动
-      if (error instanceof Error && error.message.includes('enableOfflineQueue')) {
-        this.logger.warn('Redis 连接未就绪，跳过状态恢复（这是正常的，应用将继续启动）');
+      if (
+        error instanceof Error &&
+        error.message.includes('enableOfflineQueue')
+      ) {
+        this.logger.warn(
+          'Redis 连接未就绪，跳过状态恢复（这是正常的，应用将继续启动）',
+        );
       } else {
-        this.logger.error(`恢复状态失败: ${error instanceof Error ? error.message : String(error)}`, error instanceof Error ? error.stack : undefined);
+        this.logger.error(
+          `恢复状态失败: ${error instanceof Error ? error.message : String(error)}`,
+          error instanceof Error ? error.stack : undefined,
+        );
       }
     }
   }
@@ -209,7 +239,9 @@ export class WebsocketGateway
   }
 
   // 从 Redis 获取玩家会话
-  private async getPlayerSessionFromRedis(clientId: string): Promise<string | null> {
+  private async getPlayerSessionFromRedis(
+    clientId: string,
+  ): Promise<string | null> {
     const key = `${this.REDIS_PREFIX.PLAYER_SESSION}${clientId}`;
     return await this.redis.get(key);
   }
@@ -267,7 +299,7 @@ export class WebsocketGateway
                 where: { id: user.id },
                 data: { isOnline: true },
               });
-              
+
               // 保存客服/管理员在线状态到 Redis
               await this.saveAgentOnlineToRedis(user.id, {
                 username: user.username,
@@ -289,7 +321,7 @@ export class WebsocketGateway
                   this.logger.error(
                     `自动分配工单失败: ${error.message}`,
                     error instanceof Error ? error.stack : undefined,
-                    { userId: user.id }
+                    { userId: user.id },
                   );
                 });
             }
@@ -314,7 +346,7 @@ export class WebsocketGateway
       this.logger.error(
         `连接处理错误: ${error.message}`,
         error instanceof Error ? error.stack : undefined,
-        { clientId: client.id }
+        { clientId: client.id },
       );
     }
   }
@@ -329,16 +361,20 @@ export class WebsocketGateway
 
     // 清除心跳检测
     this.clearHeartbeat(client.id);
+    this.wsRateLimiters.delete(client.id);
+    this.wsRateLimitNoticeAt.delete(client.id);
 
     // 从 Redis 删除客户端信息
     await this.deleteClientFromRedis(client.id);
 
     if (clientInfo?.userId) {
       // 先查询用户角色
-      const user = await this.prisma.user.findUnique({
-        where: { id: clientInfo.userId },
-        select: { role: true },
-      }).catch(() => null);
+      const user = await this.prisma.user
+        .findUnique({
+          where: { id: clientInfo.userId },
+          select: { role: true },
+        })
+        .catch(() => null);
 
       // 更新用户离线状态
       await this.prisma.user
@@ -351,7 +387,7 @@ export class WebsocketGateway
       if (user?.role === 'AGENT') {
         // 从 Redis 删除客服在线状态
         await this.deleteAgentOnlineFromRedis(clientInfo.userId);
-        
+
         this.notifyAgentStatusChange(clientInfo.userId, false, {
           username: clientInfo.username,
           realName: clientInfo.realName,
@@ -363,7 +399,9 @@ export class WebsocketGateway
       // 玩家可以通过主动关闭会话或客服处理来完成会话
       const sessionId = this.playerSessions.get(client.id);
       if (sessionId) {
-        this.logger.log(`玩家断开连接，会话 ${sessionId} 保持在队列中，等待客服处理`);
+        this.logger.log(
+          `玩家断开连接，会话 ${sessionId} 保持在队列中，等待客服处理`,
+        );
         this.playerSessions.delete(client.id);
         await this.deletePlayerSessionFromRedis(client.id);
       }
@@ -387,6 +425,11 @@ export class WebsocketGateway
         wsConnectionsGauge.inc({ client_type: 'player' });
       }
 
+      if (!this.allowWsMessage(client.id, 'player')) {
+        this.handleWsRateLimit(client, 'send-message', 'player');
+        return { success: false, error: 'rate_limited' };
+      }
+
       // 记录接收消息指标
       wsMessagesCounter.inc({ direction: 'in' });
 
@@ -408,7 +451,7 @@ export class WebsocketGateway
         {
           sessionId: data.sessionId,
           content: data.content?.substring(0, 50),
-        }
+        },
       );
       return { success: false, error: error.message };
     }
@@ -429,12 +472,17 @@ export class WebsocketGateway
         wsConnectionsGauge.inc({ client_type: 'agent' });
       }
 
-      // 记录接收消息指标
-      wsMessagesCounter.inc({ direction: 'in' });
+      if (!this.allowWsMessage(client.id, 'agent')) {
+        this.handleWsRateLimit(client, 'agent:send-message', 'agent');
+        return { success: false, error: 'rate_limited' };
+      }
 
       if (!clientInfo?.userId) {
         return { success: false, error: '未认证' };
       }
+
+      // 记录接收消息指标
+      wsMessagesCounter.inc({ direction: 'in' });
 
       // 获取会话信息，检查是否关联了工单
       const session = await this.prisma.session.findUnique({
@@ -460,7 +508,8 @@ export class WebsocketGateway
         if (session.agentId !== clientInfo.userId) {
           return {
             success: false,
-            error: '无权发送消息：该会话已分配给其他客服，只有处理该会话的客服才能回复',
+            error:
+              '无权发送消息：该会话已分配给其他客服，只有处理该会话的客服才能回复',
           };
         }
         // 检查会话状态，必须是IN_PROGRESS状态才能发送消息
@@ -538,7 +587,7 @@ export class WebsocketGateway
           sessionId: data.sessionId,
           agentId: client.data.user.id,
           content: data.content?.substring(0, 50),
-        }
+        },
       );
       return { success: false, error: error.message };
     }
@@ -616,6 +665,102 @@ export class WebsocketGateway
     }
   }
 
+  private getWsRateLimitConfig(clientType: 'player' | 'agent') {
+    if (clientType === 'agent') {
+      return {
+        ratePerMinute: this.wsAgentRateLimitPerMinute,
+        burst: this.wsAgentRateLimitBurst,
+      };
+    }
+    return {
+      ratePerMinute: this.wsPlayerRateLimitPerMinute,
+      burst: this.wsPlayerRateLimitBurst,
+    };
+  }
+
+  private allowWsMessage(
+    clientId: string,
+    clientType: 'player' | 'agent',
+  ): boolean {
+    const now = Date.now();
+    const { ratePerMinute, burst } = this.getWsRateLimitConfig(clientType);
+    const ratePerMs = ratePerMinute / 60000;
+    const limiter =
+      this.wsRateLimiters.get(clientId) ?? {
+        tokens: burst,
+        lastRefill: now,
+      };
+
+    const elapsed = now - limiter.lastRefill;
+    if (elapsed > 0) {
+      limiter.tokens = Math.min(
+        burst,
+        limiter.tokens + elapsed * ratePerMs,
+      );
+      limiter.lastRefill = now;
+    }
+
+    if (limiter.tokens >= 1) {
+      limiter.tokens -= 1;
+      this.wsRateLimiters.set(clientId, limiter);
+      return true;
+    }
+
+    this.wsRateLimiters.set(clientId, limiter);
+    return false;
+  }
+
+  private handleWsRateLimit(
+    client: Socket,
+    event: string,
+    clientType: 'player' | 'agent',
+  ) {
+    const now = Date.now();
+    const lastNotice = this.wsRateLimitNoticeAt.get(client.id) ?? 0;
+    const shouldNotify =
+      now - lastNotice >= this.wsRateLimitNoticeCooldownMs;
+
+    const clientInfo = this.connectedClients.get(client.id);
+    const role = this.getWsRoleLabel(clientInfo?.role, clientType);
+
+    rateLimitRejectedCounter.inc({
+      type: 'ws',
+      endpoint: event,
+      user_role: role,
+    });
+
+    if (!shouldNotify) {
+      return;
+    }
+
+    try {
+      client.emit('error', { code: 429001, msg: '发送频率过快', event });
+    } catch (error) {
+      this.logger.warn(
+        `发送限流提示失败: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+
+    this.wsRateLimitNoticeAt.set(client.id, now);
+    this.logger.warn('RateLimit', {
+      event,
+      clientId: client.id,
+      uid: clientInfo?.userId,
+      role,
+      sessionId: clientInfo?.sessionId,
+    });
+  }
+
+  private getWsRoleLabel(
+    rawRole: unknown,
+    clientType: 'player' | 'agent',
+  ): string {
+    if (typeof rawRole === 'string' && rawRole.trim()) {
+      return rawRole.trim().toLowerCase();
+    }
+    return clientType === 'agent' ? 'agent' : 'player';
+  }
+
   // 离开会话房间
   @SubscribeMessage('leave-session')
   async handleLeaveSession(
@@ -653,7 +798,9 @@ export class WebsocketGateway
   notifySessionUpdate(sessionId: string, data: any) {
     // 发送到会话房间（包括玩家端和客服端）
     this.server.to(`session:${sessionId}`).emit('session-update', data);
-    this.logger.debug(`通知会话更新: ${sessionId}, 状态: ${data.status}, 房间: session:${sessionId}`);
+    this.logger.debug(
+      `通知会话更新: ${sessionId}, 状态: ${data.status}, 房间: session:${sessionId}`,
+    );
   }
 
   // 通知新会话（管理端）

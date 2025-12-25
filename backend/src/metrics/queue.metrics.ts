@@ -52,3 +52,10 @@ export const httpRequestDurationHistogram = new Histogram({
   buckets: [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2, 5],
   registers: [register],
 });
+
+export const rateLimitRejectedCounter = new Counter({
+  name: `${PREFIX}rate_limit_rejected_total`,
+  help: 'Total number of rate limited requests',
+  labelNames: ['type', 'endpoint', 'user_role'],
+  registers: [register],
+});

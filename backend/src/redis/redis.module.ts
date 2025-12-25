@@ -11,7 +11,7 @@ import Redis from 'ioredis';
       useFactory: async (configService: ConfigService) => {
         // 优先使用 REDIS_URL，如果没有则使用 REDIS_HOST + REDIS_PORT
         const redisUrl = configService.get<string>('REDIS_URL');
-        
+
         let redis: Redis;
         const commonOptions = {
           maxRetriesPerRequest: 3,
@@ -29,7 +29,7 @@ import Redis from 'ioredis';
           enableOfflineQueue: true, // 启用离线队列，避免启动时的警告
           enableReadyCheck: true,
         };
-        
+
         if (redisUrl) {
           redis = new Redis(redisUrl, commonOptions);
         } else {
@@ -70,4 +70,3 @@ import Redis from 'ioredis';
   exports: ['REDIS_CLIENT'],
 })
 export class RedisModule {}
-

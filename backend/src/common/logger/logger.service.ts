@@ -13,15 +13,20 @@ import { RedisLogBufferService } from './redis-log-buffer.service';
 
 const gzipAsync = promisify(gzip);
 
+function getOffsetDate(date: Date, offsetMinutes: number): Date {
+  return new Date(date.getTime() + offsetMinutes * 60000);
+}
+
 // 简单的日期格式化函数，避免依赖 date-fns
-function formatDate(date: Date, formatStr: string): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  const hours = String(date.getHours()).padStart(2, '0');
-  const minutes = String(date.getMinutes()).padStart(2, '0');
-  const seconds = String(date.getSeconds()).padStart(2, '0');
-  const milliseconds = String(date.getMilliseconds()).padStart(3, '0');
+function formatDate(date: Date, formatStr: string, offsetMinutes = 0): string {
+  const targetDate = getOffsetDate(date, offsetMinutes);
+  const year = targetDate.getUTCFullYear();
+  const month = String(targetDate.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(targetDate.getUTCDate()).padStart(2, '0');
+  const hours = String(targetDate.getUTCHours()).padStart(2, '0');
+  const minutes = String(targetDate.getUTCMinutes()).padStart(2, '0');
+  const seconds = String(targetDate.getUTCSeconds()).padStart(2, '0');
+  const milliseconds = String(targetDate.getUTCMilliseconds()).padStart(3, '0');
 
   return formatStr
     .replace('yyyy', String(year))
@@ -45,6 +50,9 @@ export enum LogLevel {
 export class LoggerService implements NestLoggerService, OnModuleDestroy {
   private logLevel: LogLevel;
   private logDir: string;
+  private readonly timezoneOffsetMinutes: number;
+  private readonly enableFileOutput: boolean;
+  private readonly enableStdoutOutput: boolean;
   private errorLogStream: NodeJS.WritableStream;
   private combinedLogStream: NodeJS.WritableStream;
   private currentDate: string;
@@ -72,7 +80,9 @@ export class LoggerService implements NestLoggerService, OnModuleDestroy {
   private archiveIntervalTimer: NodeJS.Timeout | null = null;
 
   constructor(
-    @Optional() @Inject(RedisLogBufferService) private readonly redisBuffer?: RedisLogBufferService,
+    @Optional()
+    @Inject(RedisLogBufferService)
+    private readonly redisBuffer?: RedisLogBufferService,
   ) {
     // 缓存所有配置值（避免每次日志调用都读取环境变量）
     this.maxQueueSize = parseInt(process.env.LOG_MAX_QUEUE_SIZE || '10000');
@@ -81,12 +91,23 @@ export class LoggerService implements NestLoggerService, OnModuleDestroy {
     this.cleanAfterDays = parseInt(process.env.LOG_CLEAN_AFTER_DAYS || '30');
     this.samplingRate = parseFloat(process.env.LOG_SAMPLING_RATE || '1');
     this.logFormat = process.env.LOG_FORMAT || 'text';
+    const timezoneOffset = parseInt(
+      process.env.LOG_TIMEZONE_OFFSET || '480',
+      10,
+    );
+    this.timezoneOffsetMinutes = Number.isNaN(timezoneOffset)
+      ? 480
+      : timezoneOffset;
+    this.enableFileOutput = process.env.LOG_FILE !== 'false';
+    this.enableStdoutOutput = process.env.LOG_STDOUT !== 'false';
     this.batchSize = parseInt(process.env.LOG_BATCH_SIZE || '50');
     this.batchInterval = parseInt(process.env.LOG_BATCH_INTERVAL || '100');
     this.sensitiveFields = (
       process.env.LOG_SENSITIVE_FIELDS ||
       'password,token,secret,apiKey,authorization'
-    ).split(',').map((s) => s.trim().toLowerCase());
+    )
+      .split(',')
+      .map((s) => s.trim().toLowerCase());
 
     // 从环境变量读取日志级别，默认为 LOG
     const envLogLevel = process.env.LOG_LEVEL?.toUpperCase() || 'LOG';
@@ -94,25 +115,44 @@ export class LoggerService implements NestLoggerService, OnModuleDestroy {
 
     // 设置日志目录
     this.logDir = process.env.LOG_DIR || join(process.cwd(), 'logs');
-    if (!existsSync(this.logDir)) {
-      mkdirSync(this.logDir, { recursive: true });
+    this.currentDate = formatDate(
+      new Date(),
+      'yyyy-MM-dd-HH',
+      this.timezoneOffsetMinutes,
+    );
+
+    if (this.enableFileOutput) {
+      if (!existsSync(this.logDir)) {
+        mkdirSync(this.logDir, { recursive: true });
+      }
+
+      // Initialize log streams.
+      this.initializeLogStreams();
+
+      // Rotate and archive schedules.
+      this.scheduleLogRotation();
+      this.scheduleArchive();
     }
-
-    // 初始化日志流
-    this.currentDate = formatDate(new Date(), 'yyyy-MM-dd');
-    this.initializeLogStreams();
-
-    // 每分钟检查是否需要切换日志文件（减少延迟）
-    this.scheduleLogRotation();
-
-    // 每天凌晨2点执行归档和清理
-    this.scheduleArchive();
   }
 
   private initializeLogStreams() {
-    const dateStr = formatDate(new Date(), 'yyyy-MM-dd');
-    const errorLogPath = join(this.logDir, `backend-${dateStr}.error.log`);
-    const combinedLogPath = join(this.logDir, `backend-${dateStr}.log`);
+    if (!this.enableFileOutput) {
+      return;
+    }
+
+    const now = new Date();
+    const dayStr = formatDate(now, 'yyyy-MM-dd', this.timezoneOffsetMinutes);
+    const hourStr = formatDate(
+      now,
+      'yyyy-MM-dd-HH',
+      this.timezoneOffsetMinutes,
+    );
+    const dayDir = join(this.logDir, dayStr);
+    if (!existsSync(dayDir)) {
+      mkdirSync(dayDir, { recursive: true });
+    }
+    const errorLogPath = join(dayDir, `backend-${hourStr}.error.log`);
+    const combinedLogPath = join(dayDir, `backend-${hourStr}.log`);
 
     // 关闭旧的流
     if (this.errorLogStream) {
@@ -141,7 +181,7 @@ export class LoggerService implements NestLoggerService, OnModuleDestroy {
         console.error('Combined log stream error:', err);
       });
 
-      this.currentDate = dateStr;
+      this.currentDate = hourStr;
     } catch (error) {
       console.error('Failed to initialize log streams:', error);
     }
@@ -150,7 +190,11 @@ export class LoggerService implements NestLoggerService, OnModuleDestroy {
   private scheduleLogRotation() {
     // 每分钟检查一次是否需要切换日志文件（减少午夜延迟）
     this.rotationTimer = setInterval(() => {
-      const now = formatDate(new Date(), 'yyyy-MM-dd');
+      const now = formatDate(
+        new Date(),
+        'yyyy-MM-dd-HH',
+        this.timezoneOffsetMinutes,
+      );
       if (now !== this.currentDate) {
         this.flushQueue().then(() => {
           this.initializeLogStreams();
@@ -165,15 +209,22 @@ export class LoggerService implements NestLoggerService, OnModuleDestroy {
    */
   private scheduleArchive() {
     const now = new Date();
-    const tomorrow = new Date(now);
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    tomorrow.setHours(2, 0, 0, 0);
+    const offsetNow = getOffsetDate(now, this.timezoneOffsetMinutes);
+    const nextOffsetRun = new Date(offsetNow.getTime());
+    nextOffsetRun.setUTCHours(2, 0, 0, 0);
 
-    const msUntilArchive = tomorrow.getTime() - now.getTime();
+    if (nextOffsetRun.getTime() <= offsetNow.getTime()) {
+      nextOffsetRun.setUTCDate(nextOffsetRun.getUTCDate() + 1);
+    }
+
+    const nextRun = new Date(
+      nextOffsetRun.getTime() - this.timezoneOffsetMinutes * 60000,
+    );
+    const msUntilArchive = Math.max(0, nextRun.getTime() - now.getTime());
 
     this.archiveTimer = setTimeout(() => {
       this.runArchiveAndClean();
-      // 之后每天执行一次
+      // ????????
       this.archiveIntervalTimer = setInterval(() => {
         this.runArchiveAndClean();
       }, 24 * 3600000);
@@ -188,6 +239,32 @@ export class LoggerService implements NestLoggerService, OnModuleDestroy {
     await this.cleanExpiredLogs();
   }
 
+  private async listFilesRecursive(
+    dir: string,
+    skipArchiveDir = false,
+  ): Promise<string[]> {
+    if (!existsSync(dir)) return [];
+
+    const entries = await fs.readdir(dir, { withFileTypes: true });
+    const files: string[] = [];
+
+    for (const entry of entries) {
+      if (skipArchiveDir && entry.isDirectory() && entry.name === 'archive') {
+        continue;
+      }
+      const fullPath = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        files.push(
+          ...(await this.listFilesRecursive(fullPath, skipArchiveDir)),
+        );
+      } else if (entry.isFile()) {
+        files.push(fullPath);
+      }
+    }
+
+    return files;
+  }
+
   /**
    * 压缩归档旧日志
    * 将 N 天前的日志压缩到 archive/ 目录
@@ -196,35 +273,33 @@ export class LoggerService implements NestLoggerService, OnModuleDestroy {
     if (!this.enableCompression) return;
 
     try {
-      const archiveDir = join(this.logDir, 'archive');
-      if (!existsSync(archiveDir)) {
-        mkdirSync(archiveDir, { recursive: true });
-      }
-
-      const files = await fs.readdir(this.logDir);
+      const files = await this.listFilesRecursive(this.logDir, true);
       const cutoffDate = new Date();
       cutoffDate.setDate(cutoffDate.getDate() - this.archiveAfterDays);
 
-      for (const file of files) {
-        // 只处理 .log 文件，跳过 archive 目录和已压缩文件
-        if (!file.endsWith('.log') || file.includes('archive')) continue;
+      for (const filePath of files) {
+        if (!filePath.endsWith('.log')) continue;
 
-        const filePath = join(this.logDir, file);
         const stats = await fs.stat(filePath);
 
         if (stats.mtime < cutoffDate) {
+          const archivePath = `${filePath}.gz`;
+          if (existsSync(archivePath)) {
+            continue;
+          }
+
           try {
-            // 压缩文件
             const content = await fs.readFile(filePath);
             const compressed = await gzipAsync(content);
-            const archivePath = join(archiveDir, `${file}.gz`);
             await fs.writeFile(archivePath, compressed);
 
-            // 删除原文件
             await fs.unlink(filePath);
-            console.log(`[LoggerService] Archived log file: ${file}`);
+            console.log(`[LoggerService] Archived log file: ${filePath}`);
           } catch (err) {
-            console.error(`[LoggerService] Failed to archive ${file}:`, err);
+            console.error(
+              `[LoggerService] Failed to archive ${filePath}:`,
+              err,
+            );
           }
         }
       }
@@ -239,25 +314,21 @@ export class LoggerService implements NestLoggerService, OnModuleDestroy {
    */
   private async cleanExpiredLogs(): Promise<void> {
     try {
-      const archiveDir = join(this.logDir, 'archive');
-      if (!existsSync(archiveDir)) return;
-
-      const files = await fs.readdir(archiveDir);
+      const files = await this.listFilesRecursive(this.logDir);
       const cutoffDate = new Date();
       cutoffDate.setDate(cutoffDate.getDate() - this.cleanAfterDays);
 
-      for (const file of files) {
-        if (!file.endsWith('.gz')) continue;
+      for (const filePath of files) {
+        if (!filePath.endsWith('.gz')) continue;
 
-        const filePath = join(archiveDir, file);
         const stats = await fs.stat(filePath);
 
         if (stats.mtime < cutoffDate) {
           try {
             await fs.unlink(filePath);
-            console.log(`[LoggerService] Deleted expired archive: ${file}`);
+            console.log(`[LoggerService] Deleted expired archive: ${filePath}`);
           } catch (err) {
-            console.error(`[LoggerService] Failed to delete ${file}:`, err);
+            console.error(`[LoggerService] Failed to delete ${filePath}:`, err);
           }
         }
       }
@@ -282,7 +353,11 @@ export class LoggerService implements NestLoggerService, OnModuleDestroy {
     message: any,
     ...optionalParams: any[]
   ): string {
-    const timestamp = formatDate(new Date(), 'yyyy-MM-dd HH:mm:ss.SSS');
+    const timestamp = formatDate(
+      new Date(),
+      'yyyy-MM-dd HH:mm:ss.SSS',
+      this.timezoneOffsetMinutes,
+    );
     const contextStr = context || 'Application';
 
     // 支持 JSON 格式输出（使用缓存的配置值）
@@ -327,7 +402,17 @@ export class LoggerService implements NestLoggerService, OnModuleDestroy {
   }
 
   private async doFlush(): Promise<void> {
-    if (this.errorWriteQueue.length === 0 && this.combinedWriteQueue.length === 0) return;
+    if (
+      this.errorWriteQueue.length === 0 &&
+      this.combinedWriteQueue.length === 0
+    )
+      return;
+    if (
+      !this.enableFileOutput ||
+      !this.errorLogStream ||
+      !this.combinedLogStream
+    )
+      return;
 
     const errorMessagesToWrite = [...this.errorWriteQueue];
     const combinedMessagesToWrite = [...this.combinedWriteQueue];
@@ -346,10 +431,13 @@ export class LoggerService implements NestLoggerService, OnModuleDestroy {
       if (combinedMessagesToWrite.length > 0) {
         writePromises.push(
           new Promise<void>((resolve, reject) => {
-            this.combinedLogStream.write(combinedMessagesToWrite.join(''), (err) => {
-              if (err) reject(err);
-              else resolve();
-            });
+            this.combinedLogStream.write(
+              combinedMessagesToWrite.join(''),
+              (err) => {
+                if (err) reject(err);
+                else resolve();
+              },
+            );
           }),
         );
       }
@@ -375,11 +463,17 @@ export class LoggerService implements NestLoggerService, OnModuleDestroy {
   }
 
   private enqueueLog(message: string, isError: boolean = false) {
+    if (!this.enableFileOutput) {
+      return;
+    }
     // 优先尝试写入 Redis（异步背压缓冲）
     if (this.redisBuffer?.isReady()) {
       this.redisBuffer.pushLog(message.trim()).catch((err) => {
         // Redis 写入失败，降级到内存队列
-        console.error('[LoggerService] Redis push failed, fallback to memory:', err);
+        console.error(
+          '[LoggerService] Redis push failed, fallback to memory:',
+          err,
+        );
         this.enqueueToMemory(message, isError);
       });
     } else {
@@ -390,7 +484,8 @@ export class LoggerService implements NestLoggerService, OnModuleDestroy {
 
   private enqueueToMemory(message: string, isError: boolean = false) {
     // 内存保护：队列满时丢弃最旧的非错误日志
-    const totalQueueSize = this.combinedWriteQueue.length + this.errorWriteQueue.length;
+    const totalQueueSize =
+      this.combinedWriteQueue.length + this.errorWriteQueue.length;
     if (totalQueueSize >= this.maxQueueSize) {
       // 丢弃最旧的日志（优先保留错误日志）
       if (this.combinedWriteQueue.length > this.errorWriteQueue.length) {
@@ -398,7 +493,9 @@ export class LoggerService implements NestLoggerService, OnModuleDestroy {
       }
       // 每100次丢弃打印一次警告，避免日志爆炸
       if (totalQueueSize % 100 === 0) {
-        console.warn(`[LoggerService] Queue full (${totalQueueSize}/${this.maxQueueSize}), dropping oldest logs`);
+        console.warn(
+          `[LoggerService] Queue full (${totalQueueSize}/${this.maxQueueSize}), dropping oldest logs`,
+        );
       }
     }
 
@@ -462,12 +559,14 @@ export class LoggerService implements NestLoggerService, OnModuleDestroy {
     );
 
     // 写入控制台
-    if (level === 'ERROR') {
-      console.error(formattedMessage);
-    } else if (level === 'WARN') {
-      console.warn(formattedMessage);
-    } else {
-      console.log(formattedMessage);
+    if (this.enableStdoutOutput) {
+      if (level === 'ERROR') {
+        console.error(formattedMessage);
+      } else if (level === 'WARN') {
+        console.warn(formattedMessage);
+      } else {
+        console.log(formattedMessage);
+      }
     }
 
     // 加入写入队列（异步批量写入）
@@ -547,20 +646,19 @@ export class LoggerService implements NestLoggerService, OnModuleDestroy {
   /**
    * 写入格式化后的日志（供 AppLogger 调用）
    * 接收已格式化的 JSON 日志字符串，直接写入文件
-   * 
+   *
    * @param level 日志级别
    * @param formattedLog 已格式化的 JSON 日志字符串
    */
   public writeFormattedLog(level: string, formattedLog: string): void {
-    // 判断是否为 ERROR 级别
     const isError = level === 'ERROR';
-    
-    // 直接加入写入队列（不再格式化，因为 AppLogger 已经格式化过了）
-    const fileMessage = formattedLog + '\n';
-    this.enqueueLog(fileMessage, isError);
-    
-    // 生产环境也输出到控制台（保持兼容性，供 PM2/Docker 收集）
-    if (process.env.NODE_ENV !== 'development') {
+
+    if (this.enableFileOutput) {
+      const fileMessage = formattedLog + '\n';
+      this.enqueueLog(fileMessage, isError);
+    }
+
+    if (this.enableStdoutOutput && process.env.NODE_ENV !== 'development') {
       if (level === 'ERROR') {
         console.error(formattedLog);
       } else {
@@ -569,9 +667,8 @@ export class LoggerService implements NestLoggerService, OnModuleDestroy {
     }
   }
 
-  // 应用关闭时清理资源
   async onModuleDestroy() {
-    // 清理所有定时器
+    // Clear timers.
     if (this.rotationTimer) {
       clearInterval(this.rotationTimer);
       this.rotationTimer = null;
@@ -589,15 +686,15 @@ export class LoggerService implements NestLoggerService, OnModuleDestroy {
       this.writeTimer = null;
     }
 
-    // 刷新队列
-    await this.flushQueue();
+    if (this.enableFileOutput) {
+      await this.flushQueue();
 
-    // 关闭日志流
-    if (this.errorLogStream) {
-      this.errorLogStream.end();
-    }
-    if (this.combinedLogStream) {
-      this.combinedLogStream.end();
+      if (this.errorLogStream) {
+        this.errorLogStream.end();
+      }
+      if (this.combinedLogStream) {
+        this.combinedLogStream.end();
+      }
     }
   }
 }
