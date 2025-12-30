@@ -12,21 +12,45 @@ import Redis from 'ioredis';
         // 优先使用 REDIS_URL，如果没有则使用 REDIS_HOST + REDIS_PORT
         const redisUrl = configService.get<string>('REDIS_URL');
 
+        // 从环境变量读取配置
+        const maxRetriesPerRequest = configService.get<number>(
+          'REDIS_MAX_RETRIES_PER_REQUEST',
+          3,
+        );
+        const maxReconnectAttempts = configService.get<number>(
+          'REDIS_MAX_RECONNECT_ATTEMPTS',
+          5,
+        );
+        const retryDelayBase = configService.get<number>(
+          'REDIS_RETRY_DELAY_BASE',
+          200,
+        );
+        const retryDelayMax = configService.get<number>(
+          'REDIS_RETRY_DELAY_MAX',
+          2000,
+        );
+        const connectTimeout = configService.get<number>(
+          'REDIS_CONNECT_TIMEOUT',
+          5000,
+        );
+
         let redis: Redis;
         const commonOptions = {
-          maxRetriesPerRequest: 3,
+          maxRetriesPerRequest,
           retryStrategy: (times) => {
-            if (times > 5) {
+            if (times > maxReconnectAttempts) {
               console.error('Redis 连接失败，已达到最大重试次数');
               return null;
             }
-            const delay = Math.min(times * 200, 2000);
-            console.log(`Redis 重连中... (${times}/5)，${delay}ms 后重试`);
+            const delay = Math.min(times * retryDelayBase, retryDelayMax);
+            console.log(
+              `Redis 重连中... (${times}/${maxReconnectAttempts})，${delay}ms 后重试`,
+            );
             return delay;
           },
-          connectTimeout: 5000,
+          connectTimeout,
           lazyConnect: false,
-          enableOfflineQueue: true, // 启用离线队列，避免启动时的警告
+          enableOfflineQueue: true,
           enableReadyCheck: true,
         };
 
@@ -34,9 +58,11 @@ import Redis from 'ioredis';
           redis = new Redis(redisUrl, commonOptions);
         } else {
           // 降级到旧的配置方式
+          const host = configService.get<string>('REDIS_HOST', 'localhost');
+          const port = configService.get<number>('REDIS_PORT', 6379);
           redis = new Redis({
-            host: configService.get<string>('REDIS_HOST') || 'localhost',
-            port: configService.get<number>('REDIS_PORT') || 6379,
+            host,
+            port,
             ...commonOptions,
           });
         }
@@ -45,8 +71,8 @@ import Redis from 'ioredis';
         return new Promise<Redis>((resolve, reject) => {
           const timeout = setTimeout(() => {
             console.warn('Redis 连接超时，但继续启动应用（离线模式）');
-            resolve(redis); // 即使超时也返回实例，让应用继续启动
-          }, 5000);
+            resolve(redis);
+          }, connectTimeout);
 
           redis.on('ready', () => {
             clearTimeout(timeout);
@@ -56,7 +82,6 @@ import Redis from 'ioredis';
 
           redis.on('error', (err) => {
             console.error('Redis Client Error:', err.message);
-            // 不要 reject，让应用继续启动
           });
 
           redis.on('connect', () => {

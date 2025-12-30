@@ -2,7 +2,9 @@ import { Module, forwardRef } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { WebsocketGateway } from './websocket.gateway';
-import { MessageService } from '../message/message.service';
+import { WebsocketStateService } from './websocket-state.service';
+import { WebsocketHeartbeatService } from './websocket-heartbeat.service';
+import { WebsocketRateLimitService } from './websocket-rate-limit.service';
 import { MessageModule } from '../message/message.module';
 import { TicketModule } from '../ticket/ticket.module';
 
@@ -14,7 +16,9 @@ import { TicketModule } from '../ticket/ticket.module';
     JwtModule.registerAsync({
       imports: [ConfigModule],
       useFactory: async (configService: ConfigService) => ({
-        secret: configService.get<string>('JWT_SECRET') || 'your-secret-key',
+        secret:
+          configService.get<string>('JWT_SECRET') ||
+          'SusHber0XrWDhXz_mv5-TgRAnmgQlcinGtVT8d-2250niMFCw_Z9fHH5G78qL879',
         signOptions: {
           expiresIn: configService.get<string>('JWT_EXPIRES_IN') || '8h',
         },
@@ -22,7 +26,17 @@ import { TicketModule } from '../ticket/ticket.module';
       inject: [ConfigService],
     }),
   ],
-  providers: [WebsocketGateway],
-  exports: [WebsocketGateway],
+  providers: [
+    WebsocketGateway,
+    WebsocketStateService,
+    WebsocketHeartbeatService,
+    WebsocketRateLimitService,
+  ],
+  exports: [
+    WebsocketGateway,
+    WebsocketStateService,
+    WebsocketHeartbeatService,
+    WebsocketRateLimitService,
+  ],
 })
 export class WebsocketModule {}

@@ -311,13 +311,13 @@ function main() {
                     games = [
                         {
                             name: '弹弹堂',
-                            difyApiKey: 'app-pDwT9wHYcXt03ZVNYgrmJQ1V', // 请替换为实际的API Key
-                            difyBaseUrl: 'http://118.89.16.95/v1',
+                            difyApiKey: 'app-OgNA2dvFFjFbXdxt0VQQvpqW', 
+                            difyBaseUrl: 'http://ai.sh7road.com/v1',
                         },
                         {
                             name: '神曲',
-                            difyApiKey: 'app-pDwT9wHYcXt03ZVNYgrmJQ1V', // 请替换为实际的API Key
-                            difyBaseUrl: 'http://118.89.16.95/v1',
+                            difyApiKey: 'app-QoUQ1J2s1SZFsAMNAOTFw72Y', 
+                            difyBaseUrl: 'http://ai.sh7road.com/v1',
                         },
                     ];
                     _loop_3 = function (gameData) {

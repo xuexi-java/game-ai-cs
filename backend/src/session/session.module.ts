@@ -7,6 +7,13 @@ import { WebsocketModule } from '../websocket/websocket.module';
 import { TicketModule } from '../ticket/ticket.module';
 import { QueueModule } from '../queue/queue.module';
 import { TranslationModule } from '../shared/translation/translation.module';
+import {
+  SessionPriorityService,
+  SessionQueueService,
+  SessionAIService,
+  SessionAssignmentService,
+  SessionTransferService,
+} from './services';
 
 @Module({
   imports: [
@@ -18,7 +25,21 @@ import { TranslationModule } from '../shared/translation/translation.module';
     QueueModule,
   ],
   controllers: [SessionController],
-  providers: [SessionService],
-  exports: [SessionService],
+  providers: [
+    SessionService,
+    SessionPriorityService,
+    SessionQueueService,
+    SessionAIService,
+    SessionAssignmentService,
+    SessionTransferService,
+  ],
+  exports: [
+    SessionService,
+    SessionPriorityService,
+    SessionQueueService,
+    SessionAIService,
+    SessionAssignmentService,
+    SessionTransferService,
+  ],
 })
 export class SessionModule {}

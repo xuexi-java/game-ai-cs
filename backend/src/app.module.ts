@@ -3,6 +3,7 @@ import { APP_GUARD } from '@nestjs/core';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { ServeStaticModule } from '@nestjs/serve-static';
 import { ThrottlerModule } from '@nestjs/throttler';
+import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerStorageRedisService } from 'nestjs-throttler-storage-redis';
 import { join, isAbsolute } from 'path';
 import { AppController } from './app.controller';
@@ -40,6 +41,7 @@ import {
 @Module({
   imports: [
     // MetricsModule, // disabled for fast release
+    ScheduleModule.forRoot(),
     LoggerModule,
     RedisModule,
     EncryptionModule,
@@ -49,9 +51,8 @@ import {
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => {
         const redisUrl = configService.get<string>('REDIS_URL');
-        const redisHost =
-          configService.get<string>('REDIS_HOST') || 'localhost';
-        const redisPort = configService.get<number>('REDIS_PORT') || 6379;
+        const redisHost = configService.get<string>('REDIS_HOST', 'localhost');
+        const redisPort = configService.get<number>('REDIS_PORT', 6379);
         const storage = redisUrl
           ? new ThrottlerStorageRedisService(redisUrl)
           : new ThrottlerStorageRedisService({
@@ -59,16 +60,22 @@ import {
               port: redisPort,
             });
 
+        // 从环境变量读取限流配置
+        const globalTtl = configService.get<number>('THROTTLE_GLOBAL_TTL', 60000);
+        const globalLimit = configService.get<number>('THROTTLE_GLOBAL_LIMIT', 200);
+        const difyTtl = configService.get<number>('THROTTLE_DIFY_TTL', 60000);
+        const difyLimit = configService.get<number>('THROTTLE_DIFY_LIMIT', 100);
+
         return {
           throttlers: [
             {
-              ttl: 60000,
-              limit: 200,
+              ttl: globalTtl,
+              limit: globalLimit,
             },
             {
               name: 'dify-api',
-              ttl: 60000,
-              limit: 100,
+              ttl: difyTtl,
+              limit: difyLimit,
               getTracker: getDifyThrottleKey,
               skipIf: (context) => {
                 if (context.getType() !== 'http') {

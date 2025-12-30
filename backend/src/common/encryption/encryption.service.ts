@@ -1,28 +1,47 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as crypto from 'crypto';
 
 @Injectable()
-export class EncryptionService {
+export class EncryptionService implements OnModuleInit {
   private readonly algorithm = 'aes-256-gcm';
   private readonly keyLength = 32;
   private readonly ivLength = 16;
   private readonly key: Buffer;
+  private readonly isDefaultKey: boolean;
 
   constructor(private configService: ConfigService) {
-    // 从环境变量获取加密密钥，如果没有则使用默认密钥（生产环境必须设置）
+    // 从环境变量获取加密密钥
+    const defaultKey = 'default-secret-key-change-in-production-32-chars!!';
     const secretKey =
-      this.configService.get<string>('ENCRYPTION_SECRET_KEY') ||
-      'default-secret-key-change-in-production-32-chars!!';
+      this.configService.get<string>('ENCRYPTION_SECRET_KEY') || defaultKey;
+    this.isDefaultKey = secretKey === defaultKey;
+
+    // 从环境变量获取盐值
+    const salt =
+      this.configService.get<string>('ENCRYPTION_SALT') ||
+      'game-ai-encryption-salt';
 
     // 使用 PBKDF2 派生密钥
     this.key = crypto.pbkdf2Sync(
       secretKey,
-      'game-ai-encryption-salt',
+      salt,
       100000,
       this.keyLength,
       'sha256',
     );
+  }
+
+  onModuleInit() {
+    // 生产环境警告使用默认密钥
+    if (
+      this.isDefaultKey &&
+      this.configService.get<string>('NODE_ENV') === 'production'
+    ) {
+      console.warn(
+        '[Security Warning] Using default encryption key in production! Please set ENCRYPTION_SECRET_KEY environment variable.',
+      );
+    }
   }
 
   /**

@@ -522,8 +522,19 @@ export class LoggerService implements NestLoggerService, OnModuleDestroy {
    * 过滤敏感信息（使用缓存的配置值）
    * 公开方法供 AppLogger 调用
    */
-  public filterSensitiveData(data: any): any {
+  public filterSensitiveData(data: any, seen?: WeakSet<object>): any {
     if (!data || typeof data !== 'object') return data;
+
+    // 初始化循环引用检测集合
+    if (!seen) {
+      seen = new WeakSet();
+    }
+
+    // 检测循环引用，避免无限递归
+    if (seen.has(data)) {
+      return '[Circular Reference]';
+    }
+    seen.add(data);
 
     const filtered = Array.isArray(data) ? [...data] : { ...data };
 
@@ -532,7 +543,7 @@ export class LoggerService implements NestLoggerService, OnModuleDestroy {
       if (this.sensitiveFields.some((field) => lowerKey.includes(field))) {
         filtered[key] = '***REDACTED***';
       } else if (typeof filtered[key] === 'object' && filtered[key] !== null) {
-        filtered[key] = this.filterSensitiveData(filtered[key]);
+        filtered[key] = this.filterSensitiveData(filtered[key], seen);
       }
     }
 

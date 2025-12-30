@@ -34,12 +34,9 @@ import type { Session, Message } from '../../types';
 import './ActivePage.css';
 import {
   API_BASE_URL,
-  DIFY_API_KEY,
-  DIFY_BASE_URL,
-  DIFY_APP_MODE,
-  DIFY_WORKFLOW_ID,
   AGENT_STATUS_POLL_INTERVAL,
 } from '../../config/api';
+import apiClient from '../../services/api';
 import { getOnlineAgents } from '../../services/user.service';
 import {
   getActiveSessions,
@@ -1135,200 +1132,32 @@ const ActivePage: React.FC = () => {
       return;
     }
 
-    // 使用环境变量中的配置
-    const currentApiKey = DIFY_API_KEY;
-    const currentBaseUrl = DIFY_BASE_URL;
-    const currentAppMode = DIFY_APP_MODE;
-
-    // 验证API Key格式
-    if (!currentApiKey || !currentApiKey.startsWith('app-')) {
-      message.error('Dify API Key 格式错误，无法执行AI优化');
-      return;
-    }
-
-    if (!currentBaseUrl) {
-      message.error('Dify Base URL 缺失，无法执行AI优化');
-      return;
-    }
-
-    // 开发环境显示配置信息
-    if (import.meta.env.DEV) {
-      console.log('当前使用的Dify配置（强制使用最新值）:', {
-        apiKey: currentApiKey,
-        apiKeyLength: currentApiKey.length,
-        baseUrl: currentBaseUrl,
-        appMode: currentAppMode,
-        timestamp: new Date().toISOString(),
-      });
-    }
-
     const difyUser = authUser?.id || authUser?.username || 'agent';
 
     lastManualInputRef.current = messageInput;
     setAiOptimizing(true);
     try {
-      const normalizedBase = currentBaseUrl.replace(/\/$/, '');
-      const headers = {
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-        Authorization: `Bearer ${currentApiKey}`,
-      };
-
-      let apiEndpoint: string;
-      let payload: Record<string, any>;
-
-      // 根据公共访问URL是 /chat/ 开头，直接使用chat API
-      // 因为API Key是app-开头，已经关联了chat应用，不需要额外配置
-      let useChatAPI = true;
-
-      // 直接使用chat API（与后端sendChatMessage方法保持一致）
-      apiEndpoint = `${normalizedBase}/chat-messages`;
-      payload = {
-        inputs: {},
+      // 通过后端代理调用 Dify API（避免 CORS 问题）
+      const response = await apiClient.post('/dify/chat-messages', {
         query: `请优化以下客服回复内容，使其更加专业和友好：\n${content}`,
-        response_mode: 'blocking',
         user: difyUser,
-      };
-
-      // 开发环境显示实际请求信息
-      if (import.meta.env.DEV) {
-        console.log('实际发送的Dify请求:', {
-          endpoint: apiEndpoint,
-          apiKey: currentApiKey,
-          apiKeyLength: currentApiKey?.length || 0,
-          apiKeyPrefix: currentApiKey?.substring(0, 4) || 'N/A',
-          headers: { ...headers, Authorization: `Bearer ${currentApiKey.substring(0, 15)}...` },
-          payload,
-        });
-      }
-
-
-      let response = await fetch(apiEndpoint, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(payload),
+        response_mode: 'blocking',
       });
 
-      // 开发环境：记录响应状态和错误详情
+      // 开发环境显示响应
       if (import.meta.env.DEV) {
-        console.log('Dify API响应状态:', {
-          status: response.status,
-          statusText: response.statusText,
-          ok: response.ok,
-          headers: Object.fromEntries(response.headers.entries()),
-        });
+        console.log('Dify API 响应:', response);
       }
 
-      // 如果chat API返回401，检查API Key是否正确
-      if (!response.ok && response.status === 401) {
-        if (import.meta.env.DEV) {
-          console.error('Chat API认证失败，请检查API Key是否正确:', {
-            apiKey: currentApiKey ? `${currentApiKey.substring(0, 15)}...` : '未配置',
-            fullApiKey: currentApiKey, // 显示完整API Key用于调试
-            endpoint: apiEndpoint,
-            baseUrl: currentBaseUrl,
-          });
-        }
-      }
-
-      if (!response.ok) {
-        let errorMessage = 'AI优化请求失败';
-        let errorDetails: any = null;
-
-        try {
-          const errorData = await response.json();
-          errorDetails = errorData;
-          errorMessage =
-            errorData?.message ||
-            errorData?.error ||
-            errorData?.detail ||
-            errorMessage;
-        } catch {
-          const errorText = await response.text();
-          if (errorText) {
-            errorMessage = errorText;
-          }
-        }
-
-        // 如果是401错误，提供更详细的错误信息和解决方案
-        if (response.status === 401) {
-          if (import.meta.env.DEV) {
-            console.error('Dify API 401错误详情:', {
-              endpoint: apiEndpoint,
-              apiKey: currentApiKey ? `${currentApiKey.substring(0, 15)}...` : '未配置',
-              fullApiKey: currentApiKey, // 仅在开发环境显示完整API Key用于调试
-              mode: currentAppMode,
-              baseUrl: currentBaseUrl,
-              errorDetails,
-            });
-          }
-
-          // 401错误：认证失败
-          const apiKeyPreview = currentApiKey
-            ? `${currentApiKey.substring(0, 15)}...`
-            : '未配置';
-          const errorMsg = `认证失败 (401): ${errorMessage}。\n\n请检查：\n1. Dify API Key (${apiKeyPreview}) 是否正确\n2. API Key 是否已启用并具有访问权限\n3. Dify Base URL (${currentBaseUrl}) 是否正确\n4. 应用是否已发布`;
-          throw new Error(errorMsg);
-        }
-
-        throw new Error(errorMessage);
-      }
-
-      const data = await response.json();
-
-      // 解析API的响应（参考后端parseDifyResult逻辑）
-      let optimizedText = '';
-
-      if (useChatAPI) {
-        // chat API返回格式：data.answer 或 data.text
-        optimizedText =
-          data.answer ||
-          data.text ||
-          data.output ||
-          data.content ||
-          '';
-      } else if (DIFY_APP_MODE === 'workflow' && DIFY_WORKFLOW_ID) {
-        // workflow API返回格式：data.outputs 或 data.data.outputs
-        const output = data.outputs || data.data?.outputs || data;
-
-        // 尝试从output中提取文本
-        optimizedText =
-          output.text ||
-          output.answer ||
-          output.output ||
-          output.initial_reply ||
-          output.content ||
-          '';
-
-        // 如果output是数组，查找文本类型的输出
-        if (!optimizedText && Array.isArray(output)) {
-          const textOutput = output.find((item: any) => {
-            if (typeof item === 'string') return true;
-            if (item?.type === 'text' && typeof item?.text === 'string') {
-              return true;
-            }
-            return false;
-          });
-          if (typeof textOutput === 'string') {
-            optimizedText = textOutput.trim();
-          } else if (textOutput?.text) {
-            optimizedText = String(textOutput.text).trim();
-          }
-        }
-
-        // 如果output是对象，尝试从各种字段获取
-        if (!optimizedText && typeof output === 'object' && !Array.isArray(output)) {
-          optimizedText = output.text || output.answer || output.output || '';
-        }
-      } else {
-        // 默认chat API格式
-        optimizedText =
-          data.text ||
-          data.answer ||
-          data.output ||
-          data.content ||
-          '';
-      }
+      // 解析响应（后端已经解析过，直接使用）
+      // 修复：AxiosResponse 的数据在 data 属性下
+      const data = response?.data || {};
+      const optimizedText =
+        data.text ||
+        data.answer ||
+        data.output ||
+        data.content ||
+        '';
 
       if (!optimizedText || !optimizedText.trim()) {
         throw new Error('AI未返回优化后的文本');

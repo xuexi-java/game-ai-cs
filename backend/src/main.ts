@@ -51,15 +51,13 @@ async function bootstrap() {
   // app.useGlobalInterceptors(new MetricsInterceptor());
 
   // CORS 配置 - 同时兼容 .env 中的 FRONTEND_URL 和默认本地域名
+  const defaultDevOriginsStr =
+    process.env.CORS_DEFAULT_DEV_ORIGINS ||
+    'http://localhost:20101,http://localhost:20102,http://127.0.0.1:20101,http://127.0.0.1:20102';
   const defaultOrigins =
     process.env.NODE_ENV === 'production'
       ? []
-      : [
-          'http://localhost:20101',
-          'http://localhost:20102',
-          'http://127.0.0.1:20101',
-          'http://127.0.0.1:20102',
-        ];
+      : defaultDevOriginsStr.split(',').map((o) => o.trim());
   const envOrigins =
     process.env.FRONTEND_URL?.split(',')
       .map((origin) => origin.trim())
@@ -144,9 +142,6 @@ async function bootstrap() {
     paths: filterPaths(adminDocument.paths, (operation) => {
       const tags: string[] = operation.tags || [];
       // 保留需要鉴权的接口，或者标记为管理端认证的接口（登录/登出）
-      // ?????????????auth ? tag ??? admin-auth?
-      // å»æç®¡çç«¯ç¨æ·é´æç±»æ¥å£ï¼auth ç±» tag ä»ç°å¨ admin-authï¼
-
       if (tags.includes('admin-auth') || tags.includes('auth')) return true;
       return false;
     }),
@@ -172,16 +167,7 @@ async function bootstrap() {
     ...playerDocument,
     paths: filterPaths(playerDocument.paths, (operation) => {
       const tags: string[] = operation.tags || [];
-
-      // å»æç®¡çç«¯ç¨æ·é´æç±»æ¥å£ï¼auth ç±» tag ä»ç°å¨ admin-authï¼
-
-
       if (tags.includes('admin-auth') || tags.includes('auth')) return false;
-      // ä¿çæ éè¦é´æçæ¥å£
-
-      // ??????????
-      // ??????????
-      // ä¿çæ éè¦é´æçæ¥å£
 
       return !operation.security || operation.security.length === 0;
     }),

@@ -1,4 +1,5 @@
 import { Injectable, Inject } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import Redis from 'ioredis';
 import { PrismaService } from '../prisma/prisma.service';
 import {
@@ -15,13 +16,34 @@ export class QueueService {
   private readonly QUEUE_PREFIX = 'queue:';
   private readonly UNASSIGNED_QUEUE_KEY = `${this.QUEUE_PREFIX}unassigned`;
   private readonly AGENT_QUEUE_KEY_PREFIX = `${this.QUEUE_PREFIX}agent:`;
+  private _redisUnavailableLogged = false;
+
+  // 从配置读取的参数
+  private readonly retryDelayBase: number;
+  private readonly retryDelayMax: number;
+  private readonly defaultMaxRetries: number;
+  private readonly pingTimeout: number;
 
   constructor(
     @Inject('REDIS_CLIENT') private readonly redis: Redis,
     private readonly prisma: PrismaService,
     private readonly logger: AppLogger,
+    private readonly configService: ConfigService,
   ) {
     this.logger.setContext(QueueService.name);
+    this.retryDelayBase = this.configService.get<number>(
+      'QUEUE_RETRY_DELAY_BASE',
+      1000,
+    );
+    this.retryDelayMax = this.configService.get<number>(
+      'QUEUE_RETRY_DELAY_MAX',
+      4000,
+    );
+    this.defaultMaxRetries = this.configService.get<number>(
+      'QUEUE_MAX_RETRIES',
+      3,
+    );
+    this.pingTimeout = this.configService.get<number>('REDIS_PING_TIMEOUT', 2000);
   }
 
   /**
@@ -51,24 +73,109 @@ export class QueueService {
   }
 
   /**
+   * 检查是否为连接错误（需要快速失败，不重试）
+   */
+  private isConnectionError(error: Error): boolean {
+    const errorMsg = error.message.toLowerCase();
+    return (
+      errorMsg.includes('maxretriesperrequest') ||
+      errorMsg.includes('connection') ||
+      errorMsg.includes('econnrefused') ||
+      errorMsg.includes('timeout')
+    );
+  }
+
+  /**
+   * 通用重试包装器
+   * @param operation 要执行的操作
+   * @param operationName 操作名称（用于日志）
+   * @param sessionId 会话ID（用于日志）
+   * @param maxRetries 最大重试次数
+   * @param allowFailOnConnectionError 连接错误时是否允许静默失败
+   */
+  private async withRetry<T>(
+    operation: () => Promise<T>,
+    operationName: string,
+    sessionId: string,
+    maxRetries = 3,
+    allowFailOnConnectionError = false,
+  ): Promise<{ success: boolean; result?: T }> {
+    // 先快速检查 Redis 是否可用
+    const isAvailable = await this.isRedisAvailable();
+    if (!isAvailable) {
+      if (allowFailOnConnectionError) {
+        this.logger.debug(
+          `Redis 不可用，跳过${operationName}（会话 ${sessionId}）`,
+        );
+        return { success: true }; // 静默成功
+      }
+      this.logger.warn(
+        `Redis 不可用，跳过${operationName}（会话 ${sessionId}），将在一致性检查时恢复`,
+      );
+      return { success: false };
+    }
+
+    let lastError: Error | null = null;
+
+    for (let i = 0; i < maxRetries; i++) {
+      try {
+        const result = await operation();
+        return { success: true, result };
+      } catch (error: unknown) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+
+        // 如果是连接错误，快速失败
+        if (this.isConnectionError(lastError)) {
+          if (allowFailOnConnectionError) {
+            this.logger.debug(
+              `Redis 连接错误，跳过${operationName}（会话 ${sessionId}）: ${lastError.message}`,
+            );
+            return { success: true }; // 静默成功
+          }
+          this.logger.warn(
+            `Redis 连接错误，快速失败（会话 ${sessionId}）: ${lastError.message}`,
+          );
+          return { success: false };
+        }
+
+        if (i < maxRetries - 1) {
+          // 指数退避
+          const delay = Math.min(
+            this.retryDelayBase * Math.pow(2, i),
+            this.retryDelayMax,
+          );
+          await new Promise((resolve) => setTimeout(resolve, delay));
+          this.logger.warn(
+            `${operationName}失败，${delay}ms 后重试 (${i + 1}/${maxRetries}): ${lastError.message}`,
+          );
+        }
+      }
+    }
+
+    // 所有重试都失败
+    if (allowFailOnConnectionError) {
+      this.logger.warn(
+        `${operationName}失败（已重试${maxRetries}次），但可以忽略: ${lastError?.message}`,
+      );
+      return { success: true };
+    }
+
+    this.logger.error(
+      `${operationName}失败（已重试${maxRetries}次）: ${lastError?.message}`,
+      lastError?.stack,
+    );
+    return { success: false };
+  }
+
+  /**
    * 计算会话的排序分数
    * 分数 = priorityScore * 10^10 + (10^13 - timestamp)
-   * 这样优先级高的排在前面，优先级相同时按时间排序（时间早的排在前面）
    */
   private calculateScore(priorityScore: number, queuedAt: Date): number {
     const timestamp = queuedAt.getTime();
-    // 使用大数乘法确保优先级优先，时间戳作为次要排序
-    // 假设 priorityScore 最大为 200，timestamp 最大约为 10^13（毫秒级时间戳）
-    // 使用 10^10 作为倍数，确保优先级优先
-    // 使用 10^13 - timestamp 是为了让时间早的排在前面（分数更高）
-    const maxTimestamp = 9999999999999; // 约等于 2286年的毫秒时间戳
-
-    // 确保 priorityScore 非负（负数会导致排序错误）
+    const maxTimestamp = 9999999999999;
     const safePriorityScore = Math.max(0, priorityScore || 0);
-
-    // 确保 timestamp 在合理范围内
     const safeTimestamp = Math.max(0, Math.min(timestamp, maxTimestamp));
-
     return safePriorityScore * 10000000000 + (maxTimestamp - safeTimestamp);
   }
 
@@ -135,21 +242,7 @@ export class QueueService {
         await this.redis.zrem(queueKey, sessionId);
       } else {
         // 如果没有指定 agentId，尝试从所有客服队列中移除
-        // 使用 scan 替代 keys 命令，避免阻塞 Redis
-        const keys: string[] = [];
-        let cursor = '0';
-        do {
-          const result = await this.redis.scan(
-            cursor,
-            'MATCH',
-            `${this.AGENT_QUEUE_KEY_PREFIX}*`,
-            'COUNT',
-            100,
-          );
-          cursor = result[0];
-          keys.push(...result[1]);
-        } while (cursor !== '0');
-
+        const keys = await this.scanAgentQueueKeys();
         if (keys.length > 0) {
           await Promise.all(keys.map((key) => this.redis.zrem(key, sessionId)));
         }
@@ -164,6 +257,26 @@ export class QueueService {
   }
 
   /**
+   * 扫描所有客服队列的 key
+   */
+  private async scanAgentQueueKeys(): Promise<string[]> {
+    const keys: string[] = [];
+    let cursor = '0';
+    do {
+      const result = await this.redis.scan(
+        cursor,
+        'MATCH',
+        `${this.AGENT_QUEUE_KEY_PREFIX}*`,
+        'COUNT',
+        100,
+      );
+      cursor = result[0];
+      keys.push(...result[1]);
+    } while (cursor !== '0');
+    return keys;
+  }
+
+  /**
    * 将会话从未分配队列移动到指定客服的队列
    */
   async moveToAgentQueue(
@@ -173,11 +286,10 @@ export class QueueService {
     queuedAt: Date,
   ): Promise<void> {
     try {
-      // 从未分配队列移除（如果失败，继续尝试添加，因为可能本来就不在队列中）
+      // 从未分配队列移除
       try {
         await this.redis.zrem(this.UNASSIGNED_QUEUE_KEY, sessionId);
       } catch (error) {
-        // 忽略移除失败，继续执行
         this.logger.warn(
           `从未分配队列移除会话失败（可能本来就不在队列中）: ${error.message}`,
         );
@@ -200,28 +312,20 @@ export class QueueService {
 
   /**
    * 获取会话在队列中的位置（排名，从1开始）
-   * 位置1表示第一个被处理的会话（分数最高的）
    */
   async getQueuePosition(
     sessionId: string,
     agentId?: string | null,
   ): Promise<number | null> {
     try {
-      let queueKey: string;
-      if (agentId) {
-        queueKey = `${this.AGENT_QUEUE_KEY_PREFIX}${agentId}`;
-      } else {
-        queueKey = this.UNASSIGNED_QUEUE_KEY;
-      }
+      const queueKey = agentId
+        ? `${this.AGENT_QUEUE_KEY_PREFIX}${agentId}`
+        : this.UNASSIGNED_QUEUE_KEY;
 
       const rank = await this.redis.zrevrank(queueKey, sessionId);
-      // zrevrank 返回的是从高到低的排名（0 表示分数最高，即第1个被处理）
-      // 我们需要返回从1开始的排队位置（1表示第一个被处理）
       if (rank === null) {
         return null;
       }
-
-      // rank 从0开始，所以需要 +1 转换为从1开始的排队位置
       return rank + 1;
     } catch (error) {
       this.recordRedisError(error);
@@ -238,21 +342,11 @@ export class QueueService {
     limit?: number,
   ): Promise<string[]> {
     try {
-      let queueKey: string;
-      if (agentId) {
-        queueKey = `${this.AGENT_QUEUE_KEY_PREFIX}${agentId}`;
-      } else {
-        queueKey = this.UNASSIGNED_QUEUE_KEY;
-      }
+      const queueKey = agentId
+        ? `${this.AGENT_QUEUE_KEY_PREFIX}${agentId}`
+        : this.UNASSIGNED_QUEUE_KEY;
 
-      // 使用 zrevrange 获取从高到低排序的会话ID（分数高的在前）
-      const sessionIds = await this.redis.zrevrange(
-        queueKey,
-        0,
-        limit ? limit - 1 : -1,
-      );
-
-      return sessionIds;
+      return await this.redis.zrevrange(queueKey, 0, limit ? limit - 1 : -1);
     } catch (error) {
       this.recordRedisError(error);
       this.logger.error(`获取队列会话ID失败: ${error.message}`, error.stack);
@@ -265,17 +359,11 @@ export class QueueService {
    */
   async getQueueLength(agentId?: string | null): Promise<number> {
     try {
-      let queueKey: string;
-      let queueType: string;
-      if (agentId) {
-        queueKey = `${this.AGENT_QUEUE_KEY_PREFIX}${agentId}`;
-        queueType = 'agent';
-      } else {
-        queueKey = this.UNASSIGNED_QUEUE_KEY;
-        queueType = 'unassigned';
-      }
+      const queueKey = agentId
+        ? `${this.AGENT_QUEUE_KEY_PREFIX}${agentId}`
+        : this.UNASSIGNED_QUEUE_KEY;
+      const queueType = agentId ? 'agent' : 'unassigned';
 
-      return await this.redis.zcard(queueKey);
       const length = await this.redis.zcard(queueKey);
       queueLengthGauge.set({ queue_type: queueType }, length);
       return length;
@@ -287,44 +375,23 @@ export class QueueService {
   }
 
   /**
-   * 检查 Redis 是否可用（静默模式，不记录警告）
-   */
-  private async isRedisAvailableSilent(): Promise<boolean> {
-    try {
-      // 先检查连接状态
-      if (this.redis.status !== 'ready') {
-        return false;
-      }
-
-      // 使用带超时的 ping，快速检测 Redis 是否可用
-      const result = await Promise.race([
-        this.redis.ping(),
-        new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('timeout')), 1000),
-        ),
-      ]);
-      return result === 'PONG';
-    } catch (error) {
-      return false;
-    }
-  }
-
-  /**
    * 检查 Redis 是否可用
    */
   async isRedisAvailable(): Promise<boolean> {
     try {
-      // 使用带超时的 ping，快速检测 Redis 是否可用
       const result = await Promise.race([
         this.redis.ping(),
         new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('Redis ping timeout')), 2000),
+          setTimeout(
+            () => reject(new Error('Redis ping timeout')),
+            this.pingTimeout,
+          ),
         ),
       ]);
+      this._redisUnavailableLogged = false;
       return result === 'PONG';
     } catch (error) {
       this.recordRedisError(error);
-      // 只在首次检查时记录警告
       if (!this._redisUnavailableLogged) {
         this.logger.warn(
           `Redis 不可用: ${error instanceof Error ? error.message : String(error)}`,
@@ -335,7 +402,87 @@ export class QueueService {
     }
   }
 
-  private _redisUnavailableLogged = false;
+  // ================== 带重试的方法（使用通用重试包装器）==================
+
+  /**
+   * 带重试的添加会话到未分配队列
+   */
+  async addToUnassignedQueueWithRetry(
+    sessionId: string,
+    priorityScore: number,
+    queuedAt: Date,
+    maxRetries?: number,
+  ): Promise<boolean> {
+    const retries = maxRetries ?? this.defaultMaxRetries;
+    const result = await this.withRetry(
+      () => this.addToUnassignedQueue(sessionId, priorityScore, queuedAt),
+      '添加会话到未分配队列',
+      sessionId,
+      retries,
+    );
+    return result.success;
+  }
+
+  /**
+   * 带重试的添加会话到指定客服的队列
+   */
+  async addToAgentQueueWithRetry(
+    sessionId: string,
+    agentId: string,
+    priorityScore: number,
+    queuedAt: Date,
+    maxRetries?: number,
+  ): Promise<boolean> {
+    const retries = maxRetries ?? this.defaultMaxRetries;
+    const result = await this.withRetry(
+      () => this.addToAgentQueue(sessionId, agentId, priorityScore, queuedAt),
+      '添加会话到客服队列',
+      sessionId,
+      retries,
+    );
+    return result.success;
+  }
+
+  /**
+   * 带重试的从队列中移除会话
+   */
+  async removeFromQueueWithRetry(
+    sessionId: string,
+    agentId?: string | null,
+    maxRetries?: number,
+  ): Promise<boolean> {
+    const retries = maxRetries ?? this.defaultMaxRetries;
+    const result = await this.withRetry(
+      () => this.removeFromQueue(sessionId, agentId),
+      '从队列移除会话',
+      sessionId,
+      retries,
+      true, // 移除操作失败可以忽略
+    );
+    return result.success;
+  }
+
+  /**
+   * 带重试的将会话从未分配队列移动到指定客服的队列
+   */
+  async moveToAgentQueueWithRetry(
+    sessionId: string,
+    agentId: string,
+    priorityScore: number,
+    queuedAt: Date,
+    maxRetries?: number,
+  ): Promise<boolean> {
+    const retries = maxRetries ?? this.defaultMaxRetries;
+    const result = await this.withRetry(
+      () => this.moveToAgentQueue(sessionId, agentId, priorityScore, queuedAt),
+      '移动会话到客服队列',
+      sessionId,
+      retries,
+    );
+    return result.success;
+  }
+
+  // ================== 数据恢复与同步 ==================
 
   /**
    * 从数据库恢复队列数据到 Redis
@@ -344,45 +491,19 @@ export class QueueService {
     try {
       this.logger.debug('开始从数据库恢复队列数据到 Redis...');
 
-      // 检查 Redis 是否可用
       if (!(await this.isRedisAvailable())) {
         this.logger.warn('Redis 不可用，跳过队列数据恢复');
         return;
       }
 
-      // 检查数据库表是否存在（通过尝试查询表结构）
-      try {
-        // 先尝试一个简单的查询来检查表是否存在
-        await this.prisma.$queryRaw`SELECT 1 FROM "Session" LIMIT 1`;
-      } catch (tableError: any) {
-        // 如果表不存在，优雅地跳过恢复
-        if (
-          tableError?.message?.includes('does not exist') ||
-          tableError?.code === '42P01' || // PostgreSQL 表不存在错误码
-          tableError?.message?.includes('Table') ||
-          tableError?.message?.includes('table')
-        ) {
-          this.logger.warn(
-            'Session 表不存在，可能是数据库迁移尚未执行，跳过队列数据恢复',
-          );
-          return;
-        }
-        // 其他错误继续抛出
-        throw tableError;
+      // 检查数据库表是否存在
+      if (!(await this.isSessionTableAvailable())) {
+        return;
       }
-
-      // 清空现有队列（可选，根据需求决定）
-      // await this.redis.del(this.UNASSIGNED_QUEUE_KEY);
-      // const agentKeys = await this.redis.keys(`${this.AGENT_QUEUE_KEY_PREFIX}*`);
-      // if (agentKeys.length > 0) {
-      //   await this.redis.del(...agentKeys);
-      // }
 
       // 获取所有排队状态的会话
       const queuedSessions = await this.prisma.session.findMany({
-        where: {
-          status: 'QUEUED',
-        },
+        where: { status: 'QUEUED' },
         select: {
           id: true,
           agentId: true,
@@ -396,11 +517,10 @@ export class QueueService {
         return;
       }
 
-      // 恢复未分配的会话（使用重试机制）
+      // 恢复未分配的会话
       const unassignedSessions = queuedSessions.filter((s) => !s.agentId);
       for (const session of unassignedSessions) {
         if (session.queuedAt) {
-          // 使用重试版本，失败时不抛出异常
           await this.addToUnassignedQueueWithRetry(
             session.id,
             session.priorityScore || 0,
@@ -411,20 +531,11 @@ export class QueueService {
 
       // 恢复已分配的会话（按客服分组）
       const assignedSessions = queuedSessions.filter((s) => s.agentId);
-      const sessionsByAgent = new Map<string, typeof assignedSessions>();
-      for (const session of assignedSessions) {
-        if (session.agentId) {
-          if (!sessionsByAgent.has(session.agentId)) {
-            sessionsByAgent.set(session.agentId, []);
-          }
-          sessionsByAgent.get(session.agentId)!.push(session);
-        }
-      }
+      const sessionsByAgent = this.groupSessionsByAgent(assignedSessions);
 
       for (const [agentId, sessions] of sessionsByAgent.entries()) {
         for (const session of sessions) {
           if (session.queuedAt) {
-            // 使用重试版本，失败时不抛出异常
             await this.addToAgentQueueWithRetry(
               session.id,
               agentId,
@@ -439,13 +550,7 @@ export class QueueService {
         `队列数据恢复完成：未分配 ${unassignedSessions.length} 个，已分配 ${assignedSessions.length} 个`,
       );
     } catch (error: any) {
-      // 检查是否是表不存在的错误
-      if (
-        error?.message?.includes('does not exist') ||
-        error?.code === '42P01' || // PostgreSQL 表不存在错误码
-        error?.message?.includes('Table') ||
-        error?.message?.includes('table')
-      ) {
+      if (this.isTableNotExistError(error)) {
         this.logger.warn(
           '数据库表不存在，可能是数据库迁移尚未执行，跳过队列数据恢复',
         );
@@ -455,12 +560,11 @@ export class QueueService {
         `从数据库恢复队列数据失败: ${error?.message || String(error)}`,
         error?.stack,
       );
-      // 不抛出错误，允许系统继续运行
     }
   }
 
   /**
-   * 同步 Redis 队列数据到数据库（定期调用）
+   * 同步 Redis 队列数据到数据库
    */
   async syncQueueToDatabase(): Promise<void> {
     try {
@@ -468,34 +572,15 @@ export class QueueService {
         return;
       }
 
-      // 检查数据库表是否存在
-      try {
-        await this.prisma.$queryRaw`SELECT 1 FROM "Session" LIMIT 1`;
-      } catch (tableError: any) {
-        if (
-          tableError?.message?.includes('does not exist') ||
-          tableError?.code === '42P01' ||
-          tableError?.message?.includes('Table') ||
-          tableError?.message?.includes('table')
-        ) {
-          // 表不存在，静默跳过
-          return;
-        }
-        throw tableError;
+      if (!(await this.isSessionTableAvailable())) {
+        return;
       }
 
-      // 获取所有排队状态的会话
       const queuedSessions = await this.prisma.session.findMany({
-        where: {
-          status: 'QUEUED',
-        },
-        select: {
-          id: true,
-          agentId: true,
-        },
+        where: { status: 'QUEUED' },
+        select: { id: true, agentId: true },
       });
 
-      // 更新每个会话的排队位置
       for (const session of queuedSessions) {
         const queuePosition = await this.getQueuePosition(
           session.id,
@@ -513,14 +598,7 @@ export class QueueService {
         `同步队列数据到数据库完成，更新了 ${queuedSessions.length} 个会话`,
       );
     } catch (error: any) {
-      // 检查是否是表不存在的错误
-      if (
-        error?.message?.includes('does not exist') ||
-        error?.code === '42P01' ||
-        error?.message?.includes('Table') ||
-        error?.message?.includes('table')
-      ) {
-        // 表不存在，静默跳过
+      if (this.isTableNotExistError(error)) {
         return;
       }
       this.logger.error(
@@ -530,269 +608,53 @@ export class QueueService {
     }
   }
 
-  /**
-   * 带重试的添加会话到未分配队列
-   * @param sessionId 会话ID
-   * @param priorityScore 优先级分数
-   * @param queuedAt 排队时间
-   * @param maxRetries 最大重试次数，默认3次
-   * @returns 是否成功
-   */
-  async addToUnassignedQueueWithRetry(
-    sessionId: string,
-    priorityScore: number,
-    queuedAt: Date,
-    maxRetries = 3,
-  ): Promise<boolean> {
-    // 先快速检查 Redis 是否可用
-    const isAvailable = await this.isRedisAvailable();
-    if (!isAvailable) {
-      this.logger.warn(
-        `Redis 不可用，跳过添加到队列（会话 ${sessionId}），将在一致性检查时恢复`,
-      );
-      return false;
-    }
-
-    let lastError: Error | null = null;
-
-    for (let i = 0; i < maxRetries; i++) {
-      try {
-        await this.addToUnassignedQueue(sessionId, priorityScore, queuedAt);
-        return true; // 成功
-      } catch (error: unknown) {
-        lastError = error instanceof Error ? error : new Error(String(error));
-
-        // 如果是连接错误，快速失败，不重试
-        const errorMsg = lastError.message.toLowerCase();
-        if (
-          errorMsg.includes('maxretriesperrequest') ||
-          errorMsg.includes('connection') ||
-          errorMsg.includes('econnrefused') ||
-          errorMsg.includes('timeout')
-        ) {
-          this.logger.warn(
-            `Redis 连接错误，快速失败（会话 ${sessionId}）: ${lastError.message}`,
-          );
-          return false; // 快速失败，不重试
-        }
-
-        if (i < maxRetries - 1) {
-          // 指数退避：1s, 2s, 4s
-          const delay = Math.min(1000 * Math.pow(2, i), 4000);
-          await new Promise((resolve) => setTimeout(resolve, delay));
-          this.logger.warn(
-            `添加会话到队列失败，${delay}ms 后重试 (${i + 1}/${maxRetries}): ${lastError.message}`,
-          );
-        }
-      }
-    }
-
-    // 所有重试都失败
-    this.logger.error(
-      `添加会话到队列失败（已重试${maxRetries}次）: ${lastError?.message}`,
-      lastError?.stack,
-    );
-    return false; // 返回失败，但不抛出异常，允许系统继续运行
-  }
+  // ================== 辅助方法 ==================
 
   /**
-   * 带重试的添加会话到指定客服的队列
-   * @param sessionId 会话ID
-   * @param agentId 客服ID
-   * @param priorityScore 优先级分数
-   * @param queuedAt 排队时间
-   * @param maxRetries 最大重试次数，默认3次
-   * @returns 是否成功
+   * 检查 Session 表是否可用
    */
-  async addToAgentQueueWithRetry(
-    sessionId: string,
-    agentId: string,
-    priorityScore: number,
-    queuedAt: Date,
-    maxRetries = 3,
-  ): Promise<boolean> {
-    // 先快速检查 Redis 是否可用
-    const isAvailable = await this.isRedisAvailable();
-    if (!isAvailable) {
-      this.logger.warn(
-        `Redis 不可用，跳过添加到队列（会话 ${sessionId}），将在一致性检查时恢复`,
-      );
-      return false;
-    }
-
-    let lastError: Error | null = null;
-
-    for (let i = 0; i < maxRetries; i++) {
-      try {
-        await this.addToAgentQueue(sessionId, agentId, priorityScore, queuedAt);
-        return true; // 成功
-      } catch (error: unknown) {
-        lastError = error instanceof Error ? error : new Error(String(error));
-
-        // 如果是连接错误，快速失败，不重试
-        const errorMsg = lastError.message.toLowerCase();
-        if (
-          errorMsg.includes('maxretriesperrequest') ||
-          errorMsg.includes('connection') ||
-          errorMsg.includes('econnrefused') ||
-          errorMsg.includes('timeout')
-        ) {
-          this.logger.warn(
-            `Redis 连接错误，快速失败（会话 ${sessionId}）: ${lastError.message}`,
-          );
-          return false; // 快速失败，不重试
-        }
-
-        if (i < maxRetries - 1) {
-          // 指数退避：1s, 2s, 4s
-          const delay = Math.min(1000 * Math.pow(2, i), 4000);
-          await new Promise((resolve) => setTimeout(resolve, delay));
-          this.logger.warn(
-            `添加会话到客服队列失败，${delay}ms 后重试 (${i + 1}/${maxRetries}): ${lastError.message}`,
-          );
-        }
-      }
-    }
-
-    // 所有重试都失败
-    this.logger.error(
-      `添加会话到客服队列失败（已重试${maxRetries}次）: ${lastError?.message}`,
-      lastError?.stack,
-    );
-    return false; // 返回失败，但不抛出异常，允许系统继续运行
-  }
-
-  /**
-   * 带重试的从队列中移除会话
-   * @param sessionId 会话ID
-   * @param agentId 客服ID（可选）
-   * @param maxRetries 最大重试次数，默认3次
-   * @returns 是否成功
-   */
-  async removeFromQueueWithRetry(
-    sessionId: string,
-    agentId?: string | null,
-    maxRetries = 3,
-  ): Promise<boolean> {
-    // 先快速检查 Redis 是否可用
-    const isAvailable = await this.isRedisAvailable();
-    if (!isAvailable) {
-      // Redis 不可用时，移除操作可以忽略（因为本来就不在 Redis 中）
-      this.logger.debug(`Redis 不可用，跳过从队列移除（会话 ${sessionId}）`);
-      return true; // 返回成功，因为如果 Redis 不可用，会话本来就不在队列中
-    }
-
-    let lastError: Error | null = null;
-
-    for (let i = 0; i < maxRetries; i++) {
-      try {
-        await this.removeFromQueue(sessionId, agentId);
-        return true; // 成功
-      } catch (error: unknown) {
-        lastError = error instanceof Error ? error : new Error(String(error));
-
-        // 如果是连接错误，快速失败
-        const errorMsg = lastError.message.toLowerCase();
-        if (
-          errorMsg.includes('maxretriesperrequest') ||
-          errorMsg.includes('connection') ||
-          errorMsg.includes('econnrefused') ||
-          errorMsg.includes('timeout')
-        ) {
-          // 移除操作失败可以忽略
-          this.logger.debug(
-            `Redis 连接错误，跳过移除操作（会话 ${sessionId}）: ${lastError.message}`,
-          );
-          return true; // 返回成功，因为移除失败不影响系统运行
-        }
-
-        if (i < maxRetries - 1) {
-          // 指数退避：1s, 2s, 4s
-          const delay = Math.min(1000 * Math.pow(2, i), 4000);
-          await new Promise((resolve) => setTimeout(resolve, delay));
-          this.logger.warn(
-            `从队列移除会话失败，${delay}ms 后重试 (${i + 1}/${maxRetries}): ${lastError.message}`,
-          );
-        }
-      }
-    }
-
-    // 所有重试都失败，但移除操作失败可以忽略
-    this.logger.warn(
-      `从队列移除会话失败（已重试${maxRetries}次），但可以忽略: ${lastError?.message}`,
-    );
-    return true; // 返回成功，因为移除失败不影响系统运行
-  }
-
-  /**
-   * 带重试的将会话从未分配队列移动到指定客服的队列
-   * @param sessionId 会话ID
-   * @param agentId 客服ID
-   * @param priorityScore 优先级分数
-   * @param queuedAt 排队时间
-   * @param maxRetries 最大重试次数，默认3次
-   * @returns 是否成功
-   */
-  async moveToAgentQueueWithRetry(
-    sessionId: string,
-    agentId: string,
-    priorityScore: number,
-    queuedAt: Date,
-    maxRetries = 3,
-  ): Promise<boolean> {
-    // 先快速检查 Redis 是否可用
-    const isAvailable = await this.isRedisAvailable();
-    if (!isAvailable) {
-      this.logger.warn(
-        `Redis 不可用，跳过移动队列（会话 ${sessionId}），将在一致性检查时恢复`,
-      );
-      return false;
-    }
-
-    let lastError: Error | null = null;
-
-    for (let i = 0; i < maxRetries; i++) {
-      try {
-        await this.moveToAgentQueue(
-          sessionId,
-          agentId,
-          priorityScore,
-          queuedAt,
+  private async isSessionTableAvailable(): Promise<boolean> {
+    try {
+      await this.prisma.$queryRaw`SELECT 1 FROM "Session" LIMIT 1`;
+      return true;
+    } catch (error: any) {
+      if (this.isTableNotExistError(error)) {
+        this.logger.warn(
+          'Session 表不存在，可能是数据库迁移尚未执行，跳过操作',
         );
-        return true; // 成功
-      } catch (error: unknown) {
-        lastError = error instanceof Error ? error : new Error(String(error));
+        return false;
+      }
+      throw error;
+    }
+  }
 
-        // 如果是连接错误，快速失败，不重试
-        const errorMsg = lastError.message.toLowerCase();
-        if (
-          errorMsg.includes('maxretriesperrequest') ||
-          errorMsg.includes('connection') ||
-          errorMsg.includes('econnrefused') ||
-          errorMsg.includes('timeout')
-        ) {
-          this.logger.warn(
-            `Redis 连接错误，快速失败（会话 ${sessionId}）: ${lastError.message}`,
-          );
-          return false; // 快速失败，不重试
-        }
+  /**
+   * 检查是否为表不存在错误
+   */
+  private isTableNotExistError(error: any): boolean {
+    return (
+      error?.message?.includes('does not exist') ||
+      error?.code === '42P01' ||
+      error?.message?.includes('Table') ||
+      error?.message?.includes('table')
+    );
+  }
 
-        if (i < maxRetries - 1) {
-          // 指数退避：1s, 2s, 4s
-          const delay = Math.min(1000 * Math.pow(2, i), 4000);
-          await new Promise((resolve) => setTimeout(resolve, delay));
-          this.logger.warn(
-            `移动会话到客服队列失败，${delay}ms 后重试 (${i + 1}/${maxRetries}): ${lastError.message}`,
-          );
+  /**
+   * 按客服分组会话
+   */
+  private groupSessionsByAgent(
+    sessions: Array<{ id: string; agentId: string | null; priorityScore: number | null; queuedAt: Date | null }>,
+  ): Map<string, typeof sessions> {
+    const map = new Map<string, typeof sessions>();
+    for (const session of sessions) {
+      if (session.agentId) {
+        if (!map.has(session.agentId)) {
+          map.set(session.agentId, []);
         }
+        map.get(session.agentId)!.push(session);
       }
     }
-
-    // 所有重试都失败
-    this.logger.error(
-      `移动会话到客服队列失败（已重试${maxRetries}次）: ${lastError?.message}`,
-      lastError?.stack,
-    );
-    return false; // 返回失败，但不抛出异常，允许系统继续运行
+    return map;
   }
 }

@@ -9,7 +9,11 @@ import { MessageModule } from '../message/message.module';
 import { WebsocketModule } from '../websocket/websocket.module';
 import { SessionModule } from '../session/session.module';
 import { QueueModule } from '../queue/queue.module';
-import { ScheduleModule } from '@nestjs/schedule';
+import {
+  TicketQueryService,
+  TicketStatusService,
+  TicketAssignmentService,
+} from './services';
 
 @Module({
   imports: [
@@ -19,10 +23,21 @@ import { ScheduleModule } from '@nestjs/schedule';
     forwardRef(() => WebsocketModule),
     forwardRef(() => SessionModule),
     QueueModule,
-    ScheduleModule.forRoot(),
   ],
   controllers: [TicketController],
-  providers: [TicketService, TicketPriorityService, TicketSchedulerService],
-  exports: [TicketService],
+  providers: [
+    TicketService,
+    TicketPriorityService,
+    TicketSchedulerService,
+    TicketQueryService,
+    TicketStatusService,
+    TicketAssignmentService,
+  ],
+  exports: [
+    TicketService,
+    TicketQueryService,
+    TicketStatusService,
+    TicketAssignmentService,
+  ],
 })
 export class TicketModule {}
