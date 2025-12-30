@@ -29,14 +29,32 @@ const parseDifyResult = (payload: any): DifyMessageResult => {
     metadata.files = payload.files;
   }
 
-  let text =
-    payload.text ||
-    payload.answer ||
-    payload.output ||
-    payload.initial_reply ||
-    metadata.text ||
-    payload.content ||
-    '';
+  const pickFirstString = (...values: any[]): string => {
+    for (const v of values) {
+      if (typeof v === 'string' && v.trim()) {
+        return v;
+      }
+    }
+    return '';
+  };
+
+  let text = pickFirstString(
+    payload.text,
+    payload.answer,
+    payload.output,
+    payload.initial_reply,
+    payload.data?.text,
+    payload.data?.answer,
+    payload.data?.output,
+    payload.data?.content,
+    payload.outputs?.text,
+    payload.outputs?.answer,
+    Array.isArray(payload.outputs) ? payload.outputs[0]?.text : undefined,
+    Array.isArray(payload.outputs) ? payload.outputs[0]?.answer : undefined,
+    payload.content,
+    metadata.text,
+    payload.data?.messages?.[0]?.content,
+  );
 
   if (typeof text === 'string' && text.includes('</think>')) {
     const jsonMatch = text.match(/\{[\s\S]*\}/);
@@ -102,6 +120,7 @@ const parseDifyResult = (payload: any): DifyMessageResult => {
 export class DifyService {
   private readonly logger = new Logger(DifyService.name);
   private axiosInstance: AxiosInstance;
+  private readonly triageMode: 'chat' | 'workflow';
 
   // AI 调用超时时间 (8秒)，超时则使用默认回复
   private readonly AI_TIMEOUT = 8000;
@@ -113,6 +132,10 @@ export class DifyService {
     this.axiosInstance = axios.create({
       timeout: this.AI_TIMEOUT,
     });
+
+    const mode =
+      (this.configService.get<string>('DIFY_TRIAGE_MODE') || 'chat').toLowerCase();
+    this.triageMode = mode === 'workflow' ? 'workflow' : 'chat';
   }
 
   /**
@@ -146,19 +169,36 @@ export class DifyService {
   }
 
   /**
-   * 调用Dify进行问题分流（使用工作流API）
-   * 注意：如果您的Dify配置使用的是工作流，使用此方法
+   * 调用 Dify 进行问题分流
+   * 对话模式直接调用 chat API，工作流模式走 workflows/run
    */
   async triage(
     description: string,
     apiKey: string,
     baseUrl: string,
   ): Promise<DifyMessageResult> {
-    // 解密 API Key
+    const isWorkflowMode = this.triageMode === 'workflow';
+
+    if (!isWorkflowMode) {
+      try {
+        return await this.triageWithChatAPI(description, apiKey, baseUrl);
+      } catch (chatError: any) {
+        const chatErrorResponse = chatError.response?.data;
+        this.logger.error(
+          `triage 对话API失败，尝试工作流API: ${JSON.stringify({
+            message: chatErrorResponse?.message || chatError.message,
+            code: chatErrorResponse?.code,
+            status: chatError.response?.status,
+            url: `${baseUrl}/chat-messages`,
+            responseData: chatErrorResponse,
+          })}`,
+        );
+      }
+    }
+
     const decryptedApiKey = this.decryptApiKey(apiKey);
 
     try {
-      // 尝试使用工作流API（如果配置了工作流）
       const response = await this.axiosInstance.post(
         `${baseUrl}/workflows/run`,
         {
@@ -176,7 +216,6 @@ export class DifyService {
         },
       );
 
-      // 解析Dify返回的数据
       const output =
         response.data?.outputs || response.data?.data?.outputs || response.data;
       return parseDifyResult(output);
@@ -192,8 +231,6 @@ export class DifyService {
         })}`,
       );
 
-      // 如果工作流API失败，尝试使用对话API
-      // 注意：传入原始 apiKey，让 triageWithChatAPI 自己解密
       try {
         return await this.triageWithChatAPI(description, apiKey, baseUrl);
       } catch (chatError: any) {
@@ -208,7 +245,6 @@ export class DifyService {
           })}`,
         );
 
-        // 返回默认响应
         return {
           text: '您好，感谢您的反馈。我们正在为您处理，请稍候...',
           suggestedOptions: ['转人工客服', '查看常见问题'],
@@ -219,10 +255,6 @@ export class DifyService {
     }
   }
 
-  /**
-   * 使用对话API进行问题分流
-   * 根据您提供的API文档，使用 /chat-messages 端点
-   */
   async triageWithChatAPI(
     description: string,
     apiKey: string,
@@ -252,7 +284,16 @@ export class DifyService {
       // 解析Dify对话API返回的数据
       const parsed = parseDifyResult(response.data);
       if (!parsed.text) {
-        parsed.text = '您好，我正在为您分析问题...';
+        parsed.text = description || '您好，我正在为您分析问题...';
+        try {
+          this.logger.warn(
+            `triageWithChatAPI empty text, raw response: ${JSON.stringify(
+              response.data,
+            )}`,
+          );
+        } catch {
+          /* ignore stringify errors */
+        }
       }
       if (!parsed.suggestedOptions.length) {
         parsed.suggestedOptions = ['转人工客服', '查看常见问题'];
@@ -311,6 +352,10 @@ export class DifyService {
       );
 
       const parsed = parseDifyResult(response.data);
+      // 检查 text 是否为空或仅包含空白字符
+      if (!parsed.text || !parsed.text.trim()) {
+        parsed.text = query || '您好，我正在为您处理请求...';
+      }
       parsed.conversationId =
         response.data?.conversation_id ?? parsed.conversationId;
       return parsed;

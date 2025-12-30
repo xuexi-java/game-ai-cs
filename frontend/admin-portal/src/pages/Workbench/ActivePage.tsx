@@ -1149,9 +1149,8 @@ const ActivePage: React.FC = () => {
         console.log('Dify API 响应:', response);
       }
 
-      // 解析响应（后端已经解析过，直接使用）
-      // 修复：AxiosResponse 的数据在 data 属性下
-      const data = response?.data || {};
+      // 解析响应（apiClient 拦截器已经提取了 data，response 就是数据本身）
+      const data = (response as any) || {};
       const optimizedText =
         data.text ||
         data.answer ||

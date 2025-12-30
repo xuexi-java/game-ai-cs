@@ -18,6 +18,7 @@ import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { GameService } from '../game/game.service';
 import { getDifyThrottleKey } from '../common/guards/throttle-keys';
+import { Logger } from '@nestjs/common';
 
 @ApiTags('dify')
 @ApiBearerAuth('JWT-auth')
@@ -25,6 +26,8 @@ import { getDifyThrottleKey } from '../common/guards/throttle-keys';
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles('ADMIN', 'AGENT')
 export class DifyController {
+  private readonly logger = new Logger(DifyController.name);
+
   constructor(
     private readonly difyService: DifyService,
     private readonly gameService: GameService,
@@ -115,12 +118,27 @@ export class DifyController {
     const userId = body.user || user?.id || user?.username || 'agent';
 
     // 调用 DifyService 发送消息
-    return this.difyService.sendChatMessage(
+    const result = await this.difyService.sendChatMessage(
       body.query,
       apiKey,
       baseUrl,
       body.conversation_id,
       userId,
     );
+
+    try {
+      this.logger.debug(
+        `proxyChatMessage result: ${JSON.stringify({
+          textLength: result?.text?.length ?? 0,
+          status: result?.status,
+          options: result?.suggestedOptions?.length ?? 0,
+          conversationId: result?.conversationId,
+        })}`,
+      );
+    } catch {
+      /* ignore stringify errors */
+    }
+
+    return result;
   }
 }
