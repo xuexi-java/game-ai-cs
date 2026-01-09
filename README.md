@@ -34,14 +34,15 @@ game-ai-cs/
 │   │   ├── message/     # 消息模块
 │   │   └── ...
 │   └── package.json
-├── player-app/          # 玩家端前端 (React + Vite)
+├── webview-player/      # 玩家端 WebView (Vue3 + Vite)
 │   ├── src/
-│   │   ├── pages/      # 页面
 │   │   ├── components/ # 组件
+│   │   ├── composables/# 组合式函数
+│   │   ├── services/   # API/Bridge 服务
 │   │   ├── stores/     # 状态管理
-│   │   └── services/   # API服务
+│   │   └── types/      # 类型定义
 │   └── package.json
-├── admin-portal/        # 管理端前端 (React + Vite)
+├── admin-portal/        # 管理端前端 (Vue3 + Vite)
 │   ├── src/
 │   │   ├── pages/      # 页面
 │   │   ├── components/ # 组件
@@ -101,7 +102,6 @@ cp backend/.env.example backend/.env
 # 在项目根目录执行
 cp .env.example .env
 cp backend/.env.example backend/.env
-cp frontend/player-app/.env.example frontend/player-app/.env
 cp frontend/admin-portal/.env.example frontend/admin-portal/.env
 
 # 编辑 .env 文件，根据实际情况修改配置
@@ -121,8 +121,8 @@ npm install
 cd backend
 npm install
 
-# 安装玩家端依赖
-cd ../player-app
+# 安装玩家端 WebView 依赖
+cd ../../webview-player
 npm install
 
 # 安装管理端依赖
@@ -221,7 +221,6 @@ npm run db:seed      # 初始化种子数据
    - `game-ai-cs-postgres` (数据库)
    - `game-ai-cs-backend` (后端服务)
    - `game-ai-cs-admin-portal` (管理端)
-   - `game-ai-cs-player-app` (玩家端)
 
 5. **初始化数据库种子数据（可选）**
    ```bash
@@ -232,9 +231,10 @@ npm run db:seed      # 初始化种子数据
 
 **服务访问地址**：
 - 管理端: http://localhost:20101
-- 玩家端: http://localhost:20102
 - 后端API: http://localhost:21101/api/v1
 - API文档: http://localhost:21101/api/v1/docs
+
+> 注：玩家端 (webview-player) 已改为嵌入游戏客户端的 WebView 形式，不再作为独立 Web 服务部署。
 
 **常用管理命令**:
 
@@ -247,13 +247,11 @@ docker-compose logs -f
 # 查看特定服务日志
 docker-compose logs -f backend          # 后端日志
 docker-compose logs -f admin-portal     # 管理端日志
-docker-compose logs -f player-app       # 玩家端日志
 docker-compose logs -f postgres         # 数据库日志
 
 # 重启特定服务
 docker-compose restart backend
 docker-compose restart admin-portal
-docker-compose restart player-app
 
 # 停止所有服务（保留数据）
 docker-compose stop
@@ -334,12 +332,13 @@ npm run dev
 ```
 管理端运行在: http://localhost:20101
 
-**玩家端**:
+**玩家端 WebView**:
 ```bash
-cd frontend/player-app
+cd webview-player
 npm run dev
 ```
-玩家端运行在: http://localhost:20102
+玩家端 WebView 开发服务器运行在: http://localhost:5173
+（注：正式环境下，玩家端 WebView 嵌入游戏客户端中运行）
 
 **注意**: 本地开发模式需要：
 - 确保 Docker 服务（PostgreSQL）已启动：`docker-compose up -d postgres`
@@ -399,14 +398,14 @@ npm run start:prod    # 生产模式运行
 ### 前端开发
 
 ```bash
-# 玩家端
-cd player-app
+# 玩家端 WebView
+cd webview-player
 npm run dev           # 开发服务器
 npm run build         # 构建生产版本
 npm run preview       # 预览生产构建
 
 # 管理端
-cd admin-portal
+cd frontend/admin-portal
 npm run dev           # 开发服务器
 npm run build         # 构建生产版本
 npm run preview       # 预览生产构建
@@ -478,7 +477,7 @@ JWT_SECRET="your-secret-key"
 JWT_EXPIRES_IN="8h"
 PORT=21101
 NODE_ENV="development"
-FRONTEND_URL="http://localhost:20101,http://localhost:20102"
+FRONTEND_URL="http://localhost:20101,http://localhost:5173"
 REDIS_HOST=localhost
 REDIS_PORT=6379
 ENCRYPTION_SECRET_KEY="your-32-char-secret-key-here-change-in-production"
@@ -552,10 +551,10 @@ npm run build
 npm run start:prod
 
 # 前端
-cd player-app
+cd webview-player
 npm run build
 
-cd ../admin-portal
+cd ../frontend/admin-portal
 npm run build
 ```
 

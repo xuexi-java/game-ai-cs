@@ -36,7 +36,7 @@ export class WebsocketHeartbeatService {
     // 从配置读取参数
     this.checkInterval = this.configService.get<number>(
       'WS_HEARTBEAT_CHECK_INTERVAL',
-      15000, // 默认15秒检测一次
+      5000, // 默认5秒检测一次
     );
     this.maxMissedCount = this.configService.get<number>(
       'WS_HEARTBEAT_MAX_MISSED',
@@ -44,7 +44,7 @@ export class WebsocketHeartbeatService {
     );
     this.pingTimeout = this.configService.get<number>(
       'WS_HEARTBEAT_PING_TIMEOUT',
-      15000, // 单次超时时间（与检测间隔一致）
+      5000, // 单次超时时间（与检测间隔一致）
     );
 
     this.logger.log(

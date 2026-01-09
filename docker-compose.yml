@@ -13,9 +13,10 @@ services:
     image: postgres:14-alpine
     container_name: game-ai-cs-postgres
     environment:
-      POSTGRES_DB: game_ai_cs
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: ZtotRPmxUXMXd1KLpEnY170vFlKWZefX
+      POSTGRES_DB: ${POSTGRES_DB:-game_ai_cs}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      # 生产环境必须通过环境变量设置密码
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?请设置 POSTGRES_PASSWORD 环境变量}
     ports:
       - "22101:5432"
     volumes:
@@ -69,7 +70,8 @@ services:
       - LOG_BATCH_SIZE=${LOG_BATCH_SIZE:-200}
       - LOG_BATCH_INTERVAL=${LOG_BATCH_INTERVAL:-300}
       - LOG_MAX_QUEUE_SIZE=${LOG_MAX_QUEUE_SIZE:-20000}
-      - DATABASE_URL=postgresql://postgres:ZtotRPmxUXMXd1KLpEnY170vFlKWZefX@postgres:5432/game_ai_cs?schema=public
+      # 数据库连接 - 使用环境变量构建连接字符串
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?请设置 POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-game_ai_cs}?schema=public
       # 数据库连接池配置
       - DB_CONNECTION_LIMIT=${DB_CONNECTION_LIMIT:-50}
       - DB_POOL_TIMEOUT=${DB_POOL_TIMEOUT:-20}
@@ -79,19 +81,21 @@ services:
       - DB_IDLE_TIMEOUT=${DB_IDLE_TIMEOUT:-600}
       - DB_POOL_MONITORING=${DB_POOL_MONITORING:-true}
       - DB_POOL_LOG_LEVEL=${DB_POOL_LOG_LEVEL:-warn}
-      - JWT_SECRET=${JWT_SECRET:-your-secret-key-change-in-production}
+      # JWT 配置 - 生产环境必须设置
+      - JWT_SECRET=${JWT_SECRET:?请设置 JWT_SECRET 环境变量}
       - JWT_EXPIRES_IN=${JWT_EXPIRES_IN:-8h}
-      - FRONTEND_URL=http://localhost:20101,http://localhost:20102
-      # Dify AI 配置
-      - DIFY_API_KEY=${DIFY_API_KEY:-app-pVK7Yup3O9DG6Zr1p8cSfe3p}
+      - FRONTEND_URL=${FRONTEND_URL:-http://localhost:20101}
+      # WebSocket URL（玩家端连接地址）- 生产环境必须设置为实际域名
+      - WS_URL=${WS_URL:?请设置 WS_URL 环境变量（如 wss://cs.your-domain.com）}
+      # Dify AI 配置 - 生产环境必须设置
+      - DIFY_API_KEY=${DIFY_API_KEY:?请设置 DIFY_API_KEY 环境变量}
       - DIFY_BASE_URL=${DIFY_BASE_URL:-http://ai.sh7road.com/v1}
       - REDIS_URL=${REDIS_URL:-redis://redis:6379}
       - REDIS_HOST=redis
       - REDIS_PORT=6379
-      - ENCRYPTION_SECRET_KEY=${ENCRYPTION_SECRET_KEY:-default-secret-key-change-in-production-32-chars!!}
-      # 百度翻译配置
-      - BAIDU_TRANSLATE_APP_ID=${BAIDU_TRANSLATE_APP_ID:-20250311002299702}
-      - BAIDU_TRANSLATE_SECRET=${BAIDU_TRANSLATE_SECRET:-H1dETwWWqk45uN2DzGxK}
+      # 加密配置 - 生产环境必须设置
+      - ENCRYPTION_SECRET_KEY=${ENCRYPTION_SECRET_KEY:?请设置 ENCRYPTION_SECRET_KEY 环境变量（至少32字符）}
+      - ENCRYPTION_SALT=${ENCRYPTION_SALT:?请设置 ENCRYPTION_SALT 环境变量}
     ports:
       - "21101:21101"
     volumes:
@@ -120,19 +124,6 @@ services:
     container_name: game-ai-cs-admin-portal
     ports:
       - "20101:20101"
-    depends_on:
-      - backend
-    networks:
-      - game-ai-cs-network
-    restart: unless-stopped
-
-  player-app:
-    build:
-      context: ./frontend/player-app
-      dockerfile: Dockerfile
-    container_name: game-ai-cs-player-app
-    ports:
-      - "20102:20102"
     depends_on:
       - backend
     networks:

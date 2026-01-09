@@ -291,10 +291,10 @@ export class TicketController {
       // 通过 token 获取工单
       const ticket = await this.ticketService.findByToken(token);
 
-      // 调用更新状态方法
+      // 调用更新状态方法（玩家端调用，closedBy 默认为 PLAYER）
       return await this.ticketService.updateStatus(ticket.id, dto.status, {
         closureMethod: dto.status === 'RESOLVED' ? 'manual' : undefined,
-        closedBy: dto.closedBy,
+        closedBy: dto.closedBy || 'PLAYER',
       });
     } catch (error) {
       this.logger.error(
@@ -431,7 +431,8 @@ export class TicketController {
     try {
       return await this.ticketService.updateStatus(id, dto.status, {
         closureMethod: dto.status === 'RESOLVED' ? 'manual' : undefined,
-        closedBy: dto.closedBy || user?.id,
+        // closedBy 应该是 'PLAYER' | 'AGENT' | 'SYSTEM'，不是 user ID
+        closedBy: dto.closedBy || (user ? 'AGENT' : 'SYSTEM'),
       });
     } catch (error) {
       this.logger.error(

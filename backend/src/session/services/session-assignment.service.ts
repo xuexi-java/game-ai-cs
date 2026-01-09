@@ -164,8 +164,12 @@ export class SessionAssignmentService {
           normalizedSession.ticketId,
           'IN_PROGRESS',
         );
-      } catch (error) {
-        console.error('更新工单状态失败:', error);
+      } catch (error: unknown) {
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        this.logger.warn(`更新工单状态失败: ${errorMsg}`, {
+          ticketId: normalizedSession.ticketId,
+          stack: error instanceof Error ? error.stack : undefined,
+        });
         // 不抛出错误，避免影响会话接入流程
       }
     }
@@ -182,8 +186,12 @@ export class SessionAssignmentService {
       status: normalizedSession.status,
     });
 
-    // 通知 WebSocket 客户端
+    // 通知 WebSocket 客户端（管理端）
     this.websocketGateway.notifySessionUpdate(sessionId, normalizedSession);
+
+    // 通知玩家端客服已接入
+    const agentName = updatedSession.agent?.realName || updatedSession.agent?.username || '客服';
+    this.websocketGateway.notifyAgentAssigned(sessionId, agentName, agentId);
 
     return normalizedSession;
   }
@@ -325,6 +333,9 @@ export class SessionAssignmentService {
 
       // 通知 WebSocket 客户端
       this.websocketGateway.notifySessionUpdate(sessionId, normalizedSession);
+
+      // 通知被分配的客服有新会话（让客服工作台显示）
+      this.websocketGateway.notifyAgentNewSession(agentId, normalizedSession);
 
       return normalizedSession;
     } catch (error) {

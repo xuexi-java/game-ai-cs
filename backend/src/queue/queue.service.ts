@@ -249,9 +249,11 @@ export class QueueService {
       }
 
       this.logger.debug(`从队列移除会话 ${sessionId}`);
-    } catch (error) {
+    } catch (error: unknown) {
       this.recordRedisError(error);
-      this.logger.error(`从队列移除会话失败: ${error.message}`, error.stack);
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      const errorStack = error instanceof Error ? error.stack : undefined;
+      this.logger.error(`从队列移除会话失败: ${errorMsg}`, errorStack);
       throw error;
     }
   }
@@ -289,9 +291,10 @@ export class QueueService {
       // 从未分配队列移除
       try {
         await this.redis.zrem(this.UNASSIGNED_QUEUE_KEY, sessionId);
-      } catch (error) {
+      } catch (error: unknown) {
+        const errorMsg = error instanceof Error ? error.message : String(error);
         this.logger.warn(
-          `从未分配队列移除会话失败（可能本来就不在队列中）: ${error.message}`,
+          `从未分配队列移除会话失败（可能本来就不在队列中）: ${errorMsg}`,
         );
       }
 
@@ -327,9 +330,11 @@ export class QueueService {
         return null;
       }
       return rank + 1;
-    } catch (error) {
+    } catch (error: unknown) {
       this.recordRedisError(error);
-      this.logger.error(`获取排队位置失败: ${error.message}`, error.stack);
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      const errorStack = error instanceof Error ? error.stack : undefined;
+      this.logger.error(`获取排队位置失败: ${errorMsg}`, errorStack);
       return null;
     }
   }
@@ -347,9 +352,11 @@ export class QueueService {
         : this.UNASSIGNED_QUEUE_KEY;
 
       return await this.redis.zrevrange(queueKey, 0, limit ? limit - 1 : -1);
-    } catch (error) {
+    } catch (error: unknown) {
       this.recordRedisError(error);
-      this.logger.error(`获取队列会话ID失败: ${error.message}`, error.stack);
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      const errorStack = error instanceof Error ? error.stack : undefined;
+      this.logger.error(`获取队列会话ID失败: ${errorMsg}`, errorStack);
       return [];
     }
   }
@@ -367,9 +374,11 @@ export class QueueService {
       const length = await this.redis.zcard(queueKey);
       queueLengthGauge.set({ queue_type: queueType }, length);
       return length;
-    } catch (error) {
+    } catch (error: unknown) {
       this.recordRedisError(error);
-      this.logger.error(`获取队列长度失败: ${error.message}`, error.stack);
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      const errorStack = error instanceof Error ? error.stack : undefined;
+      this.logger.error(`获取队列长度失败: ${errorMsg}`, errorStack);
       return 0;
     }
   }

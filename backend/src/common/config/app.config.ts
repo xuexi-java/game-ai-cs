@@ -84,14 +84,6 @@ export interface AppConfig {
     };
   };
 
-  // ==================== 翻译服务配置 ====================
-  translation: {
-    baidu: {
-      apiUrl: string;
-      timeout: number;
-    };
-  };
-
   // ==================== Dify API 配置 ====================
   dify: {
     defaultLimit: number;
@@ -133,14 +125,14 @@ export function getAppConfig(): AppConfig {
     cors: {
       defaultDevOrigins: (
         process.env.CORS_DEFAULT_DEV_ORIGINS ||
-        'http://localhost:20101,http://localhost:20102,http://127.0.0.1:20101,http://127.0.0.1:20102'
+        'http://localhost:20101,http://127.0.0.1:20101,http://localhost:5173,http://127.0.0.1:5173'
       ).split(','),
     },
 
     websocket: {
       heartbeat: {
         checkInterval: parseInt(
-          process.env.WS_HEARTBEAT_CHECK_INTERVAL || '15000',
+          process.env.WS_HEARTBEAT_CHECK_INTERVAL || '5000',
           10,
         ),
         maxMissedCount: parseInt(
@@ -148,7 +140,7 @@ export function getAppConfig(): AppConfig {
           10,
         ),
         pingTimeout: parseInt(
-          process.env.WS_HEARTBEAT_PING_TIMEOUT || '15000',
+          process.env.WS_HEARTBEAT_PING_TIMEOUT || '5000',
           10,
         ),
       },
@@ -205,15 +197,6 @@ export function getAppConfig(): AppConfig {
           process.env.JWT_SECRET ||
           'SusHber0XrWDhXz_mv5-TgRAnmgQlcinGtVT8d-2250niMFCw_Z9fHH5G78qL879',
         expiresIn: process.env.JWT_EXPIRES_IN || '8h',
-      },
-    },
-
-    translation: {
-      baidu: {
-        apiUrl:
-          process.env.BAIDU_TRANSLATE_API_URL ||
-          'https://fanyi-api.baidu.com/api/trans/vip/translate',
-        timeout: parseInt(process.env.BAIDU_TRANSLATE_TIMEOUT || '30000', 10),
       },
     },
 

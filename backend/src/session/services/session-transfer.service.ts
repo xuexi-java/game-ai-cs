@@ -122,7 +122,7 @@ export class SessionTransferService {
     }
     await this.messageService.createSystemMessage(
       sessionId,
-      `当前暂无客服在线，您的问题已转为【加急工单】(${ticket.ticketNo})，我们将优先处理。您可以通过工单号查看处理进度。`,
+      `当前暂无客服在线，您的问题已转为【加急工单】(${ticket.ticketNo})，我们将优先处理。`,
     );
 
     const updatedSession = await this.findOne(sessionId);

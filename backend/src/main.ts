@@ -53,7 +53,7 @@ async function bootstrap() {
   // CORS 配置 - 同时兼容 .env 中的 FRONTEND_URL 和默认本地域名
   const defaultDevOriginsStr =
     process.env.CORS_DEFAULT_DEV_ORIGINS ||
-    'http://localhost:20101,http://localhost:20102,http://127.0.0.1:20101,http://127.0.0.1:20102';
+    'http://localhost:20101,http://127.0.0.1:20101,http://localhost:5173,http://127.0.0.1:5173';
   const defaultOrigins =
     process.env.NODE_ENV === 'production'
       ? []
@@ -66,11 +66,24 @@ async function bootstrap() {
     new Set([...defaultOrigins, ...envOrigins]),
   );
 
+  // 开发环境下允许 null origin（file:// 协议的本地 HTML 文件）
+  const corsOrigin =
+    process.env.NODE_ENV === 'production'
+      ? allowedOrigins
+      : (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
+          // 允许无 origin（如 file:// 或同源请求）或在白名单中的 origin
+          if (!origin || allowedOrigins.includes(origin)) {
+            callback(null, true);
+          } else {
+            callback(null, true); // 开发环境全部允许
+          }
+        };
+
   app.enableCors({
-    origin: allowedOrigins,
+    origin: corsOrigin,
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Upload-Token'],
   });
 
   // API前缀

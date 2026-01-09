@@ -7,12 +7,16 @@ import { WebsocketHeartbeatService } from './websocket-heartbeat.service';
 import { WebsocketRateLimitService } from './websocket-rate-limit.service';
 import { MessageModule } from '../message/message.module';
 import { TicketModule } from '../ticket/ticket.module';
+import { SessionModule } from '../session/session.module';
+import { PlayerApiModule } from '../player-api/player-api.module';
 
 @Module({
   imports: [
     MessageModule,
     ConfigModule,
     forwardRef(() => TicketModule),
+    forwardRef(() => SessionModule),
+    forwardRef(() => PlayerApiModule),
     JwtModule.registerAsync({
       imports: [ConfigModule],
       useFactory: async (configService: ConfigService) => ({

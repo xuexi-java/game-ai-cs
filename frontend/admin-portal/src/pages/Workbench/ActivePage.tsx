@@ -24,7 +24,6 @@ import {
   UserOutlined,
   CustomerServiceOutlined,
   CaretRightOutlined,
-  TranslationOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { useSessionStore } from '../../stores/sessionStore';
@@ -46,9 +45,10 @@ import {
   joinSessionByTicketId,
   closeSession,
 } from '../../services/session.service';
-import { translateMessage, getSessionMessages } from '../../services/message.service';
+import { getSessionMessages } from '../../services/message.service';
 import { sendTicketMessage, getTicketMessages, getTicketById } from '../../services/ticket.service';
 import { uploadTicketAttachment } from '../../services/upload.service';
+import { compressImage } from '../../utils/imageCompressor';
 
 // 延迟导入 websocketService 避免循环依赖
 const getWebSocketService = async () => {
@@ -115,11 +115,6 @@ const ActivePage: React.FC = () => {
   const lastManualInputRef = useRef('');
   const aiOptimizedRef = useRef(false);
   const currentSessionRef = useRef<Session | null>(null);
-
-  // 翻译相关状态
-  const [translatingMessageIds, setTranslatingMessageIds] = useState<Set<string>>(new Set());
-  const [translatedMessages, setTranslatedMessages] = useState<Record<string, string>>({});
-  const [showOriginal, setShowOriginal] = useState<Record<string, boolean>>({});
 
   // 布局调整相关状态
   const [leftPanelWidth, setLeftPanelWidth] = useState(320);
@@ -766,7 +761,75 @@ const ActivePage: React.FC = () => {
     }
   };
 
-  const handleFileUpload = async (file: File) => {
+  // 文件大小限制
+  const MAX_IMAGE_SIZE = 5 * 1024 * 1024; // 5MB
+  const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+  const MAX_FILE_COUNT = 5; // 最多5个文件
+
+  const formatFileSize = (bytes: number): string => {
+    if (bytes < 1024) return `${bytes}B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
+  };
+
+  // 上传单个文件（内部使用）
+  const uploadSingleFile = async (file: File, sessionId: string, ticketId: string): Promise<boolean> => {
+    try {
+      // 判断文件类型
+      const isImage = file.type.startsWith('image/') ||
+        /\.(png|jpe?g|gif|webp|bmp)$/i.test(file.name);
+
+      // 如果是图片，先压缩（使用默认参数：1440px, 500KB阈值, 保留格式）
+      let fileToUpload = file;
+      if (isImage) {
+        const compressed = await compressImage(file);
+        fileToUpload = compressed.file;
+      }
+
+      // 上传文件
+      const uploadResult = await uploadTicketAttachment(fileToUpload, {
+        ticketId: ticketId,
+      });
+
+      // 先添加临时消息（乐观更新）
+      const tempMessage: Message = {
+        id: `temp-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+        sessionId: sessionId,
+        senderType: 'AGENT',
+        messageType: isImage ? 'IMAGE' : 'TEXT',
+        content: uploadResult.fileUrl,
+        createdAt: new Date().toISOString(),
+        metadata: {},
+      };
+      setSessionMessages(sessionId, [
+        ...(sessionMessages[sessionId] || []),
+        tempMessage,
+      ]);
+
+      // 通过WebSocket发送消息
+      const wsService = await getWebSocketService();
+      const result = await wsService.sendAgentMessage(
+        sessionId,
+        uploadResult.fileUrl,
+        isImage ? 'IMAGE' : 'TEXT'
+      );
+
+      if (!result.success) {
+        // 发送失败，移除临时消息
+        const currentMessages = sessionMessages[sessionId] || [];
+        setSessionMessages(sessionId, currentMessages.filter(m => m.id !== tempMessage.id));
+        return false;
+      }
+
+      return true;
+    } catch (error) {
+      console.error('文件上传失败:', error);
+      return false;
+    }
+  };
+
+  // 处理文件上传（支持多文件）
+  const handleFileUpload = async (file: File, fileList?: File[]) => {
     if (!currentSession || !currentSession.ticket?.id) {
       message.warning('请先选择会话');
       return false;
@@ -781,49 +844,71 @@ const ActivePage: React.FC = () => {
       return false;
     }
 
+    // 获取要处理的文件列表
+    const files = fileList || [file];
+
+    // 检查文件数量
+    if (files.length > MAX_FILE_COUNT) {
+      message.warning(`最多只能选择 ${MAX_FILE_COUNT} 个文件`);
+      return false;
+    }
+
+    // 验证文件大小
+    const validFiles: File[] = [];
+    const oversizedFiles: string[] = [];
+
+    for (const f of files) {
+      const isImage = f.type.startsWith('image/') || /\.(png|jpe?g|gif|webp|bmp)$/i.test(f.name);
+      const maxSize = isImage ? MAX_IMAGE_SIZE : MAX_FILE_SIZE;
+
+      if (f.size > maxSize) {
+        oversizedFiles.push(`${f.name} (${formatFileSize(f.size)})`);
+      } else {
+        validFiles.push(f);
+      }
+    }
+
+    // 显示超大文件提示
+    if (oversizedFiles.length > 0) {
+      if (oversizedFiles.length === files.length) {
+        message.error(`文件大小超过限制（图片最大5MB，其他文件最大10MB）`);
+        return false;
+      } else {
+        message.warning(`已过滤 ${oversizedFiles.length} 个超大文件`);
+      }
+    }
+
+    if (validFiles.length === 0) {
+      return false;
+    }
+
     setUploadingFile(true);
     try {
-      // 上传文件
-      const uploadResult = await uploadTicketAttachment(file, {
-        ticketId: currentSession.ticket.id,
-      });
+      const sessionId = currentSession.id;
+      const ticketId = currentSession.ticket.id;
 
-      // 判断文件类型
-      const isImage = file.type.startsWith('image/') ||
-        /\.(png|jpe?g|gif|webp|bmp)$/i.test(file.name);
+      let successCount = 0;
+      let failCount = 0;
 
-      // 先添加临时消息（乐观更新）
-      const tempMessage: Message = {
-        id: `temp-${Date.now()}`,
-        sessionId: currentSession.id,
-        senderType: 'AGENT',
-        messageType: isImage ? 'IMAGE' : 'TEXT',
-        content: uploadResult.fileUrl,
-        createdAt: new Date().toISOString(),
-        metadata: {},
-      };
-      setSessionMessages(currentSession.id, [
-        ...(sessionMessages[currentSession.id] || []),
-        tempMessage,
-      ]);
-
-      // 通过WebSocket发送消息
-      const wsService = await getWebSocketService();
-      const result = await wsService.sendAgentMessage(
-        currentSession.id,
-        uploadResult.fileUrl,
-        isImage ? 'IMAGE' : 'TEXT'
-      );
-
-      if (!result.success) {
-        // 发送失败，移除临时消息
-        const currentMessages = sessionMessages[currentSession.id] || [];
-        setSessionMessages(currentSession.id, currentMessages.filter(m => m.id !== tempMessage.id));
-        message.error(result.error || '发送文件失败');
-        return false;
+      // 逐个上传文件
+      for (const f of validFiles) {
+        const success = await uploadSingleFile(f, sessionId, ticketId);
+        if (success) {
+          successCount++;
+        } else {
+          failCount++;
+        }
       }
 
-      message.success('文件发送成功');
+      // 显示结果
+      if (failCount === 0) {
+        message.success(validFiles.length === 1 ? '文件发送成功' : `${successCount} 个文件发送成功`);
+      } else if (successCount === 0) {
+        message.error('文件发送失败');
+      } else {
+        message.warning(`${successCount} 个成功，${failCount} 个失败`);
+      }
+
       return false; // 阻止默认上传行为
     } catch (error: any) {
       console.error('文件上传失败:', error);
@@ -1072,51 +1157,6 @@ const ActivePage: React.FC = () => {
       message.error(error?.response?.data?.message || '结束会话失败，请重试');
     }
   };
-
-  const handleTranslate = useCallback(async (messageId: string) => {
-    // 如果已经翻译过，就不再翻译
-    if (translatedMessages[messageId]) {
-      return;
-    }
-
-    setTranslatingMessageIds((prev) => {
-      const next = new Set(prev);
-      next.add(messageId);
-      return next;
-    });
-
-    try {
-      const response = await translateMessage(messageId, 'zh'); // 默认翻译为中文
-      const translatedContent = response.metadata?.translation?.translatedContent;
-
-      if (translatedContent) {
-        setTranslatedMessages((prev) => ({
-          ...prev,
-          [messageId]: translatedContent,
-        }));
-      } else {
-        message.warning('翻译结果为空');
-      }
-    } catch (error: any) {
-      console.error('Translation failed:', error);
-
-      // 提供更详细的错误提示
-      let errorMessage = '翻译失败，请稍后重试';
-      if (error?.response?.data?.message) {
-        errorMessage = error.response.data.message;
-      } else if (error?.message) {
-        errorMessage = error.message;
-      }
-
-      message.error(errorMessage);
-    } finally {
-      setTranslatingMessageIds((prev) => {
-        const next = new Set(prev);
-        next.delete(messageId);
-        return next;
-      });
-    }
-  }, [translatedMessages]);
 
   const handleUndoAiOptimization = useCallback(() => {
     if (!aiOptimizedRef.current) return;
@@ -1697,66 +1737,7 @@ const ActivePage: React.FC = () => {
                                           📎 {getFileName(msg.content)}
                                         </a>
                                       ) : (
-                                        <>
-                                          {/* 显示原文或译文 */}
-                                          {translatedMessages[msg.id] && !showOriginal[msg.id] ? (
-                                            <>
-                                              <div className="translation-content">
-                                                {translatedMessages[msg.id]}
-                                              </div>
-                                              <div
-                                                className="translation-toggle"
-                                                onClick={(e) => {
-                                                  e.stopPropagation();
-                                                  setShowOriginal((prev) => ({
-                                                    ...prev,
-                                                    [msg.id]: true,
-                                                  }));
-                                                }}
-                                                style={{
-                                                  fontSize: '12px',
-                                                  color: '#1890ff',
-                                                  cursor: 'pointer',
-                                                  marginTop: '4px'
-                                                }}
-                                              >
-                                                查看原文
-                                              </div>
-                                            </>
-                                          ) : (
-                                            <>
-                                              {msg.content}
-                                              {translatedMessages[msg.id] && showOriginal[msg.id] && (
-                                                <>
-                                                  <div className="translation-result">
-                                                    <div className="translation-divider" />
-                                                    <div className="translation-content">
-                                                      {translatedMessages[msg.id]}
-                                                    </div>
-                                                  </div>
-                                                  <div
-                                                    className="translation-toggle"
-                                                    onClick={(e) => {
-                                                      e.stopPropagation();
-                                                      setShowOriginal((prev) => ({
-                                                        ...prev,
-                                                        [msg.id]: false,
-                                                      }));
-                                                    }}
-                                                    style={{
-                                                      fontSize: '12px',
-                                                      color: '#1890ff',
-                                                      cursor: 'pointer',
-                                                      marginTop: '4px'
-                                                    }}
-                                                  >
-                                                    查看译文
-                                                  </div>
-                                                </>
-                                              )}
-                                            </>
-                                          )}
-                                        </>
+                                        msg.content
                                       )}
                                     </div>
                                   )}
@@ -1764,23 +1745,6 @@ const ActivePage: React.FC = () => {
                                     <span className="message-time-wechat">
                                       {dayjs(msg.createdAt).format('HH:mm')}
                                     </span>
-                                    {/* 翻译按钮：仅针对文本类型的玩家消息 */}
-                                    {msg.messageType === 'TEXT' && isPlayer && (
-                                      <span
-                                        className="translate-action"
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          handleTranslate(msg.id);
-                                        }}
-                                        title="翻译"
-                                      >
-                                        {translatingMessageIds.has(msg.id) ? (
-                                          <Spin size="small" />
-                                        ) : (
-                                          <TranslationOutlined style={{ fontSize: '14px', marginLeft: '6px', cursor: 'pointer', color: '#666' }} />
-                                        )}
-                                      </span>
-                                    )}
                                   </div>
                                 </div>
                               </div>
@@ -1836,8 +1800,12 @@ const ActivePage: React.FC = () => {
                 )}
                 <div className="input-toolbar">
                   <Upload
-                    beforeUpload={(file) => {
-                      handleFileUpload(file);
+                    multiple
+                    beforeUpload={(file, fileList) => {
+                      // 只在第一个文件时处理整个列表
+                      if (fileList[0] === file) {
+                        handleFileUpload(file, fileList as unknown as File[]);
+                      }
                       return false; // 阻止默认上传
                     }}
                     showUploadList={false}

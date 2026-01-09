@@ -454,10 +454,11 @@ export class TicketService {
             ? sessionId
             : undefined,
       };
-    } catch (error) {
+    } catch (error: unknown) {
       // 捕获所有未处理的错误
-      this.logger.error('创建工单过程中发生错误:', error);
-      this.logger.error('错误堆栈:', error.stack);
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      const errorStack = error instanceof Error ? error.stack : undefined;
+      this.logger.error(`创建工单过程中发生错误: ${errorMsg}`, errorStack);
       throw error; // 重新抛出，让 NestJS 的异常过滤器处理
     }
   }

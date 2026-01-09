@@ -1,6 +1,7 @@
 import { Injectable, HttpException, HttpStatus, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import axios, { AxiosInstance } from 'axios';
+import { HttpService } from '@nestjs/axios';
+import { firstValueFrom } from 'rxjs';
 import { EncryptionService } from '../common/encryption/encryption.service';
 
 export interface DifyMessageResult {
@@ -119,7 +120,6 @@ const parseDifyResult = (payload: any): DifyMessageResult => {
 @Injectable()
 export class DifyService {
   private readonly logger = new Logger(DifyService.name);
-  private axiosInstance: AxiosInstance;
   private readonly triageMode: 'chat' | 'workflow';
 
   // AI 调用超时时间 (8秒)，超时则使用默认回复
@@ -128,11 +128,8 @@ export class DifyService {
   constructor(
     private configService: ConfigService,
     private encryptionService: EncryptionService,
+    private httpService: HttpService,
   ) {
-    this.axiosInstance = axios.create({
-      timeout: this.AI_TIMEOUT,
-    });
-
     const mode =
       (this.configService.get<string>('DIFY_TRIAGE_MODE') || 'chat').toLowerCase();
     this.triageMode = mode === 'workflow' ? 'workflow' : 'chat';
@@ -199,21 +196,24 @@ export class DifyService {
     const decryptedApiKey = this.decryptApiKey(apiKey);
 
     try {
-      const response = await this.axiosInstance.post(
-        `${baseUrl}/workflows/run`,
-        {
-          inputs: {
-            description,
+      const response = await firstValueFrom(
+        this.httpService.post(
+          `${baseUrl}/workflows/run`,
+          {
+            inputs: {
+              description,
+            },
+            response_mode: 'blocking',
+            user: 'system',
           },
-          response_mode: 'blocking',
-          user: 'system',
-        },
-        {
-          headers: {
-            Authorization: `Bearer ${decryptedApiKey}`,
-            'Content-Type': 'application/json',
+          {
+            headers: {
+              Authorization: `Bearer ${decryptedApiKey}`,
+              'Content-Type': 'application/json',
+            },
+            timeout: this.AI_TIMEOUT,
           },
-        },
+        ),
       );
 
       const output =
@@ -263,22 +263,25 @@ export class DifyService {
     const decryptedApiKey = this.decryptApiKey(apiKey);
 
     try {
-      const response = await this.axiosInstance.post(
-        `${baseUrl}/chat-messages`,
-        {
-          inputs: {
-            description,
+      const response = await firstValueFrom(
+        this.httpService.post(
+          `${baseUrl}/chat-messages`,
+          {
+            inputs: {
+              description,
+            },
+            query: description,
+            response_mode: 'blocking',
+            user: 'system',
           },
-          query: description,
-          response_mode: 'blocking',
-          user: 'system',
-        },
-        {
-          headers: {
-            Authorization: `Bearer ${decryptedApiKey}`,
-            'Content-Type': 'application/json',
+          {
+            headers: {
+              Authorization: `Bearer ${decryptedApiKey}`,
+              'Content-Type': 'application/json',
+            },
+            timeout: this.AI_TIMEOUT,
           },
-        },
+        ),
       );
 
       // 解析Dify对话API返回的数据
@@ -340,15 +343,18 @@ export class DifyService {
         requestBody.conversation_id = conversationId;
       }
 
-      const response = await this.axiosInstance.post(
-        `${baseUrl}/chat-messages`,
-        requestBody,
-        {
-          headers: {
-            Authorization: `Bearer ${decryptedApiKey}`,
-            'Content-Type': 'application/json',
+      const response = await firstValueFrom(
+        this.httpService.post(
+          `${baseUrl}/chat-messages`,
+          requestBody,
+          {
+            headers: {
+              Authorization: `Bearer ${decryptedApiKey}`,
+              'Content-Type': 'application/json',
+            },
+            timeout: this.AI_TIMEOUT,
           },
-        },
+        ),
       );
 
       const parsed = parseDifyResult(response.data);
@@ -403,7 +409,7 @@ export class DifyService {
     }
 
     try {
-      const query = `请优化以下客服回复内容，使其更加专业和友好：\n${content}\n\n上下文信息：\n${context}`;
+      const query = `请优化以下游戏客服回复内容，使其更加专业和友好：\n${content}\n\n上下文信息：\n${context}`;
 
       // 环境变量中的 API Key 未加密，直接使用
       const decryptedApiKey = optimizeApiKey;
@@ -419,15 +425,18 @@ export class DifyService {
         requestBody.conversation_id = conversationId;
       }
 
-      const response = await this.axiosInstance.post(
-        `${optimizeBaseUrl}/chat-messages`,
-        requestBody,
-        {
-          headers: {
-            Authorization: `Bearer ${decryptedApiKey}`,
-            'Content-Type': 'application/json',
+      const response = await firstValueFrom(
+        this.httpService.post(
+          `${optimizeBaseUrl}/chat-messages`,
+          requestBody,
+          {
+            headers: {
+              Authorization: `Bearer ${decryptedApiKey}`,
+              'Content-Type': 'application/json',
+            },
+            timeout: this.AI_TIMEOUT,
           },
-        },
+        ),
       );
 
       const parsed = parseDifyResult(response.data);
@@ -460,15 +469,18 @@ export class DifyService {
     const decryptedApiKey = this.decryptApiKey(apiKey);
 
     try {
-      const response = await this.axiosInstance.get(`${baseUrl}/messages`, {
-        params: {
-          conversation_id: conversationId,
-          limit,
-        },
-        headers: {
-          Authorization: `Bearer ${decryptedApiKey}`,
-        },
-      });
+      const response = await firstValueFrom(
+        this.httpService.get(`${baseUrl}/messages`, {
+          params: {
+            conversation_id: conversationId,
+            limit,
+          },
+          headers: {
+            Authorization: `Bearer ${decryptedApiKey}`,
+          },
+          timeout: this.AI_TIMEOUT,
+        }),
+      );
 
       return response.data?.data || [];
     } catch (error: any) {
@@ -499,9 +511,8 @@ export class DifyService {
     const decryptedApiKey = this.decryptApiKey(apiKey);
 
     try {
-      const response = await this.axiosInstance.get(
-        `${baseUrl}/conversations`,
-        {
+      const response = await firstValueFrom(
+        this.httpService.get(`${baseUrl}/conversations`, {
           params: {
             user: userId || 'system',
             limit,
@@ -509,7 +520,8 @@ export class DifyService {
           headers: {
             Authorization: `Bearer ${decryptedApiKey}`,
           },
-        },
+          timeout: this.AI_TIMEOUT,
+        }),
       );
 
       return response.data?.data || [];

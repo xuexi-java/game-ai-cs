@@ -72,6 +72,8 @@ class WebSocketService {
   private rateLimitUntil = 0;
   private rateLimitTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly rateLimitCooldownMs = 3000;
+  private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  private readonly heartbeatIntervalMs = 3000; // 每3秒发送一次心跳
 
   private handleAgentStatusPayload(payload: {
     agentId: string;
@@ -111,6 +113,7 @@ class WebSocketService {
   }
 
   disconnect() {
+    this.stopHeartbeat();
     if (this.socket) {
       this.socket.disconnect();
       this.socket = null;
@@ -122,6 +125,22 @@ class WebSocketService {
     this.rateLimitUntil = 0;
   }
 
+  private startHeartbeat(): void {
+    this.stopHeartbeat();
+    this.heartbeatTimer = setInterval(() => {
+      if (this.socket?.connected) {
+        this.socket.emit('ping');
+      }
+    }, this.heartbeatIntervalMs);
+  }
+
+  private stopHeartbeat(): void {
+    if (this.heartbeatTimer) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = null;
+    }
+  }
+
   private setupEventListeners() {
     if (!this.socket) return;
 
@@ -129,12 +148,19 @@ class WebSocketService {
     this.socket.on('connect', () => {
       console.log('WebSocket连接成功');
       this.reconnectAttempts = 0;
+      this.startHeartbeat();
       message.success('实时连接已建立');
+    });
+
+    // 监听心跳响应
+    this.socket.on('pong', () => {
+      // 心跳响应，静默处理
     });
 
     // 连接断开
     this.socket.on('disconnect', (reason) => {
       console.log('WebSocket连接断开:', reason);
+      this.stopHeartbeat();
       if (reason === 'io server disconnect') {
         // 服务器主动断开，需要重新连接
         this.socket?.connect();

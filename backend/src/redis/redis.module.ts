@@ -1,6 +1,8 @@
-import { Module, Global } from '@nestjs/common';
+import { Module, Global, Logger } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import Redis from 'ioredis';
+
+const logger = new Logger('RedisModule');
 
 @Global()
 @Module({
@@ -12,26 +14,26 @@ import Redis from 'ioredis';
         // 优先使用 REDIS_URL，如果没有则使用 REDIS_HOST + REDIS_PORT
         const redisUrl = configService.get<string>('REDIS_URL');
 
-        // 从环境变量读取配置
-        const maxRetriesPerRequest = configService.get<number>(
-          'REDIS_MAX_RETRIES_PER_REQUEST',
-          3,
+        // 从环境变量读取配置（环境变量始终是字符串，需要转换为数字）
+        const maxRetriesPerRequest = parseInt(
+          configService.get<string>('REDIS_MAX_RETRIES_PER_REQUEST', '3'),
+          10,
         );
-        const maxReconnectAttempts = configService.get<number>(
-          'REDIS_MAX_RECONNECT_ATTEMPTS',
-          5,
+        const maxReconnectAttempts = parseInt(
+          configService.get<string>('REDIS_MAX_RECONNECT_ATTEMPTS', '5'),
+          10,
         );
-        const retryDelayBase = configService.get<number>(
-          'REDIS_RETRY_DELAY_BASE',
-          200,
+        const retryDelayBase = parseInt(
+          configService.get<string>('REDIS_RETRY_DELAY_BASE', '200'),
+          10,
         );
-        const retryDelayMax = configService.get<number>(
-          'REDIS_RETRY_DELAY_MAX',
-          2000,
+        const retryDelayMax = parseInt(
+          configService.get<string>('REDIS_RETRY_DELAY_MAX', '2000'),
+          10,
         );
-        const connectTimeout = configService.get<number>(
-          'REDIS_CONNECT_TIMEOUT',
-          5000,
+        const connectTimeout = parseInt(
+          configService.get<string>('REDIS_CONNECT_TIMEOUT', '5000'),
+          10,
         );
 
         let redis: Redis;
@@ -39,11 +41,11 @@ import Redis from 'ioredis';
           maxRetriesPerRequest,
           retryStrategy: (times) => {
             if (times > maxReconnectAttempts) {
-              console.error('Redis 连接失败，已达到最大重试次数');
+              logger.error('Redis 连接失败，已达到最大重试次数');
               return null;
             }
             const delay = Math.min(times * retryDelayBase, retryDelayMax);
-            console.log(
+            logger.warn(
               `Redis 重连中... (${times}/${maxReconnectAttempts})，${delay}ms 后重试`,
             );
             return delay;
@@ -70,22 +72,22 @@ import Redis from 'ioredis';
         // 等待连接就绪
         return new Promise<Redis>((resolve, reject) => {
           const timeout = setTimeout(() => {
-            console.warn('Redis 连接超时，但继续启动应用（离线模式）');
+            logger.warn('Redis 连接超时，但继续启动应用（离线模式）');
             resolve(redis);
           }, connectTimeout);
 
           redis.on('ready', () => {
             clearTimeout(timeout);
-            console.log('Redis Client Connected');
+            logger.log('Redis Client Connected');
             resolve(redis);
           });
 
           redis.on('error', (err) => {
-            console.error('Redis Client Error:', err.message);
+            logger.error('Redis Client Error:', err.message);
           });
 
           redis.on('connect', () => {
-            console.log('Redis Client Connecting...');
+            logger.log('Redis Client Connecting...');
           });
         });
       },

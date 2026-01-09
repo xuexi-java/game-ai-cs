@@ -103,16 +103,19 @@ export class GameService {
   }
 
   async create(createGameDto: CreateGameDto) {
-    // 加密 API Key
-    const encryptedApiKey = this.encryptionService.encrypt(
+    // 加密敏感字段
+    const encryptedData: any = { ...createGameDto };
+    encryptedData.difyApiKey = this.encryptionService.encrypt(
       createGameDto.difyApiKey,
     );
+    if (createGameDto.playerApiSecret) {
+      encryptedData.playerApiSecret = this.encryptionService.encrypt(
+        createGameDto.playerApiSecret,
+      );
+    }
 
     const game = await this.prisma.game.create({
-      data: {
-        ...createGameDto,
-        difyApiKey: encryptedApiKey,
-      },
+      data: encryptedData,
       include: {
         servers: true,
       },
@@ -124,11 +127,16 @@ export class GameService {
   async update(id: string, updateGameDto: UpdateGameDto) {
     await this.findOne(id);
 
-    // 如果更新了 API Key，需要加密
+    // 加密敏感字段
     const updateData: any = { ...updateGameDto };
     if (updateGameDto.difyApiKey) {
       updateData.difyApiKey = this.encryptionService.encrypt(
         updateGameDto.difyApiKey,
+      );
+    }
+    if (updateGameDto.playerApiSecret) {
+      updateData.playerApiSecret = this.encryptionService.encrypt(
+        updateGameDto.playerApiSecret,
       );
     }
 

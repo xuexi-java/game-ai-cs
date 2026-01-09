@@ -187,6 +187,7 @@ export class SessionAIService {
         difyStatus: difyResult.status,
       },
     );
+    this.logger.log(`发送AI消息到会话房间: sessionId=${sessionId}, messageId=${aiMessage.id}`);
     this.websocketGateway.notifyMessage(sessionId, aiMessage);
   }
 

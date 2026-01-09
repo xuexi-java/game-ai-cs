@@ -1,7 +1,15 @@
-import { Injectable, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
+import {
+  Injectable,
+  OnModuleInit,
+  OnModuleDestroy,
+  Logger,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaClient, Prisma } from '@prisma/client';
 import { AppLogger } from '../common/logger/app-logger.service';
+
+// 静态 Logger 用于静态方法（在实例创建前使用）
+const staticLogger = new Logger('PrismaService');
 
 // 数据库服务
 @Injectable()
@@ -39,9 +47,6 @@ export class PrismaService
    * 构建包含连接池参数的数据库连接字符串
    */
   private static buildDatabaseUrl(configService: ConfigService): string {
-    // Note: Static method cannot use instance logger, using console for static context
-    const logPrefix = `[${PrismaService.name}]`;
-
     const baseUrl =
       configService.get<string>('DATABASE_URL_BASE') ||
       configService.get<string>('DATABASE_URL') ||
@@ -56,9 +61,7 @@ export class PrismaService
       baseUrl.includes('connection_limit') ||
       baseUrl.includes('pool_timeout')
     ) {
-      console.warn(
-        `${logPrefix} DATABASE_URL 已包含连接池参数，将使用现有配置`,
-      );
+      staticLogger.warn('DATABASE_URL 已包含连接池参数，将使用现有配置');
       return baseUrl;
     }
 
@@ -86,8 +89,8 @@ export class PrismaService
 
     const fullUrl = `${baseUrl}${separator}${poolParams}`;
 
-    console.log(
-      `${logPrefix} 数据库连接池配置: 最大连接数=${connectionLimit}, 连接超时=${connectTimeout}s, 查询超时=${queryTimeout}s`,
+    staticLogger.log(
+      `数据库连接池配置: 最大连接数=${connectionLimit}, 连接超时=${connectTimeout}s, 查询超时=${queryTimeout}s`,
     );
 
     return fullUrl;

@@ -23,6 +23,11 @@ model Game {
   updatedAt   DateTime @updatedAt
   deletedAt   DateTime?
 
+  // ========== 玩家API配置 ==========
+  playerApiSecret  String?  @db.Text         // 玩家接口签名密钥（加密存储）
+  playerApiNonce   String?  @db.VarChar(32)  // 玩家接口固定Nonce (16位随机字符串)
+  playerApiEnabled Boolean  @default(true)   // 是否启用玩家API
+
   // 关系
   servers Server[]
   tickets Ticket[]
@@ -43,12 +48,17 @@ model Server {
   updatedAt DateTime @updatedAt
   deletedAt DateTime?
 
+  // ========== 玩家API配置 ==========
+  areaCode  String?  @db.VarChar(64)  // 业务区服号 (如 "server01", "s1")
+
   // 关系
   game   Game     @relation(fields: [gameId], references: [id], onDelete: Cascade)
   tickets Ticket[]
 
+  @@unique([gameId, areaCode])  // 同一游戏下区服号唯一
   @@index([gameId])
   @@index([gameId, enabled])
+  @@index([gameId, areaCode])
   @@map("Server")
 }
 
@@ -93,6 +103,14 @@ model Ticket {
   closureMetadata Json?          // 工单关闭元数据：{ method: 'manual' | 'auto_timeout_waiting' | 'auto_timeout_replied', closedBy?: string, closedAt: string }
   deletedAt       DateTime?
 
+  // ========== 玩家API字段 ==========
+  playerUid        String?   @db.VarChar(64)   // 玩家UID (游戏内唯一标识)
+  playerAreaId     String?   @db.VarChar(64)   // 玩家区服号 (业务区服号)
+  closeReason      String?   @db.VarChar(64)   // 关闭原因: RESOLVED/MANUAL_PLAYER/MANUAL_AGENT/AUTO_TIMEOUT/AUTO_CLOSED_BY_NEW_TICKET/DATA_CLEANUP
+  closedBy         String?   @db.VarChar(32)   // 关闭者: PLAYER/AGENT/SYSTEM
+  lastMessageAt    DateTime?                    // 最后消息时间（用于超时判断）
+  playerLastSeenAt DateTime?                    // 玩家最后活跃时间
+
   // 关系
   game            Game              @relation(fields: [gameId], references: [id], onDelete: Cascade)
   server          Server?          @relation(fields: [serverId], references: [id], onDelete: SetNull)
@@ -115,6 +133,9 @@ model Ticket {
   @@index([gameId, status])      // 按游戏和状态过滤
   @@index([gameId, createdAt])   // Dashboard 统计 WHERE gameId=? AND createdAt BETWEEN ? AND ?
   @@index([closedAt])            // 已关闭工单查询
+  // 玩家API索引
+  @@index([gameId, playerUid, status])  // 按玩家查询未关闭工单（跨区服共享）
+  @@index([status, lastMessageAt])                     // 查找需要自动关闭的工单
   @@map("Ticket")
 }
 
@@ -341,13 +362,14 @@ model SatisfactionRating {
 
 model IssueType {
   id                    String   @id @default(uuid())
-  name                  String   // 问题类型名称
+  name                  String   @unique // 问题类型名称
   description           String?  @db.Text // 问题描述
   priorityWeight        Int      @default(50) // 优先级权重 1-100
   enabled               Boolean  @default(true) // 是否启用
   sortOrder             Int      @default(0) // 显示排序
   icon                  String?  // 图标
   requireDirectTransfer Boolean  @default(false) // 是否需要直接转接人工客服
+  routeMode             String   @default("AI") @db.VarChar(16)  // 路由模式: AI / HUMAN
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
   deletedAt             DateTime?

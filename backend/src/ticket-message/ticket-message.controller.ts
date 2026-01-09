@@ -12,7 +12,6 @@ import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
-import { Public } from '../common/decorators/public.decorator';
 
 @ApiTags('ticket-messages')
 @ApiBearerAuth('JWT-auth')
@@ -51,29 +50,5 @@ export class TicketMessageController {
   @ApiResponse({ status: 200, description: '返回消息列表' })
   findByTicket(@Param('ticketId') ticketId: string) {
     return this.ticketMessageService.findByTicket(ticketId);
-  }
-
-  // 翻译工单消息（玩家端可访问）
-  @Public()
-  @Post(':messageId/translate')
-  @ApiOperation({ summary: '翻译工单消息' })
-  @ApiParam({ name: 'messageId', description: '消息ID' })
-  @ApiBody({
-    schema: {
-      type: 'object',
-      properties: {
-        targetLang: {
-          type: 'string',
-          description: '目标语言，如：zh, en, th等',
-        },
-      },
-    },
-  })
-  @ApiResponse({ status: 200, description: '返回翻译后的消息' })
-  translate(
-    @Param('messageId') messageId: string,
-    @Body('targetLang') targetLang?: string,
-  ) {
-    return this.ticketMessageService.translateMessage(messageId, targetLang);
   }
 }

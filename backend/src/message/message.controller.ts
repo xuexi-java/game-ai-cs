@@ -72,13 +72,4 @@ export class MessageController {
   ) {
     return this.messageService.create(createMessageDto, 'AGENT', user.id, user);
   }
-  // 翻译消息
-  @Public()
-  @Post(':id/translate')
-  @ApiOperation({ summary: '翻译消息' })
-  @ApiParam({ name: 'id', description: '消息ID' })
-  @ApiResponse({ status: 200, description: '返回翻译后的消息' })
-  translate(@Param('id') id: string, @Body('targetLang') targetLang?: string) {
-    return this.messageService.translateMessage(id, targetLang);
-  }
 }

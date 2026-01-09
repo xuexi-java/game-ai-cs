@@ -1,0 +1,800 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>完整流程测试 - 游戏客户端 → 游戏服务器 → 客服系统</title>
+  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+      min-height: 100vh;
+      color: #fff;
+      padding: 20px;
+    }
+    .container { max-width: 1400px; margin: 0 auto; }
+    h1 {
+      text-align: center;
+      margin-bottom: 10px;
+      font-size: 24px;
+      background: linear-gradient(90deg, #00d2ff, #3a7bd5);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .subtitle {
+      text-align: center;
+      color: #888;
+      margin-bottom: 30px;
+      font-size: 14px;
+    }
+
+    /* 流程图 */
+    .flow-diagram {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 20px;
+      margin-bottom: 30px;
+      flex-wrap: wrap;
+    }
+    .flow-box {
+      background: rgba(255,255,255,0.1);
+      border-radius: 12px;
+      padding: 15px 25px;
+      text-align: center;
+      border: 2px solid transparent;
+      transition: all 0.3s;
+    }
+    .flow-box.active {
+      border-color: #00d2ff;
+      box-shadow: 0 0 20px rgba(0,210,255,0.3);
+    }
+    .flow-box.completed {
+      border-color: #00ff88;
+      background: rgba(0,255,136,0.1);
+    }
+    .flow-box.error {
+      border-color: #ff4757;
+      background: rgba(255,71,87,0.1);
+    }
+    .flow-box h3 { font-size: 14px; margin-bottom: 5px; }
+    .flow-box p { font-size: 12px; color: #aaa; }
+    .flow-arrow {
+      font-size: 24px;
+      color: #555;
+    }
+    .flow-arrow.active { color: #00d2ff; }
+
+    /* 主要内容区 */
+    .main-content {
+      display: grid;
+      grid-template-columns: 350px 1fr 350px;
+      gap: 20px;
+    }
+    @media (max-width: 1200px) {
+      .main-content { grid-template-columns: 1fr; }
+    }
+
+    /* 面板样式 */
+    .panel {
+      background: rgba(255,255,255,0.05);
+      border-radius: 16px;
+      padding: 20px;
+      border: 1px solid rgba(255,255,255,0.1);
+    }
+    .panel h2 {
+      font-size: 16px;
+      margin-bottom: 15px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid rgba(255,255,255,0.1);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .panel h2 .icon { font-size: 20px; }
+
+    /* 玩家选择 */
+    .player-list { display: flex; flex-direction: column; gap: 10px; }
+    .player-card {
+      background: rgba(255,255,255,0.05);
+      border-radius: 10px;
+      padding: 12px;
+      cursor: pointer;
+      transition: all 0.2s;
+      border: 2px solid transparent;
+    }
+    .player-card:hover { background: rgba(255,255,255,0.1); }
+    .player-card.selected {
+      border-color: #00d2ff;
+      background: rgba(0,210,255,0.1);
+    }
+    .player-card .name { font-weight: bold; margin-bottom: 5px; }
+    .player-card .info { font-size: 12px; color: #888; }
+
+    /* 按钮 */
+    .btn {
+      padding: 12px 24px;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: bold;
+      transition: all 0.2s;
+      width: 100%;
+      margin-top: 15px;
+    }
+    .btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    .btn-primary {
+      background: linear-gradient(90deg, #00d2ff, #3a7bd5);
+      color: white;
+    }
+    .btn-primary:hover:not(:disabled) {
+      transform: translateY(-2px);
+      box-shadow: 0 5px 20px rgba(0,210,255,0.4);
+    }
+    .btn-success {
+      background: linear-gradient(90deg, #00ff88, #00b894);
+      color: #1a1a2e;
+    }
+    .btn-danger {
+      background: linear-gradient(90deg, #ff4757, #ff6b81);
+      color: white;
+    }
+
+    /* 聊天区域 */
+    .chat-container {
+      display: flex;
+      flex-direction: column;
+      height: 500px;
+    }
+    .chat-messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 15px;
+      background: rgba(0,0,0,0.2);
+      border-radius: 10px;
+      margin-bottom: 15px;
+    }
+    .message {
+      margin-bottom: 12px;
+      display: flex;
+      flex-direction: column;
+    }
+    .message.player { align-items: flex-end; }
+    .message.agent, .message.system, .message.ai { align-items: flex-start; }
+    .message .bubble {
+      max-width: 80%;
+      padding: 10px 15px;
+      border-radius: 12px;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+    .message.player .bubble {
+      background: linear-gradient(135deg, #00d2ff, #3a7bd5);
+      border-bottom-right-radius: 4px;
+    }
+    .message.agent .bubble {
+      background: rgba(255,255,255,0.15);
+      border-bottom-left-radius: 4px;
+    }
+    .message.system .bubble {
+      background: rgba(255,193,7,0.2);
+      color: #ffc107;
+      font-size: 12px;
+    }
+    .message.ai .bubble {
+      background: rgba(156,39,176,0.2);
+      border-bottom-left-radius: 4px;
+    }
+    .message .sender {
+      font-size: 11px;
+      color: #888;
+      margin-bottom: 4px;
+    }
+    .message .time {
+      font-size: 10px;
+      color: #666;
+      margin-top: 4px;
+    }
+
+    /* 输入区域 */
+    .chat-input {
+      display: flex;
+      gap: 10px;
+    }
+    .chat-input input {
+      flex: 1;
+      padding: 12px 15px;
+      border: none;
+      border-radius: 8px;
+      background: rgba(255,255,255,0.1);
+      color: white;
+      font-size: 14px;
+    }
+    .chat-input input:focus {
+      outline: none;
+      background: rgba(255,255,255,0.15);
+    }
+    .chat-input button {
+      padding: 12px 20px;
+      border: none;
+      border-radius: 8px;
+      background: #00d2ff;
+      color: #1a1a2e;
+      font-weight: bold;
+      cursor: pointer;
+    }
+    .chat-input button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    /* 日志区域 */
+    .log-container {
+      height: 500px;
+      overflow-y: auto;
+      background: rgba(0,0,0,0.3);
+      border-radius: 10px;
+      padding: 15px;
+      font-family: 'Monaco', 'Consolas', monospace;
+      font-size: 12px;
+    }
+    .log-entry {
+      margin-bottom: 8px;
+      padding: 8px 10px;
+      border-radius: 6px;
+      background: rgba(255,255,255,0.05);
+      border-left: 3px solid #555;
+    }
+    .log-entry.info { border-left-color: #00d2ff; }
+    .log-entry.success { border-left-color: #00ff88; }
+    .log-entry.error { border-left-color: #ff4757; }
+    .log-entry.warn { border-left-color: #ffc107; }
+    .log-entry .time { color: #666; margin-right: 10px; }
+    .log-entry .tag {
+      display: inline-block;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 10px;
+      margin-right: 8px;
+    }
+    .log-entry.info .tag { background: rgba(0,210,255,0.2); color: #00d2ff; }
+    .log-entry.success .tag { background: rgba(0,255,136,0.2); color: #00ff88; }
+    .log-entry.error .tag { background: rgba(255,71,87,0.2); color: #ff4757; }
+    .log-entry.warn .tag { background: rgba(255,193,7,0.2); color: #ffc107; }
+
+    /* 状态指示器 */
+    .status-indicator {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 15px;
+      border-radius: 8px;
+      background: rgba(255,255,255,0.05);
+      margin-bottom: 15px;
+    }
+    .status-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #666;
+    }
+    .status-dot.connected { background: #00ff88; box-shadow: 0 0 10px #00ff88; }
+    .status-dot.connecting { background: #ffc107; animation: pulse 1s infinite; }
+    .status-dot.error { background: #ff4757; }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+
+    /* 问题分类 */
+    .category-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 10px;
+    }
+    .category-btn {
+      padding: 8px 16px;
+      border: 1px solid rgba(255,255,255,0.2);
+      border-radius: 20px;
+      background: transparent;
+      color: white;
+      cursor: pointer;
+      font-size: 13px;
+      transition: all 0.2s;
+    }
+    .category-btn:hover {
+      background: rgba(0,210,255,0.2);
+      border-color: #00d2ff;
+    }
+
+    /* 数据展示 */
+    .data-display {
+      background: rgba(0,0,0,0.2);
+      border-radius: 8px;
+      padding: 12px;
+      margin-top: 10px;
+      font-family: monospace;
+      font-size: 11px;
+      word-break: break-all;
+      max-height: 150px;
+      overflow-y: auto;
+    }
+    .data-display .key { color: #00d2ff; }
+    .data-display .value { color: #00ff88; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>完整流程测试</h1>
+    <p class="subtitle">模拟: 游戏客户端 → 游戏服务器获取认证 → 连接客服系统</p>
+
+    <!-- 流程图 -->
+    <div class="flow-diagram">
+      <div class="flow-box" id="step1">
+        <h3>1. 选择玩家</h3>
+        <p>游戏客户端</p>
+      </div>
+      <span class="flow-arrow">→</span>
+      <div class="flow-box" id="step2">
+        <h3>2. 获取认证</h3>
+        <p>游戏服务器</p>
+      </div>
+      <span class="flow-arrow">→</span>
+      <div class="flow-box" id="step3">
+        <h3>3. Bootstrap</h3>
+        <p>客服系统 API</p>
+      </div>
+      <span class="flow-arrow">→</span>
+      <div class="flow-box" id="step4">
+        <h3>4. WebSocket</h3>
+        <p>实时通信</p>
+      </div>
+      <span class="flow-arrow">→</span>
+      <div class="flow-box" id="step5">
+        <h3>5. 创建工单</h3>
+        <p>开始咨询</p>
+      </div>
+    </div>
+
+    <!-- 主要内容 -->
+    <div class="main-content">
+      <!-- 左侧: 玩家选择 -->
+      <div class="panel">
+        <h2><span class="icon">🎮</span> 游戏客户端</h2>
+
+        <div class="status-indicator">
+          <div class="status-dot" id="gameServerStatus"></div>
+          <span id="gameServerStatusText">检查游戏服务器...</span>
+        </div>
+
+        <h3 style="font-size: 14px; margin-bottom: 10px;">选择玩家:</h3>
+        <div class="player-list" id="playerList">
+          <!-- 动态填充 -->
+        </div>
+
+        <button class="btn btn-primary" id="btnGetAuth" disabled>
+          获取客服认证
+        </button>
+
+        <div id="authData" style="display: none;">
+          <h3 style="font-size: 14px; margin: 15px 0 10px;">认证数据:</h3>
+          <div class="data-display" id="authDataContent"></div>
+        </div>
+
+        <button class="btn btn-success" id="btnConnect" style="display: none;">
+          连接客服系统
+        </button>
+      </div>
+
+      <!-- 中间: 聊天区域 -->
+      <div class="panel">
+        <h2><span class="icon">💬</span> 客服对话</h2>
+
+        <div class="status-indicator">
+          <div class="status-dot" id="wsStatus"></div>
+          <span id="wsStatusText">未连接</span>
+        </div>
+
+        <div class="chat-container">
+          <div class="chat-messages" id="chatMessages">
+            <div class="message system">
+              <div class="bubble">请先选择玩家并获取认证</div>
+            </div>
+          </div>
+
+          <div id="categorySection" style="display: none;">
+            <p style="font-size: 13px; color: #aaa; margin-bottom: 8px;">请选择问题类型:</p>
+            <div class="category-list" id="categoryList"></div>
+          </div>
+
+          <div class="chat-input">
+            <input type="text" id="messageInput" placeholder="输入消息..." disabled>
+            <button id="btnSend" disabled>发送</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 右侧: 日志 -->
+      <div class="panel">
+        <h2><span class="icon">📋</span> 调试日志</h2>
+        <div class="log-container" id="logContainer"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // ============ 配置 ============
+    const GAME_SERVER_URL = 'http://localhost:3001';
+    const CS_API_URL = 'http://localhost:21101';
+
+    // ============ 状态 ============
+    let selectedPlayer = null;
+    let authInfo = null;
+    let bootstrapData = null;
+    let socket = null;
+    let currentTid = null;
+
+    // ============ DOM 元素 ============
+    const $ = id => document.getElementById(id);
+
+    // ============ 日志 ============
+    function log(type, tag, message) {
+      const container = $('logContainer');
+      const time = new Date().toLocaleTimeString();
+      const entry = document.createElement('div');
+      entry.className = `log-entry ${type}`;
+      entry.innerHTML = `
+        <span class="time">${time}</span>
+        <span class="tag">${tag}</span>
+        ${message}
+      `;
+      container.appendChild(entry);
+      container.scrollTop = container.scrollHeight;
+      console.log(`[${tag}] ${message}`);
+    }
+
+    // ============ 流程步骤高亮 ============
+    function setStepStatus(stepId, status) {
+      const step = $(stepId);
+      step.className = 'flow-box ' + status;
+    }
+
+    // ============ 聊天消息 ============
+    function addChatMessage(sender, content, type = 'text') {
+      const container = $('chatMessages');
+      const senderClass = sender.toLowerCase();
+      const senderName = {
+        'player': '我',
+        'agent': '客服',
+        'system': '系统',
+        'ai': 'AI助手'
+      }[senderClass] || sender;
+
+      const msg = document.createElement('div');
+      msg.className = `message ${senderClass}`;
+      msg.innerHTML = `
+        <span class="sender">${senderName}</span>
+        <div class="bubble">${content}</div>
+        <span class="time">${new Date().toLocaleTimeString()}</span>
+      `;
+      container.appendChild(msg);
+      container.scrollTop = container.scrollHeight;
+    }
+
+    // ============ 初始化: 检查游戏服务器 ============
+    async function init() {
+      setStepStatus('step1', 'active');
+      log('info', 'INIT', '正在检查游戏服务器...');
+
+      try {
+        const response = await fetch(`${GAME_SERVER_URL}/api/config`);
+        const result = await response.json();
+
+        if (result.success) {
+          $('gameServerStatus').className = 'status-dot connected';
+          $('gameServerStatusText').textContent = '游戏服务器已连接';
+          log('success', 'GAME', `游戏服务器连接成功: ${result.data.gameId}`);
+
+          // 渲染玩家列表
+          renderPlayerList(result.data.players);
+          setStepStatus('step1', 'completed');
+        }
+      } catch (error) {
+        $('gameServerStatus').className = 'status-dot error';
+        $('gameServerStatusText').textContent = '游戏服务器未启动';
+        log('error', 'GAME', `连接失败: ${error.message}`);
+        log('warn', 'TIP', '请先启动游戏服务器: node mock-game-server.js');
+        setStepStatus('step1', 'error');
+      }
+    }
+
+    // ============ 渲染玩家列表 ============
+    function renderPlayerList(players) {
+      const container = $('playerList');
+      container.innerHTML = '';
+
+      players.forEach(player => {
+        const card = document.createElement('div');
+        card.className = 'player-card';
+        card.innerHTML = `
+          <div class="name">${player.name} (${player.uid})</div>
+          <div class="info">Lv.${player.level} | VIP${player.vip} | 区服: 1</div>
+        `;
+        card.onclick = () => selectPlayer(player, card);
+        container.appendChild(card);
+      });
+    }
+
+    // ============ 选择玩家 ============
+    function selectPlayer(player, card) {
+      // 取消之前的选择
+      document.querySelectorAll('.player-card').forEach(c => c.classList.remove('selected'));
+      card.classList.add('selected');
+
+      selectedPlayer = player;
+      $('btnGetAuth').disabled = false;
+      log('info', 'SELECT', `选择玩家: ${player.name} (${player.uid})`);
+    }
+
+    // ============ 获取客服认证 ============
+    async function getAuth() {
+      if (!selectedPlayer) return;
+
+      setStepStatus('step2', 'active');
+      log('info', 'AUTH', `向游戏服务器请求认证: uid=${selectedPlayer.uid}`);
+
+      try {
+        const response = await fetch(`${GAME_SERVER_URL}/api/get-cs-auth`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            uid: selectedPlayer.uid,
+            areaid: '1'
+          })
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+          authInfo = result.data;
+          log('success', 'AUTH', '获取认证成功');
+          log('info', 'DATA', `gameid=${authInfo.gameid}, sign=${authInfo.sign.substring(0, 16)}...`);
+
+          // 显示认证数据
+          $('authData').style.display = 'block';
+          $('authDataContent').innerHTML = `
+            <div><span class="key">gameid:</span> <span class="value">${authInfo.gameid}</span></div>
+            <div><span class="key">uid:</span> <span class="value">${authInfo.uid}</span></div>
+            <div><span class="key">areaid:</span> <span class="value">${authInfo.areaid}</span></div>
+            <div><span class="key">playerName:</span> <span class="value">${authInfo.playerName}</span></div>
+            <div><span class="key">nonce:</span> <span class="value">${authInfo.nonce}</span></div>
+            <div><span class="key">sign:</span> <span class="value">${authInfo.sign}</span></div>
+          `;
+
+          $('btnConnect').style.display = 'block';
+          $('btnGetAuth').disabled = true;
+          setStepStatus('step2', 'completed');
+        } else {
+          throw new Error(result.error);
+        }
+      } catch (error) {
+        log('error', 'AUTH', `获取认证失败: ${error.message}`);
+        setStepStatus('step2', 'error');
+      }
+    }
+
+    // ============ 连接客服系统 ============
+    async function connectCS() {
+      if (!authInfo) return;
+
+      setStepStatus('step3', 'active');
+      log('info', 'CS', '调用客服系统 Bootstrap API...');
+
+      try {
+        // 1. 调用 Bootstrap API
+        const response = await fetch(`${CS_API_URL}/api/v1/player/connect`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            gameid: authInfo.gameid,
+            uid: authInfo.uid,
+            areaid: authInfo.areaid,
+            playerName: authInfo.playerName,
+            nonce: authInfo.nonce,
+            sign: authInfo.sign
+          })
+        });
+
+        const result = await response.json();
+        log('info', 'CS', `API 响应状态: ${response.status}`);
+
+        // 处理嵌套响应
+        const apiResult = result.data || result;
+        const apiData = apiResult.data || apiResult;
+
+        if (apiResult.result || result.success) {
+          bootstrapData = apiData;
+          log('success', 'CS', 'Bootstrap 成功');
+          log('info', 'DATA', `wsUrl=${bootstrapData.wsUrl}`);
+          log('info', 'DATA', `wsToken=${bootstrapData.wsToken?.substring(0, 20)}...`);
+          log('info', 'DATA', `问题类型: ${bootstrapData.questList?.length || 0} 个`);
+
+          setStepStatus('step3', 'completed');
+          $('btnConnect').style.display = 'none';
+
+          // 显示欢迎消息
+          $('chatMessages').innerHTML = '';
+          if (bootstrapData.bootstrapMessages) {
+            bootstrapData.bootstrapMessages.forEach(msg => {
+              addChatMessage(msg.senderType, msg.content);
+            });
+          }
+
+          // 2. 连接 WebSocket
+          connectWebSocket();
+        } else {
+          throw new Error(apiResult.error || result.error || '未知错误');
+        }
+      } catch (error) {
+        log('error', 'CS', `Bootstrap 失败: ${error.message}`);
+        setStepStatus('step3', 'error');
+      }
+    }
+
+    // ============ 连接 WebSocket ============
+    function connectWebSocket() {
+      setStepStatus('step4', 'active');
+      log('info', 'WS', `连接 WebSocket: ${bootstrapData.wsUrl}`);
+
+      $('wsStatus').className = 'status-dot connecting';
+      $('wsStatusText').textContent = '连接中...';
+
+      socket = io(bootstrapData.wsUrl, {
+        auth: { token: bootstrapData.wsToken },
+        transports: ['websocket', 'polling']
+      });
+
+      socket.on('connect', () => {
+        log('success', 'WS', `连接成功: ${socket.id}`);
+        $('wsStatus').className = 'status-dot connected';
+        $('wsStatusText').textContent = '已连接';
+        setStepStatus('step4', 'completed');
+
+        // 显示问题分类
+        showCategories();
+      });
+
+      socket.on('disconnect', (reason) => {
+        log('warn', 'WS', `断开连接: ${reason}`);
+        $('wsStatus').className = 'status-dot';
+        $('wsStatusText').textContent = '已断开';
+      });
+
+      socket.on('error', (data) => {
+        log('error', 'WS', `错误: ${data.message || JSON.stringify(data)}`);
+      });
+
+      socket.on('connection:ready', (data) => {
+        log('success', 'WS', `连接就绪: gameid=${data.gameid}, uid=${data.uid}`);
+        showCategories();
+      });
+
+      socket.on('ticket:created', (data) => {
+        log('success', 'WS', `工单已创建: ${data.tid}`);
+        currentTid = data.tid;
+        addChatMessage('system', `工单 ${data.tid} 已创建，等待客服接入...`);
+        setStepStatus('step5', 'completed');
+        enableInput();
+      });
+
+      socket.on('agent_assigned', (data) => {
+        log('success', 'WS', `客服已分配: ${data.agentName}`);
+        addChatMessage('system', `客服 ${data.agentName} 为您服务`);
+      });
+
+      socket.on('message', (data) => {
+        log('info', 'MSG', `收到消息: [${data.senderType}] ${data.content?.substring(0, 50) || ''}...`);
+        addChatMessage(data.senderType || 'system', data.content || '');
+      });
+
+      socket.on('message:ack', (data) => {
+        log('info', 'ACK', `消息确认: ${data.clientMsgId}`);
+      });
+
+      socket.on('queue-update', (data) => {
+        log('info', 'QUEUE', `排队位置: ${data.position}`);
+        if (data.position > 0) {
+          addChatMessage('system', `正在排队，当前第 ${data.position} 位`);
+        }
+      });
+
+      socket.on('typing:status', (data) => {
+        if (data.isTyping && data.senderType !== 'PLAYER') {
+          log('info', 'TYPING', `${data.senderType} 正在输入...`);
+        }
+      });
+    }
+
+    // ============ 显示问题分类 ============
+    function showCategories() {
+      if (!bootstrapData.questList || bootstrapData.questList.length === 0) {
+        log('warn', 'CS', '没有问题分类');
+        return;
+      }
+
+      setStepStatus('step5', 'active');
+      const container = $('categoryList');
+      container.innerHTML = '';
+
+      bootstrapData.questList.forEach(cat => {
+        const btn = document.createElement('button');
+        btn.className = 'category-btn';
+        btn.textContent = cat.name;
+        btn.onclick = () => selectCategory(cat);
+        container.appendChild(btn);
+      });
+
+      $('categorySection').style.display = 'block';
+      log('info', 'CS', '请选择问题类型');
+    }
+
+    // ============ 选择问题分类 ============
+    function selectCategory(category) {
+      log('info', 'CS', `选择分类: ${category.name}`);
+      addChatMessage('player', `我要咨询: ${category.name}`);
+      $('categorySection').style.display = 'none';
+
+      // 创建工单
+      socket.emit('ticket:create', {
+        issueType: category.id,
+        confirmClose: true
+      });
+
+      log('info', 'WS', `创建工单: issueType=${category.id}`);
+    }
+
+    // ============ 启用输入 ============
+    function enableInput() {
+      $('messageInput').disabled = false;
+      $('btnSend').disabled = false;
+      $('messageInput').focus();
+    }
+
+    // ============ 发送消息 ============
+    function sendMessage() {
+      const input = $('messageInput');
+      const content = input.value.trim();
+      if (!content || !socket) return;
+
+      const clientMsgId = `msg_${Date.now()}`;
+      socket.emit('message:send', {
+        clientMsgId,
+        content,
+        type: 'TEXT'
+      });
+
+      addChatMessage('player', content);
+      log('info', 'MSG', `发送消息: ${content.substring(0, 50)}...`);
+      input.value = '';
+    }
+
+    // ============ 事件绑定 ============
+    $('btnGetAuth').onclick = getAuth;
+    $('btnConnect').onclick = connectCS;
+    $('btnSend').onclick = sendMessage;
+    $('messageInput').onkeypress = (e) => {
+      if (e.key === 'Enter') sendMessage();
+    };
+
+    // ============ 启动 ============
+    init();
+  </script>
+</body>
+</html>

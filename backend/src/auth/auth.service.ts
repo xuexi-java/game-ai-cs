@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcrypt';
@@ -9,6 +9,8 @@ import { WebsocketGateway } from '../websocket/websocket.gateway';
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     private prisma: PrismaService,
     private jwtService: JwtService,
@@ -45,7 +47,7 @@ export class AuthService {
       try {
         isPasswordValid = await bcrypt.compare(password, user.password);
       } catch (error) {
-        console.error('[Auth] 密码验证错误:', error);
+        this.logger.error('密码验证错误', error);
         isPasswordValid = false;
       }
     } else {

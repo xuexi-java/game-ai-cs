@@ -29,4 +29,13 @@ export class CreateMessageDto {
   @IsEnum(MessageType)
   @IsOptional()
   messageType?: MessageType = MessageType.TEXT;
+
+  @ApiProperty({
+    description: '客户端消息ID (用于幂等性和 ack)',
+    example: 'client-msg-123',
+    required: false,
+  })
+  @IsString()
+  @IsOptional()
+  clientMsgId?: string;
 }

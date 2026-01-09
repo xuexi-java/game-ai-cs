@@ -123,12 +123,30 @@ export class QuickReplyService {
 
   /**
    * 创建分类 - 所有分类都是个人私有的
+   * 注意：如果有同名的已删除分类，会先物理删除它
    */
   async createCategory(
     userId: string,
     isAdmin: boolean,
     createCategoryDto: CreateCategoryDto,
   ) {
+    // ✅ 检查是否存在同名的已删除分类，如果有则物理删除
+    const existingDeleted = await this.prisma.quickReplyCategory.findFirst({
+      where: {
+        name: createCategoryDto.name,
+        creatorId: userId,
+        deletedAt: { not: null },
+      },
+    });
+
+    if (existingDeleted) {
+      // 物理删除已软删除的同名分类，以便重新创建
+      await this.prisma.quickReplyCategory.delete({
+        where: { id: existingDeleted.id },
+      });
+      this.logger.log(`物理删除已软删除的分类: ${existingDeleted.id}, name: ${existingDeleted.name}`);
+    }
+
     // ✅ 所有分类都是个人私有的，取消全局分类
     const created = await this.prisma.quickReplyCategory.create({
       data: {
@@ -137,8 +155,6 @@ export class QuickReplyService {
         isGlobal: false, // 强制设置为false
       },
     });
-    await this.clearUserCache(userId);
-    return created;
     await this.clearUserCache(userId);
     return created;
   }
@@ -339,7 +355,7 @@ export class QuickReplyService {
           dbError.message?.includes('orderBy') ||
           dbError.message?.includes('sort')
         ) {
-          console.log('检测到排序错误，尝试使用默认排序...');
+          this.logger.warn('检测到排序错误，尝试使用默认排序...');
           orderBy = { createdAt: 'desc' };
           [data, total, favoriteIdsSet] = await Promise.all([
             this.prisma.quickReply.findMany({
@@ -440,6 +456,8 @@ export class QuickReplyService {
           totalPages: Math.ceil(deduplicatedData.length / pageSize),
         },
       };
+      await this.cacheService.setJson(cacheKey, result, this.cacheTtlSeconds);
+      return result;
     } catch (error: any) {
       this.logger.error(
         '获取快捷回复列表失败',
@@ -484,6 +502,8 @@ export class QuickReplyService {
       },
       include: { category: true },
     });
+    await this.clearUserCache(userId);
+    return created;
   }
 
   /**
@@ -697,6 +717,8 @@ export class QuickReplyService {
         totalPages: Math.ceil(total / pageSize),
       },
     };
+    await this.cacheService.setJson(cacheKey, result, this.cacheTtlSeconds);
+    return result;
   }
 
   // ========== 使用统计 ==========

@@ -27,7 +27,14 @@ export class TicketStatusService {
         | 'manual'
         | 'auto_timeout_waiting'
         | 'auto_timeout_replied';
-      closedBy?: string;
+      closedBy?: 'PLAYER' | 'AGENT' | 'SYSTEM' | string;
+      closeReason?:
+        | 'RESOLVED'
+        | 'MANUAL_PLAYER'
+        | 'MANUAL_AGENT'
+        | 'AUTO_TIMEOUT'
+        | 'AUTO_CLOSED_BY_NEW_TICKET'
+        | 'DATA_CLEANUP';
     },
   ) {
     const ticket = await this.prisma.ticket.findUnique({
@@ -47,6 +54,43 @@ export class TicketStatusService {
     // 如果状态变更为 RESOLVED，记录关闭信息
     if (status === 'RESOLVED') {
       updateData.closedAt = new Date();
+
+      // 设置 closeReason
+      if (metadata?.closeReason) {
+        updateData.closeReason = metadata.closeReason;
+      } else if (metadata?.closureMethod) {
+        // 根据 closureMethod 推断 closeReason (兼容旧逻辑)
+        if (
+          metadata.closureMethod === 'auto_timeout_waiting' ||
+          metadata.closureMethod === 'auto_timeout_replied'
+        ) {
+          updateData.closeReason = 'AUTO_TIMEOUT';
+        } else if (metadata.closureMethod === 'manual') {
+          // 如果是手动关闭，根据 closedBy 判断
+          if (metadata.closedBy === 'PLAYER') {
+            updateData.closeReason = 'MANUAL_PLAYER';
+          } else if (metadata.closedBy === 'AGENT' || metadata.closedBy === 'SYSTEM') {
+            updateData.closeReason = 'MANUAL_AGENT';
+          } else {
+            updateData.closeReason = 'RESOLVED';
+          }
+        }
+      }
+
+      // 设置 closedBy
+      if (metadata?.closedBy) {
+        updateData.closedBy = metadata.closedBy;
+      } else if (metadata?.closureMethod) {
+        // 自动超时关闭由系统执行
+        if (
+          metadata.closureMethod === 'auto_timeout_waiting' ||
+          metadata.closureMethod === 'auto_timeout_replied'
+        ) {
+          updateData.closedBy = 'SYSTEM';
+        }
+      }
+
+      // 保留 closureMetadata 以兼容旧逻辑
       if (metadata?.closureMethod) {
         updateData.closureMetadata = {
           method: metadata.closureMethod,
@@ -76,6 +120,8 @@ export class TicketStatusService {
       this.websocketGateway.notifyTicketUpdate(id, {
         status: updatedTicket.status,
         closedAt: updatedTicket.closedAt,
+        closeReason: updatedTicket.closeReason,
+        closedBy: updatedTicket.closedBy,
         closureMetadata: (updatedTicket as any).closureMetadata,
       });
     } catch (error) {
@@ -157,12 +203,17 @@ export class TicketStatusService {
       });
 
       // 更新工单状态的辅助函数
-      const updateTicketToResolved = async () => {
+      const updateTicketToResolved = async (
+        closeReason: 'RESOLVED' | 'MANUAL_AGENT' = 'RESOLVED',
+        closedBy: 'AGENT' | 'SYSTEM' = 'SYSTEM',
+      ) => {
         await this.prisma.ticket.update({
           where: { id: ticketId },
           data: {
             status: 'RESOLVED',
             closedAt: new Date(),
+            closeReason,
+            closedBy,
           },
         });
 
@@ -195,10 +246,10 @@ export class TicketStatusService {
 
       // 如果有客服介入（有客服消息或会话被分配给客服），标记为已解决
       if (hasAgentMessages > 0 || hasAssignedAgent) {
-        await updateTicketToResolved();
+        await updateTicketToResolved('RESOLVED', 'AGENT');
       } else if (hasAIMessages > 0) {
         // 如果有 AI 消息但没有客服介入，说明是 AI 解决的，也应该标记为 RESOLVED
-        await updateTicketToResolved();
+        await updateTicketToResolved('RESOLVED', 'SYSTEM');
       } else {
         // 如果没有客服消息、没有分配给客服、也没有 AI 消息，只是玩家退出，将工单状态改为 WAITING
         // 这样工单会继续等待客服处理
@@ -238,8 +289,13 @@ export class TicketStatusService {
 
   /**
    * 手动标记工单为已处理
+   * @param ticketId 工单ID
+   * @param closedBy 关闭者: PLAYER/AGENT/SYSTEM
    */
-  async markAsResolved(ticketId: string): Promise<void> {
+  async markAsResolved(
+    ticketId: string,
+    closedBy: 'PLAYER' | 'AGENT' | 'SYSTEM' = 'AGENT',
+  ): Promise<void> {
     const ticket = await this.prisma.ticket.findUnique({
       where: { id: ticketId },
     });
@@ -252,11 +308,23 @@ export class TicketStatusService {
       return;
     }
 
+    // 根据关闭者确定关闭原因
+    let closeReason: string;
+    if (closedBy === 'PLAYER') {
+      closeReason = 'MANUAL_PLAYER';
+    } else if (closedBy === 'AGENT') {
+      closeReason = 'MANUAL_AGENT';
+    } else {
+      closeReason = 'RESOLVED';
+    }
+
     await this.prisma.ticket.update({
       where: { id: ticketId },
       data: {
         status: 'RESOLVED',
         closedAt: new Date(),
+        closeReason,
+        closedBy,
       },
     });
 
@@ -264,6 +332,8 @@ export class TicketStatusService {
     this.websocketGateway.notifyTicketUpdate(ticketId, {
       status: 'RESOLVED',
       closedAt: new Date(),
+      closeReason,
+      closedBy,
     });
   }
 

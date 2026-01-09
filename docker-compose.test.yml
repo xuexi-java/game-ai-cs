@@ -1,0 +1,42 @@
+version: '3.8'
+
+# 测试环境 Docker Compose 配置
+# 用于本地测试和CI/CD测试
+
+services:
+  # PostgreSQL 测试数据库
+  postgres-test:
+    image: postgres:14-alpine
+    container_name: game-ai-postgres-test
+    environment:
+      POSTGRES_DB: game_ai_cs_test
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: test_password
+    ports:
+      - "25432:5432"
+    # 使用tmpfs加速测试，数据不持久化
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d game_ai_cs_test"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Redis 测试实例
+  redis-test:
+    image: redis:7-alpine
+    container_name: game-ai-redis-test
+    ports:
+      - "26379:6379"
+    # 禁用持久化加速测试
+    command: redis-server --appendonly no --save ""
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+networks:
+  default:
+    name: game-ai-test-network

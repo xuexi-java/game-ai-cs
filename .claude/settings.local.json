@@ -1,12 +1,47 @@
 {
-    "mcpServers": {
-      "augment-context-engine": {
-        "command": "auggie.cmd",
-        "args": ["--mcp"],
-        "env": {
-          "AUGMENT_API_TOKEN": "ace_fa49182adea1f5f9fe35a12bff95f290e4576670",
-          "AUGMENT_API_URL": "https://acemcp.heroman.wtf/relay/"
-        }
+  "permissions": {
+    "allow": [
+      "Bash(auggie --version:*)",
+      "Bash(auggie --help:*)",
+      "Bash(set AUGMENT_API_TOKEN=ace_fa49182adea1f5f9fe35a12bff95f290e4576670:*)",
+      "Bash(set AUGMENT_API_URL=https://acemcp.heroman.wtf/relay/)",
+      "Bash(auggie --mcp:*)",
+      "Bash(find:*)",
+      "Bash(npx tsc:*)",
+      "Bash(npm run build:*)",
+      "Bash(for f in session/session.service.ts ticket/ticket.service.ts websocket/websocket.gateway.ts message/message.service.ts queue/queue.service.ts)",
+      "Bash(npm test:*)",
+      "Bash(winget install:*)",
+      "Bash(npx prisma generate)",
+      "Bash(npm install:*)",
+      "Bash(npx jest:*)",
+      "Bash(npx vue-tsc --noEmit)",
+      "Bash(npx vite build)",
+      "Bash(pushd:*)",
+      "Bash(netstat:*)",
+      "Bash(findstr:*)",
+      "Bash(node:*)",
+      "Bash(npx prisma db push:*)",
+      "Bash(curl:*)",
+      "Bash(cat:*)",
+      "Bash(xargs ls:*)",
+      "Bash(del \"e:\\\\AIWorkFlow\\\\trunk\\\\service\\\\develop\\\\game-ai\\\\webview-player\\\\src\\\\components\\\\ErrorPage.vue\")",
+      "Bash(npx prisma migrate:*)",
+      "Bash(npx prisma db seed:*)",
+      "Bash(npx ts-node:*)",
+      "Bash(del \"e:\\\\AIWorkFlow\\\\trunk\\\\service\\\\develop\\\\game-ai\\\\backend\\\\prisma\\\\update-issue-types.ts\")"
+    ]
+  },
+  "mcpServers": {
+    "augment-context-engine": {
+      "command": "auggie",
+      "args": [
+        "--mcp"
+      ],
+      "env": {
+        "AUGMENT_API_TOKEN": "ace_fa49182adea1f5f9fe35a12bff95f290e4576670",
+        "AUGMENT_API_URL": "https://acemcp.heroman.wtf/relay/"
       }
     }
+  }
 }

@@ -4,6 +4,7 @@ import {
   IsBoolean,
   IsOptional,
   IsUrl,
+  Length,
 } from 'class-validator';
 
 export class CreateGameDto {
@@ -26,6 +27,21 @@ export class CreateGameDto {
   @IsUrl()
   @IsNotEmpty()
   difyBaseUrl: string;
+
+  // ========== 玩家API配置 ==========
+  @IsString()
+  @IsOptional()
+  @Length(8, 64)
+  playerApiSecret?: string;
+
+  @IsString()
+  @IsOptional()
+  @Length(8, 32)
+  playerApiNonce?: string;
+
+  @IsBoolean()
+  @IsOptional()
+  playerApiEnabled?: boolean = true;
 }
 
 export class UpdateGameDto {
@@ -48,4 +64,19 @@ export class UpdateGameDto {
   @IsUrl()
   @IsOptional()
   difyBaseUrl?: string;
+
+  // ========== 玩家API配置 ==========
+  @IsString()
+  @IsOptional()
+  @Length(8, 64)
+  playerApiSecret?: string;
+
+  @IsString()
+  @IsOptional()
+  @Length(8, 32)
+  playerApiNonce?: string;
+
+  @IsBoolean()
+  @IsOptional()
+  playerApiEnabled?: boolean;
 }

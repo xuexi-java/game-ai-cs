@@ -24,6 +24,7 @@ import { TicketMessageModule } from './ticket-message/ticket-message.module';
 import { UserModule } from './user/user.module';
 import { IssueTypeModule } from './issue-type/issue-type.module';
 import { QuickReplyModule } from './quick-reply/quick-reply.module';
+import { PlayerApiModule } from './player-api/player-api.module';
 import { LoggerModule } from './common/logger/logger.module';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
@@ -127,6 +128,7 @@ import {
     TicketMessageModule,
     UserModule,
     QuickReplyModule,
+    PlayerApiModule,
     PrismaModule,
   ],
   controllers: [AppController],

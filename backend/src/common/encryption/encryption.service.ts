@@ -1,26 +1,39 @@
-import { Injectable, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as crypto from 'crypto';
 
 @Injectable()
-export class EncryptionService implements OnModuleInit {
+export class EncryptionService {
+  private readonly logger = new Logger(EncryptionService.name);
   private readonly algorithm = 'aes-256-gcm';
   private readonly keyLength = 32;
   private readonly ivLength = 16;
   private readonly key: Buffer;
-  private readonly isDefaultKey: boolean;
 
   constructor(private configService: ConfigService) {
-    // 从环境变量获取加密密钥
-    const defaultKey = 'default-secret-key-change-in-production-32-chars!!';
-    const secretKey =
-      this.configService.get<string>('ENCRYPTION_SECRET_KEY') || defaultKey;
-    this.isDefaultKey = secretKey === defaultKey;
+    // 从环境变量获取加密密钥（必须配置）
+    const secretKey = this.configService.get<string>('ENCRYPTION_SECRET_KEY');
+    if (!secretKey) {
+      throw new Error(
+        'ENCRYPTION_SECRET_KEY environment variable is required. ' +
+          'Please set a secure 32+ character key.',
+      );
+    }
 
-    // 从环境变量获取盐值
-    const salt =
-      this.configService.get<string>('ENCRYPTION_SALT') ||
-      'game-ai-encryption-salt';
+    if (secretKey.length < 32) {
+      throw new Error(
+        'ENCRYPTION_SECRET_KEY must be at least 32 characters long.',
+      );
+    }
+
+    // 从环境变量获取盐值（必须配置）
+    const salt = this.configService.get<string>('ENCRYPTION_SALT');
+    if (!salt) {
+      throw new Error(
+        'ENCRYPTION_SALT environment variable is required. ' +
+          'Please set a unique salt value.',
+      );
+    }
 
     // 使用 PBKDF2 派生密钥
     this.key = crypto.pbkdf2Sync(
@@ -30,18 +43,8 @@ export class EncryptionService implements OnModuleInit {
       this.keyLength,
       'sha256',
     );
-  }
 
-  onModuleInit() {
-    // 生产环境警告使用默认密钥
-    if (
-      this.isDefaultKey &&
-      this.configService.get<string>('NODE_ENV') === 'production'
-    ) {
-      console.warn(
-        '[Security Warning] Using default encryption key in production! Please set ENCRYPTION_SECRET_KEY environment variable.',
-      );
-    }
+    this.logger.log('Encryption service initialized successfully');
   }
 
   /**
@@ -64,7 +67,7 @@ export class EncryptionService implements OnModuleInit {
       // 格式: iv:tag:encrypted
       return `${iv.toString('hex')}:${tag.toString('hex')}:${encrypted}`;
     } catch (error) {
-      console.error('[Encryption] 加密失败:', error);
+      this.logger.error('加密失败', error instanceof Error ? error.stack : String(error));
       throw new Error('数据加密失败');
     }
   }
@@ -80,7 +83,7 @@ export class EncryptionService implements OnModuleInit {
     // 检查是否是加密格式（包含冒号分隔符）
     if (!encryptedText.includes(':')) {
       // 如果不是加密格式，可能是旧数据，直接返回（向后兼容）
-      console.warn('[Encryption] 检测到未加密数据，建议重新加密');
+      this.logger.warn('检测到未加密数据，建议重新加密');
       return encryptedText;
     }
 
@@ -102,12 +105,12 @@ export class EncryptionService implements OnModuleInit {
 
       return decrypted;
     } catch (error) {
-      console.error('[Encryption] 解密失败:', error);
+      this.logger.error('解密失败', error instanceof Error ? error.stack : String(error));
       // 如果解密失败，可能是旧数据，尝试直接返回（向后兼容）
       if (error.message.includes('无效的加密格式')) {
         throw error;
       }
-      console.warn('[Encryption] 解密失败，返回原始值（向后兼容）');
+      this.logger.warn('解密失败，返回原始值（向后兼容）');
       return encryptedText;
     }
   }

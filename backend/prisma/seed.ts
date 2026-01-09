@@ -1,10 +1,42 @@
 import { PrismaClient } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
+import * as crypto from 'crypto';
+import * as dotenv from 'dotenv';
+
+// 加载环境变量
+dotenv.config();
 
 // 密码哈希函数
 function hashPassword(password: string): string {
   // 使用 bcrypt 加密密码
   return bcrypt.hashSync(password, 10);
+}
+
+// 加密函数（与 EncryptionService 保持一致）
+function encryptSecret(text: string): string {
+  if (!text) return text;
+
+  const secretKey = process.env.ENCRYPTION_SECRET_KEY;
+  const salt = process.env.ENCRYPTION_SALT;
+
+  if (!secretKey || secretKey.length < 32) {
+    console.warn('⚠️  ENCRYPTION_SECRET_KEY 未配置或长度不足，playerApiSecret 将以明文存储');
+    return text;
+  }
+  if (!salt) {
+    console.warn('⚠️  ENCRYPTION_SALT 未配置，playerApiSecret 将以明文存储');
+    return text;
+  }
+
+  const key = crypto.pbkdf2Sync(secretKey, salt, 100000, 32, 'sha256');
+  const iv = crypto.randomBytes(16);
+  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+
+  let encrypted = cipher.update(text, 'utf8', 'hex');
+  encrypted += cipher.final('hex');
+  const tag = cipher.getAuthTag();
+
+  return `${iv.toString('hex')}:${tag.toString('hex')}:${encrypted}`;
 }
 
 const prisma = new PrismaClient();
@@ -172,6 +204,14 @@ async function main() {
         difyApiKey: 'app-pmj98vFtoyeLIaVYUm85J0Ud', // 请替换为实际的API Key
         difyBaseUrl: 'http://ai.sh7road.com/v1',
       },
+      {
+        name: 'test_game',  // 测试游戏（用于 WebView 测试）
+        difyApiKey: 'app-pmj98vFtoyeLIaVYUm85J0Ud',  // 使用与其他游戏相同的 API Key
+        difyBaseUrl: 'http://ai.sh7road.com/v1',
+        playerApiEnabled: true,
+        playerApiSecret: 'test-secret-123',
+        playerApiNonce: 'testnonce1234567',
+      },
     ];
 
     for (const gameData of games) {
@@ -181,15 +221,30 @@ async function main() {
           where: { name: gameData.name },
         });
 
+        // 准备加密的 playerApiSecret
+        const encryptedSecret = (gameData as any).playerApiSecret
+          ? encryptSecret((gameData as any).playerApiSecret)
+          : undefined;
+
         const game = await prisma.game.upsert({
           where: { name: gameData.name },
           update: {
             // 如果游戏已存在，更新 API Key 和 BaseUrl（仅在 seed 中提供了有效值时）
             // 如果 API Key 是占位符，则不更新（保持现有配置）
-            ...(gameData.difyApiKey && gameData.difyApiKey !== 'your-dify-api-key-here' 
-              ? { difyApiKey: gameData.difyApiKey } 
+            ...(gameData.difyApiKey && gameData.difyApiKey !== 'your-dify-api-key-here'
+              ? { difyApiKey: gameData.difyApiKey }
               : {}),
             difyBaseUrl: gameData.difyBaseUrl,
+            // 更新玩家API配置（如果提供了）
+            ...((gameData as any).playerApiEnabled !== undefined
+              ? { playerApiEnabled: (gameData as any).playerApiEnabled }
+              : {}),
+            ...((gameData as any).playerApiNonce
+              ? { playerApiNonce: (gameData as any).playerApiNonce }
+              : {}),
+            ...(encryptedSecret
+              ? { playerApiSecret: encryptedSecret }
+              : {}),
           },
           create: {
             name: gameData.name,
@@ -197,9 +252,12 @@ async function main() {
             enabled: true,
             difyApiKey: gameData.difyApiKey,
             difyBaseUrl: gameData.difyBaseUrl,
+            playerApiEnabled: (gameData as any).playerApiEnabled ?? false,
+            playerApiNonce: (gameData as any).playerApiNonce,
+            playerApiSecret: encryptedSecret,
           },
         });
-        console.log(`✓ 游戏配置: ${game.name}`);
+        console.log(`✓ 游戏配置: ${game.name}${(gameData as any).playerApiEnabled ? ' (玩家API已启用)' : ''}`);
       });
     }
 
@@ -243,6 +301,70 @@ async function main() {
       });
     }
 
+    // 5. 清理并重建问题类型
+    console.log('\n📝 清理旧的问题类型...');
+    await prisma.issueType.deleteMany({});
+
+    const issueTypes = [
+      {
+        name: '账号与充值问题',
+        description: '账号相关问题及充值、支付问题',
+        priorityWeight: 50,
+        sortOrder: 1,
+        requireDirectTransfer: false,
+        routeMode: 'AI',
+      },
+      {
+        name: '服务器与活动问题',
+        description: '服务器问题及游戏活动相关咨询',
+        priorityWeight: 50,
+        sortOrder: 2,
+        requireDirectTransfer: false,
+        routeMode: 'AI',
+      },
+      {
+        name: '道具问题',
+        description: '游戏道具相关问题',
+        priorityWeight: 50,
+        sortOrder: 3,
+        requireDirectTransfer: false,
+        routeMode: 'AI',
+      },
+      {
+        name: 'BUG与建议反馈',
+        description: '游戏BUG反馈及功能建议',
+        priorityWeight: 50,
+        sortOrder: 4,
+        requireDirectTransfer: false,
+        routeMode: 'AI',
+      },
+      {
+        name: '其他问题',
+        description: '其他类型的咨询问题',
+        priorityWeight: 50,
+        sortOrder: 5,
+        requireDirectTransfer: false,
+        routeMode: 'AI',
+      },
+    ];
+
+    for (const issueTypeData of issueTypes) {
+      await retry(async () => {
+        const issueType = await prisma.issueType.upsert({
+          where: { name: issueTypeData.name },
+          update: {
+            description: issueTypeData.description,
+            priorityWeight: issueTypeData.priorityWeight,
+            sortOrder: issueTypeData.sortOrder,
+            requireDirectTransfer: issueTypeData.requireDirectTransfer,
+            routeMode: issueTypeData.routeMode,
+          },
+          create: issueTypeData,
+        });
+        console.log(`✓ 问题类型: ${issueType.name}`);
+      });
+    }
+
     console.log('\n✅ 数据库初始化完成！');
     console.log('\n📋 默认账户信息:');
     console.log('\n  管理员账户:');
@@ -255,6 +377,7 @@ async function main() {
     console.log('\n📊 初始化数据:');
     console.log(`  游戏配置: ${games.length} 个`);
     console.log(`  紧急排序规则: ${rules.length} 个`);
+    console.log(`  问题类型: ${issueTypes.length} 个`);
     console.log('\n⚠️  重要提示:');
     console.log('  1. 所有账户的默认密码都是 "admin123" 或 "agent123"');
     console.log('  2. 请在生产环境中立即修改所有账户的密码！');

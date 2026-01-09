@@ -16,9 +16,9 @@
     "docker:logs": "docker-compose logs -f",
     "docker:dev": "docker-compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build",
     "dev:backend": "cd backend && npm run start:dev",
-    "dev:player": "cd frontend/player-app && npm run dev",
+    "dev:player": "cd webview-player && npm run dev",
     "dev:admin": "cd frontend/admin-portal && npm run dev",
-    "install:all": "npm install && cd backend && npm install && cd ../frontend/player-app && npm install && cd ../admin-portal && npm install"
+    "install:all": "npm install && cd backend && npm install && cd ../webview-player && npm install && cd ../frontend/admin-portal && npm install"
   },
   "keywords": [
     "ai",
@@ -32,6 +32,8 @@
   },
   "devDependencies": {
     "@types/node": "^20.10.0",
+    "jsonwebtoken": "^9.0.3",
+    "socket.io-client": "^4.8.3",
     "ts-node": "^10.9.2",
     "typescript": "~5.9.3"
   },

@@ -1,4 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { ConfigService } from '@nestjs/config';
 import { QueueService } from './queue.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { AppLogger } from '../common/logger/app-logger.service';
@@ -9,6 +10,7 @@ describe('QueueService', () => {
   let mockRedis: jest.Mocked<Partial<Redis>>;
   let mockPrisma: jest.Mocked<Partial<PrismaService>>;
   let mockLogger: jest.Mocked<Partial<AppLogger>>;
+  let mockConfigService: jest.Mocked<Partial<ConfigService>>;
 
   beforeEach(async () => {
     // Mock Redis
@@ -42,12 +44,24 @@ describe('QueueService', () => {
       logBusiness: jest.fn(),
     };
 
+    // Mock ConfigService
+    mockConfigService = {
+      get: jest.fn().mockImplementation((key: string) => {
+        const config: Record<string, any> = {
+          'QUEUE_PRIORITY_MULTIPLIER': 1000000,
+          'QUEUE_MAX_RETRY': 3,
+        };
+        return config[key];
+      }),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         QueueService,
         { provide: 'REDIS_CLIENT', useValue: mockRedis },
         { provide: PrismaService, useValue: mockPrisma },
         { provide: AppLogger, useValue: mockLogger },
+        { provide: ConfigService, useValue: mockConfigService },
       ],
     }).compile();
 

@@ -11,9 +11,11 @@ import {
   Popconfirm,
   Tag,
   Typography,
+  Divider,
+  Tooltip,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { PlusOutlined, EditOutlined, DeleteOutlined, ApiOutlined } from '@ant-design/icons';
+import { PlusOutlined, EditOutlined, DeleteOutlined, ApiOutlined, CopyOutlined, QuestionCircleOutlined } from '@ant-design/icons';
 import { getGames, createGame, updateGame, deleteGame } from '../../services/game.service';
 import type { Game } from '../../types';
 import { useMessage } from '../../hooks/useMessage';
@@ -58,6 +60,7 @@ const GamesPage: React.FC = () => {
     gameForm.resetFields();
     gameForm.setFieldsValue({
       enabled: true,
+      playerApiEnabled: true,
     });
     setGameModalVisible(true);
   };
@@ -70,6 +73,9 @@ const GamesPage: React.FC = () => {
       enabled: game.enabled,
       difyApiKey: game.difyApiKey,
       difyBaseUrl: game.difyBaseUrl,
+      // 玩家API配置（密钥不回显，需重新输入）
+      playerApiNonce: game.playerApiNonce,
+      playerApiEnabled: game.playerApiEnabled ?? true,
     });
     setGameModalVisible(true);
   };
@@ -140,6 +146,21 @@ const GamesPage: React.FC = () => {
         <Space>
           <ApiOutlined />
           <Text>{maskApiKey(value)}</Text>
+        </Space>
+      ),
+    },
+    {
+      title: '玩家API',
+      dataIndex: 'playerApiEnabled',
+      key: 'playerApiEnabled',
+      render: (enabled: boolean, record) => (
+        <Space direction="vertical" size={0}>
+          <Tag color={enabled ? 'green' : 'default'}>{enabled ? '已启用' : '未启用'}</Tag>
+          {record.playerApiNonce && (
+            <Text type="secondary" style={{ fontSize: 11 }}>
+              Nonce: {record.playerApiNonce.slice(0, 6)}...
+            </Text>
+          )}
         </Space>
       ),
     },
@@ -232,6 +253,41 @@ const GamesPage: React.FC = () => {
             rules={[{ required: true, message: '请输入 Dify API Key' }]}
           >
             <Input.Password placeholder="请输入该游戏对应的 Dify API Key" />
+          </Form.Item>
+
+          <Divider orientation="left">
+            玩家API配置
+            <Tooltip title="用于游戏客户端调用客服API的签名验证">
+              <QuestionCircleOutlined style={{ marginLeft: 8, color: '#999' }} />
+            </Tooltip>
+          </Divider>
+
+          <Form.Item name="playerApiEnabled" label="启用玩家API" valuePropName="checked">
+            <Switch />
+          </Form.Item>
+
+          <Form.Item
+            name="playerApiSecret"
+            label="签名密钥 (Secret)"
+            extra={editingGame ? "留空表示不修改，填写则更新密钥" : "8-64位字符串，用于生成签名"}
+            rules={[
+              { min: 8, message: '密钥长度不能少于8位' },
+              { max: 64, message: '密钥长度不能超过64位' },
+            ]}
+          >
+            <Input.Password placeholder="请输入签名密钥" />
+          </Form.Item>
+
+          <Form.Item
+            name="playerApiNonce"
+            label="固定Nonce"
+            extra="8-32位字符串，与游戏客户端约定的固定值"
+            rules={[
+              { min: 8, message: 'Nonce长度不能少于8位' },
+              { max: 32, message: 'Nonce长度不能超过32位' },
+            ]}
+          >
+            <Input placeholder="例如: a1b2c3d4e5f6g7h8" />
           </Form.Item>
 
           <Form.Item>

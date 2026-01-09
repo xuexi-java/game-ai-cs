@@ -98,11 +98,11 @@ export class UploadService {
     fileSize: number;
   }> {
     // 验证文件类型
-    const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/heic', 'image/heif'];
     if (!allowedTypes.includes(file.mimetype)) {
       throw new BusinessException(
         ErrorCodes.FILE_TYPE_NOT_ALLOWED,
-        '不支持的文件类型，仅支持 JPG、PNG、GIF、WEBP',
+        '不支持的文件类型，仅支持 JPG、PNG、GIF、WEBP、HEIC',
       );
     }
 

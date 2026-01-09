@@ -41,6 +41,10 @@ export interface Game {
   enabled: boolean;
   difyApiKey?: string;
   difyBaseUrl?: string;
+  // 玩家API配置
+  playerApiSecret?: string;
+  playerApiNonce?: string;
+  playerApiEnabled?: boolean;
   createdAt: string;
 }
 
