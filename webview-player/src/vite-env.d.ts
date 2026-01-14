@@ -10,6 +10,7 @@ interface Window {
   AndroidBridge?: {
     callPlayerApi(paramsJson: string, callbackId: string): void
     getPlayerInfo(): string
+    getApiUrl(): string
     getSignedParams(endpoint: string, bodyJson: string, callbackId: string): void
     uploadFile(base64: string, filename: string, uploadToken: string, callbackId: string): void
     close(): void

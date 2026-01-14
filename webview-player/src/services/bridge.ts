@@ -1,10 +1,10 @@
-import type { NativeBridge, PlayerInfo, ApiResponse, BridgeCallParams } from '@/types'
+import type { NativeBridge, PlayerInfo } from '@/types'
 import { createAndroidBridge } from './bridges/android'
 import { createIosBridge } from './bridges/ios'
 import { createWebBridge } from './bridges/web'
 
 // 检测运行环境
-export type BridgeEnv = 'android' | 'ios' | 'web'
+export type BridgeEnv = 'android' | 'ios' | 'url' | 'mock'
 
 export function detectEnv(): BridgeEnv {
   if (typeof window !== 'undefined') {
@@ -14,8 +14,13 @@ export function detectEnv(): BridgeEnv {
     if (window.webkit?.messageHandlers?.iosBridge) {
       return 'ios'
     }
+    // 检查 URL 是否包含玩家信息参数（远程模式）
+    const params = new URLSearchParams(window.location.search)
+    if (params.has('gameid') && params.has('uid') && params.has('sign')) {
+      return 'url'
+    }
   }
-  return 'web'
+  return 'mock'
 }
 
 // 创建 Bridge 实例
@@ -33,6 +38,8 @@ export function getBridge(): NativeBridge {
       case 'ios':
         bridgeInstance = createIosBridge()
         break
+      case 'url':
+      case 'mock':
       default:
         bridgeInstance = createWebBridge()
     }
@@ -40,25 +47,9 @@ export function getBridge(): NativeBridge {
   return bridgeInstance
 }
 
-// 便捷方法
-export async function callPlayerApi<T>(params: BridgeCallParams): Promise<ApiResponse<T>> {
-  return getBridge().callPlayerApi<T>(params)
-}
-
+// 导出便捷方法（远程模式 - 只保留核心方法）
 export async function getPlayerInfo(): Promise<PlayerInfo> {
   return getBridge().getPlayerInfo()
-}
-
-export async function uploadFile(file: Blob, filename: string, uploadToken: string): Promise<{ url: string }> {
-  return getBridge().uploadFile(file, filename, uploadToken)
-}
-
-export async function getSignedParams(endpoint: string, body: Record<string, unknown>): Promise<Record<string, unknown>> {
-  return getBridge().getSignedParams(endpoint, body)
-}
-
-export function getApiUrl(): string {
-  return getBridge().getApiUrl()
 }
 
 export function closeBridge(): void {

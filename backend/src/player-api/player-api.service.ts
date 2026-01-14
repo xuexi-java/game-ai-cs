@@ -43,8 +43,8 @@ export enum ClosedBy {
 
 // 客服工作时间配置
 const WORKING_HOURS = {
-  // 工作日 (1=周一, ..., 5=周五)
-  workDays: [1, 2, 3, 4, 5],
+  // 周末不休息 (1=周一, ..., 5=周五)
+  workDays: [0,1, 2, 3, 4, 5, 6],
   // 工作时间段
   periods: [
     { start: '09:30', end: '12:30' },

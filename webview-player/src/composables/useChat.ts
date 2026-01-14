@@ -1,7 +1,8 @@
 import { onMounted, onUnmounted, nextTick, ref } from 'vue'
 import { useChatStore } from '@/stores/chat'
 import { useConnectionStore } from '@/stores/connection'
-import { getBridge, callPlayerApi, getPlayerInfo, uploadFile, getApiUrl } from '@/services/bridge'
+import { getBridge, getPlayerInfo, closeBridge } from '@/services/bridge'
+import * as api from '@/services/api'
 import { getSocket } from '@/services/socket'
 import { compressImage } from '@/utils/imageCompressor'
 import type {
@@ -34,6 +35,9 @@ export function useChat() {
       connectionStore.setPlayerInfo(playerInfo)
       console.log('[Chat] 玩家信息:', playerInfo)
 
+      // 1.5. 初始化 API 服务（新增 - 远程模式）
+      await api.init()
+
       // 检查必要参数
       if (!playerInfo.gameid || !playerInfo.uid) {
         connectionStore.setInitFailed('缺少必要的玩家信息参数', 'MISSING_PARAMS')
@@ -41,10 +45,10 @@ export function useChat() {
       }
 
       // 2. 调用 Bootstrap 接口
-      const response = await callPlayerApi<PlayerConnectData>({
-        endpoint: '/api/v1/player/connect',
-        body: {}
-      })
+      const response = await api.callPlayerApi<PlayerConnectData>(
+        '/api/v1/player/connect',
+        {}
+      )
 
       if (!response.result || !response.data) {
         const errorMsg = response.error || '连接客服中心失败'
@@ -77,6 +81,9 @@ export function useChat() {
           isAgentConnected: activeTicket.isAgentConnected
         })
 
+        // 恢复工单时直接允许显示转人工按钮（之前已描述过问题）
+        chatStore.setHasAiResponse(true)
+
         // 如果工单已有客服接入，设置标记（这样转人工后就不会限制发消息）
         if (activeTicket.isAgentConnected) {
           chatStore.setAssignedAgent('客服')  // 设置占位符，具体名称会在 onAgentAssigned 中更新
@@ -84,14 +91,11 @@ export function useChat() {
 
         // 显示历史消息
         if (history && history.length > 0) {
-          const apiUrl = getApiUrl()
           for (const msg of history) {
-            // 处理图片消息的相对路径URL
+            // 处理图片消息的相对路径URL（使用 api.getImageUrl）
             let content = msg.content
             if (msg.messageType === 'IMAGE' && typeof content === 'string') {
-              if (content.startsWith('/') && !content.startsWith('//') && !content.startsWith('http') && apiUrl) {
-                content = `${apiUrl}${content}`
-              }
+              content = api.getImageUrl(content)
             }
             chatStore.addMessage({
               clientMsgId: msg.id,
@@ -169,6 +173,7 @@ export function useChat() {
     if (!bootstrapData.value) return
 
     const { wsUrl, wsToken } = bootstrapData.value
+    const absoluteWsUrl = api.getWsUrl(wsUrl)
     connectionStore.setConnecting(true)
 
     // 保存待恢复的工单号
@@ -178,7 +183,7 @@ export function useChat() {
     setupSocketListeners()
 
     // 连接 WebSocket
-    socket.connect(wsUrl, wsToken)
+    socket.connect(absoluteWsUrl, wsToken)
   }
 
   // 待恢复的工单号
@@ -227,6 +232,7 @@ export function useChat() {
     // 连接 WebSocket 并创建工单
     if (bootstrapData.value) {
       const { wsUrl, wsToken } = bootstrapData.value
+      const absoluteWsUrl = api.getWsUrl(wsUrl)
       connectionStore.setConnecting(true)
 
       // 保存待创建工单的问题类型
@@ -237,7 +243,7 @@ export function useChat() {
       setupSocketListeners()
 
       // 连接 WebSocket
-      socket.connect(wsUrl, wsToken)
+      socket.connect(absoluteWsUrl, wsToken)
     }
   }
 
@@ -392,6 +398,11 @@ export function useChat() {
     chatStore.setWaitingReply(false)
     chatStore.setTyping(false)
 
+    // AI 或客服回复后，允许显示转人工按钮
+    if (message.senderType === 'AI' || message.senderType === 'AGENT') {
+      chatStore.setHasAiResponse(true)
+    }
+
     // 处理图片消息的相对路径URL
     let content = message.content
     if (message.messageType === 'IMAGE' && typeof content === 'string') {
@@ -453,7 +464,7 @@ export function useChat() {
       // 压缩图片（使用默认参数：1440px, 500KB阈值, 保留格式）
       const compressed = await compressImage(file)
 
-      const result = await uploadFile(compressed.file, compressed.file.name, uploadToken)
+      const result = await api.uploadFile(compressed.file, compressed.file.name, uploadToken)
       if (result.url) {
         socket.sendMessage(result.url, 'IMAGE')
         chatStore.updateMessageStatus(clientMsgId, 'sent')
@@ -554,7 +565,7 @@ export function useChat() {
     // 短暂延迟确保请求发出
     setTimeout(() => {
       socket.disconnect()
-      getBridge().close()
+      closeBridge()
     }, 300)
   }
 
@@ -569,7 +580,9 @@ export function useChat() {
     }
 
     if (data.convertedToTicket) {
-      // 转为加急工单
+      // 转为加急工单 - 清除排队状态并显示弹窗
+      chatStore.setQueuePosition(0, null)  // 清除排队状态
+      chatStore.setShowAgentOfflineModal(true)
       chatStore.addSystemMessage(data.message || '您的咨询已保存为加急工单，客服上线后将优先处理')
     } else if (data.success) {
       // 正常排队 - 设置排队位置（QueueBanner 会自动显示）

@@ -226,7 +226,7 @@ onUnmounted(() => {
       <ChatFooter
         :input-mode="chatStore.inputMode"
         :is-waiting-reply="chatStore.isWaitingReply"
-        :can-transfer="connectionStore.isConnected && !chatStore.hasAgent && !chatStore.isInQueue"
+        :can-transfer="connectionStore.isConnected && !chatStore.hasAgent && !chatStore.isInQueue && !!chatStore.activeTicket && chatStore.hasAiResponse"
         :show-safe-exit-button="chatStore.showSafeExitButton"
         @send-text="sendText"
         @send-images="sendImages"

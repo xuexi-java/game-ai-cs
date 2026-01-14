@@ -80,6 +80,7 @@ export interface SignVerifyResult {
  */
 export enum SignErrorCode {
   INVALID_SIGN = 'INVALID_SIGN',
+  SIGN_EXPIRED = 'SIGN_EXPIRED',
   EXPIRED_REQUEST = 'EXPIRED_REQUEST',
   DUPLICATE_NONCE = 'DUPLICATE_NONCE',
   GAME_NOT_FOUND = 'GAME_NOT_FOUND',
@@ -92,6 +93,7 @@ export enum SignErrorCode {
  */
 export const SignErrorMessages: Record<SignErrorCode, string> = {
   [SignErrorCode.INVALID_SIGN]: '签名验证失败',
+  [SignErrorCode.SIGN_EXPIRED]: '签名已过期，请重新进入',
   [SignErrorCode.EXPIRED_REQUEST]: '请求已过期',
   [SignErrorCode.DUPLICATE_NONCE]: '重复请求',
   [SignErrorCode.GAME_NOT_FOUND]: '游戏不存在',

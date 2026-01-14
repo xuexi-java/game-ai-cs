@@ -173,6 +173,7 @@ function handleFileUpload(event: Event) {
       <div class="flex-1 bg-gray-50 rounded-2xl px-4 py-2 transition-colors focus-within:bg-white focus-within:ring-2 focus-within:ring-blue-100 border border-gray-100">
         <textarea
           v-model="inputText"
+          :disabled="inputMode === 'LOCKED' || isWaitingReply"
           rows="1"
           placeholder="请描述具体问题..."
           class="w-full bg-transparent outline-none resize-none max-h-24 text-gray-800 text-sm py-1 placeholder-gray-400"
@@ -181,7 +182,7 @@ function handleFileUpload(event: Event) {
       </div>
 
       <button
-        :disabled="!inputText.trim()"
+        :disabled="!inputText.trim() || inputMode === 'LOCKED' || isWaitingReply"
         class="bg-blue-600 text-white w-10 h-10 rounded-full flex items-center justify-center hover:bg-blue-700 disabled:opacity-50 disabled:scale-95 transition-all shadow-lg shadow-blue-200 shrink-0"
         @click="handleSend"
       >

@@ -5,6 +5,10 @@ export interface PlayerInfo {
   areaid: string
   playerName: string
   language?: string  // 语言代码，如 zh-CN, en-US, ja-JP
+  // 远程模式签名字段（由游戏服务器/APK计算后传入）- 必填
+  ts: number        // 时间戳(毫秒)，签名时效性校验（2小时有效期）
+  nonce: string     // 固定配置值（playerApiNonce）
+  sign: string      // 签名 = md5(gameid|uid|areaid|ts|nonce|secret)
 }
 
 // API 响应 (新协议)
@@ -117,19 +121,9 @@ export interface Message {
 // 输入模式
 export type InputMode = 'LOCKED' | 'CHAT'
 
-// Bridge 调用参数
-export interface BridgeCallParams {
-  endpoint: '/api/v1/player/connect' | '/api/v1/player/upload'
-  body: Record<string, unknown>
-}
-
-// Native Bridge 接口
+// Native Bridge 接口（远程模式 - 简化为 2 个方法）
 export interface NativeBridge {
-  callPlayerApi<T>(params: BridgeCallParams): Promise<ApiResponse<T>>
-  getPlayerInfo(): Promise<PlayerInfo>
-  getSignedParams(endpoint: string, body: Record<string, unknown>): Promise<Record<string, unknown>>
-  uploadFile(file: Blob, filename: string, uploadToken: string): Promise<{ url: string }>
-  getApiUrl(): string
+  getPlayerInfo(): PlayerInfo | Promise<PlayerInfo>
   close(): void
 }
 

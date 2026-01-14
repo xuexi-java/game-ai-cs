@@ -1,13 +1,15 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsString,
+  IsNumber,
   IsOptional,
   ValidateIf,
 } from 'class-validator';
 
 /**
  * Bootstrap 请求 DTO (原 connect + status 合并)
- * 支持签名认证：gameid/uid/areaid/nonce/sign
+ * 支持签名认证：gameid/uid/areaid/ts/nonce/sign
+ * ts 为时间戳(毫秒)，签名有效期 2 小时
  * nonce 为游戏配置中的固定值
  */
 export class PlayerConnectDto {
@@ -26,6 +28,11 @@ export class PlayerConnectDto {
   @ValidateIf((o) => !o.sessionToken)
   @IsString()
   areaid?: string;
+
+  @ApiPropertyOptional({ description: '时间戳(毫秒) (签名认证时必填，用于时效性验证)' })
+  @ValidateIf((o) => !o.sessionToken)
+  @IsNumber()
+  ts?: number;
 
   @ApiPropertyOptional({ description: '固定Nonce (签名认证时必填，从游戏配置获取)' })
   @ValidateIf((o) => !o.sessionToken)

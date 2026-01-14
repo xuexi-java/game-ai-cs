@@ -4,7 +4,7 @@ import { resolve } from 'path'
 
 export default defineConfig({
   plugins: [vue()],
-  base: './',  // 使用相对路径，支持 WebView 本地加载
+  base: '/',  // 远程模式：使用绝对路径（部署到服务器）
   resolve: {
     alias: {
       '@': resolve(__dirname, 'src')

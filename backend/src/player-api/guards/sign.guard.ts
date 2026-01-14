@@ -125,21 +125,36 @@ export class SignGuard implements CanActivate {
 
   /**
    * 签名认证方式
-   * 签名公式: sign = md5(gameid|uid|areaid|nonce|secret).toLowerCase()
+   * 签名公式: sign = md5(gameid|uid|areaid|ts|nonce|secret).toLowerCase()
+   * ts 为时间戳(毫秒)，用于签名时效性校验（2小时有效期）
    * nonce 为游戏配置中的固定值 (playerApiNonce)
    */
   private async validateSign(request: any, body: any): Promise<boolean> {
+    // 签名有效期：2小时
+    const SIGN_EXPIRY_MS = 2 * 60 * 60 * 1000;
+
     // 1. 验证必填参数
-    const { gameid, uid, areaid, nonce, sign } = body;
-    if (!gameid || !uid || !areaid || !nonce || !sign) {
+    const { gameid, uid, areaid, ts, nonce, sign } = body;
+    if (!gameid || !uid || !areaid || !ts || !nonce || !sign) {
       throw new BadRequestException({
         result: false,
-        error: '缺少必填参数 (gameid/uid/areaid/nonce/sign) 或 token',
+        error: '缺少必填参数 (gameid/uid/areaid/ts/nonce/sign) 或 token',
         errorCode: 'MISSING_PARAMS',
       });
     }
 
-    // 2. 查询游戏配置
+    // 2. 验证签名时效性（ts 必须在 2 小时内）
+    const now = Date.now();
+    if (Math.abs(now - ts) > SIGN_EXPIRY_MS) {
+      this.logger.error(`签名已过期: ts=${ts}, now=${now}, diff=${Math.abs(now - ts)}ms`);
+      throw new UnauthorizedException({
+        result: false,
+        error: '签名已过期，请重新进入',
+        errorCode: 'SIGN_EXPIRED',
+      });
+    }
+
+    // 3. 查询游戏配置
     const game = await this.prisma.game.findFirst({
       where: {
         name: gameid,
@@ -179,7 +194,7 @@ export class SignGuard implements CanActivate {
       });
     }
 
-    // 3. 验证 nonce 是否与游戏配置一致
+    // 4. 验证 nonce 是否与游戏配置一致
     if (!game.playerApiNonce) {
       throw new UnauthorizedException({
         result: false,
@@ -197,7 +212,7 @@ export class SignGuard implements CanActivate {
       });
     }
 
-    // 4. 验证签名 (解密 secret 后计算)
+    // 5. 验证签名 (解密 secret 后计算)
     const encryptedSecret = game.playerApiSecret || '';
     let secret: string;
     try {
@@ -211,9 +226,9 @@ export class SignGuard implements CanActivate {
       });
     }
 
-    const expectedSign = this.generateSign(gameid, uid, areaid, nonce, secret);
+    const expectedSign = this.generateSign(gameid, uid, areaid, ts, nonce, secret);
     if (sign.toLowerCase() !== expectedSign.toLowerCase()) {
-      this.logger.error(`签名不匹配: 收到="${sign}", 期望="${expectedSign}", secret="${secret.substring(0, 4)}..."`);
+      this.logger.error(`签名不匹配: 收到="${sign}", 期望="${expectedSign}", ts=${ts}, secret="${secret.substring(0, 4)}..."`);
       throw new UnauthorizedException({
         result: false,
         error: SignErrorMessages[SignErrorCode.INVALID_SIGN],
@@ -221,25 +236,26 @@ export class SignGuard implements CanActivate {
       });
     }
 
-    // 5. 将游戏信息挂载到请求对象
+    // 6. 将游戏信息挂载到请求对象
     request.game = game;
-    request.playerInfo = { gameid, uid, areaid };
+    request.playerInfo = { gameid, uid, areaid, ts };
 
     return true;
   }
 
   /**
    * 生成签名
-   * sign = md5(gameid|uid|areaid|nonce|secret).toLowerCase()
+   * sign = md5(gameid|uid|areaid|ts|nonce|secret).toLowerCase()
    */
   private generateSign(
     gameid: string,
     uid: string,
     areaid: string,
+    ts: number,
     nonce: string,
     secret: string,
   ): string {
-    const raw = `${gameid}|${uid}|${areaid}|${nonce}|${secret}`;
+    const raw = `${gameid}|${uid}|${areaid}|${ts}|${nonce}|${secret}`;
     return crypto.createHash('md5').update(raw).digest('hex').toLowerCase();
   }
 }

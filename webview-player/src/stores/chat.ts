@@ -17,6 +17,7 @@ export const useChatStore = defineStore('chat', () => {
   const assignedAgent = ref<string>('')
   const showAgentOfflineModal = ref(false)
   const showSafeExitButton = ref(false)
+  const hasAiResponse = ref(false)  // AI 是否已回复（用于控制转人工按钮显示）
 
   // 计算属性
   const canInput = computed(() => inputMode.value === 'CHAT' && !isWaitingReply.value)
@@ -105,6 +106,10 @@ export const useChatStore = defineStore('chat', () => {
     showSafeExitButton.value = show
   }
 
+  function setHasAiResponse(value: boolean) {
+    hasAiResponse.value = value
+  }
+
   // 显示分类菜单
   function showCategoryMenu(questList?: Array<{ id: string; name: string; icon?: string }>) {
     // 如果有后端返回的问题类型列表，转换格式使用；否则使用静态后备数据
@@ -159,6 +164,7 @@ export const useChatStore = defineStore('chat', () => {
     assignedAgent.value = ''
     showAgentOfflineModal.value = false
     showSafeExitButton.value = false
+    hasAiResponse.value = false
   }
 
   return {
@@ -175,6 +181,7 @@ export const useChatStore = defineStore('chat', () => {
     assignedAgent,
     showAgentOfflineModal,
     showSafeExitButton,
+    hasAiResponse,
     // 计算
     canInput,
     isInQueue,
@@ -195,6 +202,7 @@ export const useChatStore = defineStore('chat', () => {
     setAssignedAgent,
     setShowAgentOfflineModal,
     setShowSafeExitButton,
+    setHasAiResponse,
     showCategoryMenu,
     handleCategorySelect,
     addSystemMessage,
