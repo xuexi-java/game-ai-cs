@@ -67,11 +67,12 @@ const GamesPage: React.FC = () => {
 
   const handleEditGame = (game: Game) => {
     setEditingGame(game);
+    gameForm.resetFields();  // 先重置表单，清空所有字段
     gameForm.setFieldsValue({
       name: game.name,
       icon: game.icon,
       enabled: game.enabled,
-      difyApiKey: game.difyApiKey,
+      // difyApiKey: game.difyApiKey,  // 不回显密钥，避免重复加密
       difyBaseUrl: game.difyBaseUrl,
       // 玩家API配置（密钥不回显，需重新输入）
       playerApiNonce: game.playerApiNonce,
@@ -145,7 +146,11 @@ const GamesPage: React.FC = () => {
       render: (value?: string) => (
         <Space>
           <ApiOutlined />
-          <Text>{maskApiKey(value)}</Text>
+          {value ? (
+            <Tag color="green">已配置</Tag>
+          ) : (
+            <Tag color="red">未配置</Tag>
+          )}
         </Space>
       ),
     },
@@ -215,7 +220,7 @@ const GamesPage: React.FC = () => {
         open={gameModalVisible}
         onCancel={() => setGameModalVisible(false)}
         footer={null}
-        destroyOnHidden
+        destroyOnClose
       >
         <Form
           form={gameForm}
@@ -250,9 +255,21 @@ const GamesPage: React.FC = () => {
           <Form.Item
             name="difyApiKey"
             label="Dify API Key"
-            rules={[{ required: true, message: '请输入 Dify API Key' }]}
+            
+            rules={[
+              {
+                required: !editingGame,  // 仅创建时必填
+                message: '请输入 Dify API Key'
+              }
+            ]}
           >
-            <Input.Password placeholder="请输入该游戏对应的 Dify API Key" />
+            <Input.Password
+              placeholder={
+                editingGame
+                  ? "留空保持现有密钥不变，填写则更新"
+                  : "请输入该游戏对应的 Dify API Key"
+              }
+            />
           </Form.Item>
 
           <Divider orientation="left">
@@ -269,13 +286,12 @@ const GamesPage: React.FC = () => {
           <Form.Item
             name="playerApiSecret"
             label="签名密钥 (Secret)"
-            extra={editingGame ? "留空表示不修改，填写则更新密钥" : "8-64位字符串，用于生成签名"}
             rules={[
               { min: 8, message: '密钥长度不能少于8位' },
               { max: 64, message: '密钥长度不能超过64位' },
             ]}
           >
-            <Input.Password placeholder="请输入签名密钥" />
+            <Input.Password placeholder="留空保持现有密钥不变，填写则更新密钥" />
           </Form.Item>
 
           <Form.Item
