@@ -82,12 +82,13 @@ npm run docker:down       # 停止容器
 ### 签名验证
 
 ```
-签名公式: sign = md5(gameid|uid|areaid|nonce|secret).toLowerCase()
+签名公式: sign = md5(gameid|uid|areaid|ts|nonce|secret).toLowerCase()
 
 参数:
 - gameid: 游戏ID (与后台配置一致)
 - uid: 玩家UID
 - areaid: 区服ID
+- ts: 时间戳(毫秒)，用于签名时效性校验（2小时有效期）
 - nonce: 固定随机串 (游戏配置的 playerApiNonce)
 - secret: 签名密钥 (游戏配置的 playerApiSecret)
 ```

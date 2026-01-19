@@ -6,8 +6,8 @@ const config = {
   uid: 'player001',
   areaid: '1',
   playerName: 'Test Player',
-  nonce: 'testnonce1234567',   // 游戏的 playerApiNonce
-  secret: 'test-secret-123',    // 游戏的 playerApiSecret（注意：生产环境不可泄露）
+  nonce: 'n7k9m2x4p6q8w3e5',   // 游戏的 playerApiNonce
+  secret: 's3cr3t_k7m9n2p4q6x8w1e5r0t2y4u6',
   apiUrl: 'http://localhost:21101',
   h5Url: 'http://localhost:5173'
 };

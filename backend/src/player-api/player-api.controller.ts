@@ -18,6 +18,7 @@ import { PlayerApiService } from './player-api.service';
 import { TokenService } from './services/token.service';
 import { PlayerConnectDto, PlayerConnectResponse } from './dto/connect.dto';
 import { PlayerUploadResponse, UploadErrorCode, UploadErrorMessages } from './dto/upload.dto';
+import { TokenErrorCode } from './dto/token.dto';
 
 /**
  * 扩展Request类型
@@ -137,11 +138,15 @@ export class PlayerApiController {
 
     const tokenResult = this.tokenService.verifyUploadToken(uploadToken);
     if (!tokenResult.valid || !tokenResult.payload) {
-      console.error('[PlayerUpload] uploadToken 验证失败:', tokenResult.errorMessage);
+      // 根据 token 验证结果返回对应错误码
+      const errorCode = tokenResult.errorCode === TokenErrorCode.EXPIRED_TOKEN
+        ? UploadErrorCode.EXPIRED_TOKEN
+        : UploadErrorCode.INVALID_TOKEN;
+      console.error('[PlayerUpload] uploadToken 验证失败:', tokenResult.errorMessage, 'errorCode:', errorCode);
       return {
         result: false,
-        error: tokenResult.errorMessage || UploadErrorMessages[UploadErrorCode.INVALID_TOKEN],
-        errorCode: UploadErrorCode.INVALID_TOKEN,
+        error: tokenResult.errorMessage || UploadErrorMessages[errorCode],
+        errorCode,
       };
     }
 

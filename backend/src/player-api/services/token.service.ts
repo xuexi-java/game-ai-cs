@@ -287,8 +287,9 @@ export class TokenService {
     uid: string,
   ): { token: string; expireAt: number } {
     const uploadSecret = this.configService.get('UPLOAD_TOKEN_SECRET', 'game-ai-upload-secret');
-    const expiresInSeconds = this.configService.get('PLAYER_API_UPLOAD_TOKEN_TTL', 600); // 默认10分钟
+    const expiresInSeconds = Number(this.configService.get('PLAYER_API_UPLOAD_TOKEN_TTL', 600)) || 600; // 默认10分钟
     const expireAt = Date.now() + expiresInSeconds * 1000;
+    console.log('[TokenService] 生成uploadToken, TTL:', expiresInSeconds, '秒, 过期时间:', new Date(expireAt).toISOString());
 
     const payload = {
       gameid,

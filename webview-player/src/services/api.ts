@@ -22,7 +22,7 @@ export async function init(): Promise<void> {
 
 /**
  * 获取 API 基础地址
- * 优先级: URL 参数 > 环境变量 > 默认值
+ * 优先级: URL 参数 > 环境变量 > 自动检测
  */
 function getApiBaseUrl(): string {
   const params = new URLSearchParams(window.location.search)
@@ -30,6 +30,15 @@ function getApiBaseUrl(): string {
 
   if (urlParam) return urlParam
   if (import.meta.env.VITE_API_URL) return import.meta.env.VITE_API_URL
+
+  // Android 模拟器中 localhost 指向模拟器自身，需要用 10.0.2.2 访问宿主机
+  const isAndroidEmulator = window.AndroidBridge !== undefined &&
+    window.location.hostname !== 'localhost' &&
+    window.location.hostname !== '127.0.0.1'
+
+  if (isAndroidEmulator) {
+    return 'http://10.0.2.2:21101'
+  }
 
   return 'http://localhost:21101'
 }
@@ -107,13 +116,22 @@ export async function callPlayerApi<T>(
 }
 
 /**
+ * 上传文件结果
+ */
+export interface UploadResult {
+  url: string
+  errorCode?: string
+  error?: string
+}
+
+/**
  * 上传文件（图片）
  */
 export async function uploadFile(
   file: Blob,
   filename: string,
   uploadToken: string
-): Promise<{ url: string }> {
+): Promise<UploadResult> {
   const formData = new FormData()
   formData.append('file', file, filename)
 
@@ -124,10 +142,6 @@ export async function uploadFile(
       body: formData,
     })
 
-    if (!response.ok) {
-      return { url: '' }
-    }
-
     const json = await response.json()
 
     // 处理包装响应
@@ -136,17 +150,31 @@ export async function uploadFile(
       return { url: json.data.url }
     }
 
-    // 直接响应格式
+    // 直接响应格式 - 成功
     // 格式: { result: true, url: "..." }
     if (json.result && json.url) {
       return { url: json.url }
     }
 
+    // 直接响应格式 - 失败
+    // 格式: { result: false, error: "...", errorCode: "..." }
+    if (json.result === false) {
+      console.error('[API] 上传失败:', json.error, json.errorCode)
+      return { url: '', error: json.error, errorCode: json.errorCode }
+    }
+
+    // 包装响应格式 - 失败
+    // 格式: { success: true, data: { result: false, error: "...", errorCode: "..." } }
+    if (json.success && json.data?.result === false) {
+      console.error('[API] 上传失败:', json.data.error, json.data.errorCode)
+      return { url: '', error: json.data.error, errorCode: json.data.errorCode }
+    }
+
     console.error('[API] 上传失败 (未知格式):', json)
-    return { url: '' }
+    return { url: '', error: '上传失败' }
   } catch (error) {
     console.error('[API] 上传失败:', error)
-    return { url: '' }
+    return { url: '', error: error instanceof Error ? error.message : '上传失败' }
   }
 }
 

@@ -403,17 +403,11 @@ export function useChat() {
       chatStore.setHasAiResponse(true)
     }
 
-    // 处理图片消息的相对路径URL
+    // 处理图片消息的相对路径URL（使用 api.getImageUrl 统一转换）
     let content = message.content
     if (message.messageType === 'IMAGE' && typeof content === 'string') {
-      // 如果是相对路径（以 / 开头但不是 // 或 http），转换为完整URL
-      if (content.startsWith('/') && !content.startsWith('//') && !content.startsWith('http')) {
-        const apiUrl = getApiUrl()
-        if (apiUrl) {
-          content = `${apiUrl}${content}`
-          console.log('[Chat] 图片URL转换:', message.content, '->', content)
-        }
-      }
+      content = api.getImageUrl(content)
+      console.log('[Chat] 图片URL转换:', message.content, '->', content)
     }
 
     chatStore.addMessage({
@@ -452,10 +446,32 @@ export function useChat() {
     scrollToBottom()
   }
 
+  // 刷新 uploadToken（重新调用 connect 接口）
+  async function refreshUploadToken(): Promise<string | null> {
+    try {
+      console.log('[Chat] 刷新 uploadToken...')
+      const response = await api.callPlayerApi<PlayerConnectData>(
+        '/api/v1/player/connect',
+        {}
+      )
+      if (response.result && response.data?.uploadToken) {
+        const newToken = response.data.uploadToken
+        connectionStore.uploadToken = newToken
+        console.log('[Chat] uploadToken 刷新成功')
+        return newToken
+      }
+      console.error('[Chat] uploadToken 刷新失败:', response.error)
+      return null
+    } catch (error) {
+      console.error('[Chat] uploadToken 刷新异常:', error)
+      return null
+    }
+  }
+
   // 发送单张图片（内部使用）
   async function uploadSingleImage(file: File, clientMsgId: string): Promise<boolean> {
     try {
-      const uploadToken = connectionStore.uploadToken
+      let uploadToken = connectionStore.uploadToken
       if (!uploadToken) {
         chatStore.updateMessageStatus(clientMsgId, 'failed')
         return false
@@ -464,12 +480,23 @@ export function useChat() {
       // 压缩图片（使用默认参数：1440px, 500KB阈值, 保留格式）
       const compressed = await compressImage(file)
 
-      const result = await api.uploadFile(compressed.file, compressed.file.name, uploadToken)
+      let result = await api.uploadFile(compressed.file, compressed.file.name, uploadToken)
+
+      // 如果 token 过期或无效，刷新后重试一次
+      if (!result.url && (result.errorCode === 'INVALID_TOKEN' || result.errorCode === 'EXPIRED_TOKEN')) {
+        console.log('[Chat] uploadToken 失效，尝试刷新... errorCode:', result.errorCode)
+        const newToken = await refreshUploadToken()
+        if (newToken) {
+          result = await api.uploadFile(compressed.file, compressed.file.name, newToken)
+        }
+      }
+
       if (result.url) {
         socket.sendMessage(result.url, 'IMAGE')
         chatStore.updateMessageStatus(clientMsgId, 'sent')
         return true
       } else {
+        console.error('[Chat] 图片上传失败:', result.error)
         chatStore.updateMessageStatus(clientMsgId, 'failed')
         return false
       }

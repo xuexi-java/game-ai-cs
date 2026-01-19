@@ -25,10 +25,12 @@ const CONFIG = {
   GAME_ID: process.env.GAME_ID || 'test_game',
 
   // 签名密钥（与客服后台配置的 playerApiSecret 一致）
-  SECRET: process.env.SECRET || 'test-secret-123',
+  SECRET: process.env.SECRET || 's3cr3t_k7m9n2p4q6x8w1e5r0t2y4u6',
 
   // 固定 Nonce（与客服后台配置的 playerApiNonce 一致）
-  NONCE: process.env.NONCE || 'testnonce1234567',
+  NONCE: process.env.NONCE || 'n7k9m2x4p6q8w3e5',
+  // 配置区
+  WEBVIEW_URL: process.env.WEBVIEW_URL || `http://10.0.2.2:5173`,
 
   // 模拟玩家数据库
   PLAYERS: {
@@ -62,10 +64,11 @@ const CONFIG = {
 
 /**
  * 生成签名
- * 签名公式: sign = md5(gameid|uid|areaid|nonce|secret).toLowerCase()
+ * 签名公式: sign = md5(gameid|uid|areaid|ts|nonce|secret).toLowerCase()
+ * ts 为时间戳(毫秒)，用于签名时效性校验
  */
-function generateSign(gameid, uid, areaid, nonce, secret) {
-  const signStr = `${gameid}|${uid}|${areaid}|${nonce}|${secret}`;
+function generateSign(gameid, uid, areaid, ts, nonce, secret) {
+  const signStr = `${gameid}|${uid}|${areaid}|${ts}|${nonce}|${secret}`;
   return crypto.createHash('md5').update(signStr).digest('hex').toLowerCase();
 }
 
@@ -136,7 +139,6 @@ const server = http.createServer(async (req, res) => {
           csWsUrl: CONFIG.CS_WS_URL,
           webviewUrl: CONFIG.WEBVIEW_URL,
           nonce: CONFIG.NONCE,
-          secret: CONFIG.SECRET,
           players: Object.keys(CONFIG.PLAYERS).map(uid => ({
             uid,
             name: CONFIG.PLAYERS[uid].name,
@@ -155,7 +157,7 @@ const server = http.createServer(async (req, res) => {
      *   - areaid: 区服ID
      *
      * 返回:
-     *   - gameid, uid, areaid, playerName, nonce, sign
+     *   - gameid, uid, areaid, playerName, ts, nonce, sign, h5Url
      *   - 这些参数直接用于调用客服系统的 /api/v1/player/connect
      */
     if (pathname === '/api/get-cs-auth' && req.method === 'POST') {
@@ -174,11 +176,13 @@ const server = http.createServer(async (req, res) => {
         return;
       }
 
-      // 生成签名
+      // 生成时间戳和签名
+      const ts = Date.now();
       const sign = generateSign(
         CONFIG.GAME_ID,
         uid,
         areaid,
+        ts,
         CONFIG.NONCE,
         CONFIG.SECRET
       );
@@ -188,17 +192,14 @@ const server = http.createServer(async (req, res) => {
         success: true,
         data: {
           // 客服系统所需的认证参数
+          h5Url: CONFIG.WEBVIEW_URL,
           gameid: CONFIG.GAME_ID,
           uid: uid,
           areaid: areaid,
+          ts: ts,
           playerName: player.name,
           nonce: CONFIG.NONCE,
-          secret: CONFIG.SECRET,  // 用于 webview-player 生成签名
-          sign: sign,
-
-          // 客服系统地址
-          csApiUrl: CONFIG.CS_API_URL,
-          csWsUrl: CONFIG.CS_WS_URL,
+          sign: sign,  
         }
       });
 
@@ -295,17 +296,37 @@ const server = http.createServer(async (req, res) => {
     }
 
     function openWebView(uid, playerName, config) {
-      const params = new URLSearchParams({
-        gameid: config.gameId,
-        uid: uid,
-        areaid: '1',
-        playerName: playerName,
-        nonce: config.nonce,
-        secret: config.secret,
-        apiUrl: config.csApiUrl
-      });
+      fetch('/api/get-cs-auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ uid, areaid: '1' })
+      })
+        .then(res => res.json())
+        .then(result => {
+          if (!result.success) {
+            alert(result.error || '获取认证失败');
+            return;
+          }
 
-      window.location.href = webviewUrl + '?' + params.toString();
+          const auth = result.data || {};
+          const params = new URLSearchParams({
+            gameid: auth.gameid,
+            uid: auth.uid,
+            areaid: auth.areaid,
+            playerName: auth.playerName,
+            ts: String(auth.ts || ''),
+            nonce: auth.nonce,
+            sign: auth.sign,
+            apiUrl: config.csApiUrl,
+            platform: 'web'
+          });
+
+          window.location.href = webviewUrl + '?' + params.toString();
+        })
+        .catch(error => {
+          console.error('获取认证失败:', error);
+          alert('获取认证失败');
+        });
     }
 
     init();
