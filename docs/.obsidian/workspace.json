@@ -13,12 +13,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "APK壳子开发说明.md",
+                "file": "客服系统接入文档.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "APK壳子开发说明"
+              "title": "客服系统接入文档"
             }
           }
         ]
@@ -186,8 +186,9 @@
   },
   "active": "fd1e45df4e54d601",
   "lastOpenFiles": [
-    "客服系统接入文档.md",
+    "客服端产品使用文档.md",
     "APK壳子开发说明.md",
+    "客服系统接入文档.md",
     "接入文档.md.tmp.37140.1768559128038",
     "接入文档.md.tmp.37140.1768558889048",
     "产品使用文档.md",
@@ -221,7 +222,6 @@
     "API文档/Flash-iframe接口文档.md",
     "API文档/Android客服系统接口文档.md",
     "API文档",
-    "远程调用/接入测试验收方案.md",
     "图片/Pasted image 20260106160837.png",
     "图片/Pasted image 20260106163421.png",
     "图片/Pasted image 20260106163324.png",
