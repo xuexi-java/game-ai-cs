@@ -36,6 +36,7 @@ export interface LoginResponse {
 // 游戏相关类型
 export interface Game {
   id: string;
+  gameCode: string; // 游戏代码（唯一标识）
   name: string;
   icon?: string;
   enabled: boolean;

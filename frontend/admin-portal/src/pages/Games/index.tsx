@@ -70,7 +70,7 @@ const GamesPage: React.FC = () => {
     gameForm.resetFields();  // 先重置表单，清空所有字段
     gameForm.setFieldsValue({
       name: game.name,
-      icon: game.icon,
+      gameCode: game.gameCode,
       enabled: game.enabled,
       // difyApiKey: game.difyApiKey,  // 不回显密钥，避免重复加密
       difyBaseUrl: game.difyBaseUrl,
@@ -117,9 +117,9 @@ const GamesPage: React.FC = () => {
       render: (value: string, record) => (
         <Space direction="vertical" size={0}>
           <Text strong>{value}</Text>
-          {record.icon && (
+          {record.gameCode && (
             <Text type="secondary" style={{ fontSize: 12 }}>
-              图标：{record.icon}
+              代码：{record.gameCode}
             </Text>
           )}
         </Space>
@@ -236,8 +236,26 @@ const GamesPage: React.FC = () => {
             <Input placeholder="请输入游戏名称" />
           </Form.Item>
 
-          <Form.Item name="icon" label="图标地址">
-            <Input placeholder="请输入图标 URL（可选）" />
+          <Form.Item
+            name="gameCode"
+            label="游戏代码"
+            rules={[
+              { required: true, message: '请输入游戏代码' },
+              { 
+                validator: (_, value) => {
+                  if (!value && editingGame && !editingGame.gameCode) {
+                    return Promise.reject(new Error('游戏代码不能为空'));
+                  }
+                  return Promise.resolve();
+                }
+              }
+            ]}
+            extra="游戏的唯一标识码，创建后不可修改"
+          >
+            <Input 
+              placeholder="请输入游戏代码（如：10001）" 
+              disabled={editingGame && !!editingGame.gameCode}
+            />
           </Form.Item>
 
           <Form.Item name="enabled" label="启用状态" valuePropName="checked">

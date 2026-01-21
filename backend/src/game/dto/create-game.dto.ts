@@ -10,6 +10,10 @@ import {
 export class CreateGameDto {
   @IsString()
   @IsNotEmpty()
+  gameCode: string; // 游戏代码（必填）
+
+  @IsString()
+  @IsNotEmpty()
   name: string;
 
   @IsString()
@@ -45,6 +49,10 @@ export class CreateGameDto {
 }
 
 export class UpdateGameDto {
+  @IsString()
+  @IsOptional()
+  gameCode?: string; // 游戏代码（可选，但不建议修改）
+
   @IsString()
   @IsOptional()
   name?: string;

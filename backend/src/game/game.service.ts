@@ -103,6 +103,21 @@ export class GameService {
   }
 
   async create(createGameDto: CreateGameDto) {
+    // 验证 gameCode 是否已存在
+    const existingGame = await this.prisma.game.findFirst({
+      where: {
+        gameCode: createGameDto.gameCode,
+        deletedAt: null,
+      },
+    });
+
+    if (existingGame) {
+      throw new BusinessException(
+        ErrorCodes.GAME_CODE_ALREADY_EXISTS,
+        `游戏代码 ${createGameDto.gameCode} 已存在`,
+      );
+    }
+
     // 加密敏感字段
     const encryptedData: any = { ...createGameDto };
     encryptedData.difyApiKey = this.encryptionService.encrypt(
@@ -125,7 +140,25 @@ export class GameService {
   }
 
   async update(id: string, updateGameDto: UpdateGameDto) {
-    await this.findOne(id);
+    const existingGame = await this.findOne(id);
+
+    // 如果要更新 gameCode，验证新的 gameCode 是否已被其他游戏使用
+    if (updateGameDto.gameCode && updateGameDto.gameCode !== existingGame.gameCode) {
+      const duplicateGame = await this.prisma.game.findFirst({
+        where: {
+          gameCode: updateGameDto.gameCode,
+          id: { not: id },
+          deletedAt: null,
+        },
+      });
+
+      if (duplicateGame) {
+        throw new BusinessException(
+          ErrorCodes.GAME_CODE_ALREADY_EXISTS,
+          `游戏代码 ${updateGameDto.gameCode} 已被其他游戏使用`,
+        );
+      }
+    }
 
     // 加密敏感字段
     const updateData: any = { ...updateGameDto };

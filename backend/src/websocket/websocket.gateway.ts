@@ -553,9 +553,18 @@ export class WebsocketGateway
     },
     @ConnectedSocket() client: Socket,
   ) {
+    this.logger.log(`[ticket:create] 收到请求: clientId=${client.id}, data=${JSON.stringify(data)}`);
+
     try {
       const clientInfo = this.connectedClients.get(client.id);
+      this.logger.log(`[ticket:create] clientInfo: ${JSON.stringify(clientInfo)}`);
+
       if (!clientInfo || clientInfo.clientType !== 'player') {
+        this.logger.warn(`[ticket:create] 无效客户端: clientInfo=${JSON.stringify(clientInfo)}`);
+        client.emit('error', {
+          code: WsErrorCode.INVALID_TOKEN,
+          message: '无效的客户端连接',
+        });
         return { success: false, error: WsErrorCode.INVALID_TOKEN };
       }
 
@@ -584,11 +593,16 @@ export class WebsocketGateway
         return { success: false, error: WsErrorCode.ISSUE_TYPE_NOT_FOUND };
       }
 
-      // 2. 查找游戏配置
+      // 2. 查找游戏配置 (gameid 是游戏代码，如 "10003")
       const game = await this.prisma.game.findFirst({
-        where: { name: gameid, deletedAt: null },
+        where: { gameCode: gameid, deletedAt: null },
       });
       if (!game) {
+        this.logger.warn(`[ticket:create] 游戏不存在: gameid=${gameid}`);
+        client.emit('error', {
+          code: 'GAME_NOT_FOUND',
+          message: '游戏配置不存在',
+        });
         return { success: false, error: 'GAME_NOT_FOUND' };
       }
 

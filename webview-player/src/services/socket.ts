@@ -29,6 +29,7 @@ export interface SocketEvents {
   onError: (data: WsErrorData) => void
   onConnect: () => void
   onDisconnect: (reason: string) => void
+  onTokenInvalid: () => void  // token 失效回调，用于触发刷新 token 并重连
 }
 
 export class SocketService {
@@ -38,6 +39,7 @@ export class SocketService {
   private maxReconnectAttempts = 5
   private heartbeatInterval: ReturnType<typeof setInterval> | null = null
   private readonly heartbeatIntervalMs = 3000 // 每3秒发送一次心跳
+  private tokenInvalidFlag = false  // token 失效标记，防止自动重连
 
   /**
    * 连接 WebSocket
@@ -52,13 +54,13 @@ export class SocketService {
 
     console.log('[Socket] 正在连接:', wsUrl)
 
+    // 重置 token 失效标记（新连接时清除）
+    this.tokenInvalidFlag = false
+
     this.socket = io(wsUrl, {
       transports: ['websocket'],
       autoConnect: true,
-      reconnection: true,
-      reconnectionAttempts: this.maxReconnectAttempts,
-      reconnectionDelay: 1000,
-      reconnectionDelayMax: 5000,
+      reconnection: false,  // 禁用自动重连，改为手动控制
       auth: {
         token: wsToken
       }
@@ -90,10 +92,31 @@ export class SocketService {
 
     this.socket.on('connect_error', (error) => {
       console.error('[Socket] 连接错误:', error)
-      this.reconnectAttempts++
-      if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-        this.events.onError?.({ code: 'CONNECT_FAILED', message: '连接失败，请检查网络后重试' })
+      
+      // 如果是 token 失效导致的错误，不重试
+      if (this.tokenInvalidFlag) {
+        console.log('[Socket] Token 失效，停止重连')
+        return
       }
+      
+      this.reconnectAttempts++
+      
+      if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+        console.error('[Socket] 重连次数超限，停止重连')
+        this.events.onError?.({ code: 'CONNECT_FAILED', message: '连接失败，请检查网络后重试' })
+        return
+      }
+      
+      // 指数退避重连：1s, 2s, 4s, 8s, 16s
+      const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts - 1), 30000)
+      console.log(`[Socket] ${delay}ms 后尝试第 ${this.reconnectAttempts} 次重连...`)
+      
+      setTimeout(() => {
+        if (!this.socket?.connected && !this.tokenInvalidFlag) {
+          console.log('[Socket] 执行重连...')
+          this.socket?.connect()
+        }
+      }, delay)
     })
 
     // 连接就绪
@@ -165,10 +188,19 @@ export class SocketService {
     this.socket.on('error', (data: WsErrorData) => {
       console.error('[Socket] 错误:', data)
 
-      // 认证相关错误，停止重连
+      // 认证相关错误，停止自动重连并通知上层刷新 token
       if (data.code === 'INVALID_TOKEN' || data.code === 'TOKEN_EXPIRED') {
-        console.log('[Socket] 认证失败，停止重连')
+        console.log('[Socket] 认证失败，标记 token 失效，停止重连')
+        
+        // 设置 token 失效标记，阻止后续重连
+        this.tokenInvalidFlag = true
+        
+        // 断开连接
         this.socket?.disconnect()
+        
+        // 通知上层刷新 token 并重连
+        this.events.onTokenInvalid?.()
+        return  // 不再触发 onError，由上层处理
       }
 
       this.events.onError?.(data)

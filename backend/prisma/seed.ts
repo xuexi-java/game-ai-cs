@@ -195,16 +195,25 @@ async function main() {
     // 3. 创建示例游戏配置（幂等性：使用 upsert，更新时不覆盖已存在的 API Key）
     const games = [
       {
-        name: '弹弹堂',
+        gameCode: '10001',
+        name: '新弹弹堂',
         difyApiKey: 'app-pmj98vFtoyeLIaVYUm85J0Ud', // 请替换为实际的API Key
         difyBaseUrl: 'http://ai.sh7road.com/v1',
       },
       {
-        name: '神曲',
+        gameCode: '10002',
+        name: '弹弹堂大冒险',
         difyApiKey: 'app-pmj98vFtoyeLIaVYUm85J0Ud', // 请替换为实际的API Key
         difyBaseUrl: 'http://ai.sh7road.com/v1',
       },
       {
+        gameCode: '10003',
+        name: '页游弹弹堂',
+        difyApiKey: 'app-pmj98vFtoyeLIaVYUm85J0Ud', // 请替换为实际的API Key
+        difyBaseUrl: 'http://ai.sh7road.com/v1',
+      },
+      {
+        gameCode: 'test_game',
         name: 'test_game',  // 测试游戏（用于 WebView 测试）
         difyApiKey: 'app-pmj98vFtoyeLIaVYUm85J0Ud',  // 使用与其他游戏相同的 API Key
         difyBaseUrl: 'http://ai.sh7road.com/v1',
@@ -216,26 +225,20 @@ async function main() {
 
     for (const gameData of games) {
       await retry(async () => {
-        // 检查游戏是否已存在
-        const existing = await prisma.game.findUnique({
-          where: { name: gameData.name },
-        });
-
         // 准备加密的 playerApiSecret
         const encryptedSecret = (gameData as any).playerApiSecret
           ? encryptSecret((gameData as any).playerApiSecret)
           : undefined;
 
         const game = await prisma.game.upsert({
-          where: { name: gameData.name },
+          where: { gameCode: (gameData as any).gameCode },
           update: {
-            // 如果游戏已存在，更新 API Key 和 BaseUrl（仅在 seed 中提供了有效值时）
-            // 如果 API Key 是占位符，则不更新（保持现有配置）
+            // 如果游戏已存在，更新配置
+            name: gameData.name,
             ...(gameData.difyApiKey && gameData.difyApiKey !== 'your-dify-api-key-here'
               ? { difyApiKey: gameData.difyApiKey }
               : {}),
             difyBaseUrl: gameData.difyBaseUrl,
-            // 更新玩家API配置（如果提供了）
             ...((gameData as any).playerApiEnabled !== undefined
               ? { playerApiEnabled: (gameData as any).playerApiEnabled }
               : {}),
@@ -247,6 +250,7 @@ async function main() {
               : {}),
           },
           create: {
+            gameCode: (gameData as any).gameCode,
             name: gameData.name,
             icon: null,
             enabled: true,
@@ -257,7 +261,7 @@ async function main() {
             playerApiSecret: encryptedSecret,
           },
         });
-        console.log(`✓ 游戏配置: ${game.name}${(gameData as any).playerApiEnabled ? ' (玩家API已启用)' : ''}`);
+        console.log(`✓ 游戏配置: ${game.gameCode} - ${game.name}${(gameData as any).playerApiEnabled ? ' (玩家API已启用)' : ''}`);
       });
     }
 

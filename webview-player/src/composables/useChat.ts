@@ -271,8 +271,9 @@ export function useChat() {
       connectionStore.setConnecting(false)
       if (data.tid) {
         connectionStore.setCurrentTid(data.tid)
-        // 恢复工单成功，解锁输入框
+        // 恢复工单成功，解锁输入框，并标记工单就绪
         chatStore.setInputMode('CHAT')
+        chatStore.setTicketReady(true)
         console.log('[Chat] 工单已恢复，解锁输入框')
       }
 
@@ -304,6 +305,17 @@ export function useChat() {
       }
       // 清除上次尝试的问题类型（工单已成功创建）
       lastAttemptedIssueType.value = null
+
+      // 标记工单已就绪
+      chatStore.setTicketReady(true)
+      console.log('[Chat] 工单创建成功，开始发送队列消息')
+
+      // 发送队列中的待发消息
+      const pendingMsgs = chatStore.getPendingMessages()
+      for (const msg of pendingMsgs) {
+        console.log('[Chat] 发送队列消息:', msg.text)
+        socket.sendMessage(msg.text, msg.type)
+      }
     })
 
     socket.on('onMessageReceive', (data: WsMessageReceiveData) => {
@@ -384,6 +396,44 @@ export function useChat() {
       chatStore.addSystemMessage('您已在其他设备登录')
       connectionStore.setConnected(false)
     })
+
+    // Token 失效时自动刷新并重连
+    socket.on('onTokenInvalid', async () => {
+      console.log('[Chat] wsToken 失效，重新获取...')
+
+      try {
+        // 重新调用 Bootstrap 获取新 token
+        const response = await api.callPlayerApi<PlayerConnectData>(
+          '/api/v1/player/connect',
+          {}
+        )
+
+        if (response.result && response.data) {
+          const { wsUrl, wsToken, uploadToken } = response.data
+
+          // 更新缓存的 token
+          connectionStore.setConnectionInfo(
+            connectionStore.currentTid,
+            wsUrl,
+            wsToken,
+            uploadToken
+          )
+          bootstrapData.value = response.data
+
+          console.log('[Chat] wsToken 刷新成功，重新连接...')
+
+          // 使用新 token 重连
+          const absoluteWsUrl = api.getWsUrl(wsUrl)
+          socket.connect(absoluteWsUrl, wsToken)
+        } else {
+          console.error('[Chat] wsToken 刷新失败:', response.error)
+          connectionStore.setError('重新连接失败，请刷新页面', 'TOKEN_REFRESH_FAILED')
+        }
+      } catch (error) {
+        console.error('[Chat] wsToken 刷新异常:', error)
+        connectionStore.setError('重新连接失败，请刷新页面', 'TOKEN_REFRESH_FAILED')
+      }
+    })
   }
 
   // 处理收到的消息
@@ -424,6 +474,31 @@ export function useChat() {
   // 发送文本消息
   function sendText(text: string) {
     if (!text.trim() || !chatStore.canInput) return
+
+    // 如果工单还没创建成功，将消息加入队列
+    if (!chatStore.isTicketReady) {
+      console.log('[Chat] 工单未就绪，消息加入队列:', text)
+      chatStore.addPendingMessage(text, 'TEXT')
+
+      // 先在 UI 上显示消息（状态为 sending）
+      const clientMsgId = `msg_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`
+      chatStore.addMessage({
+        clientMsgId,
+        sender: 'PLAYER',
+        type: 'TEXT',
+        content: text,
+        status: 'sending'
+      })
+
+      // 设置等待状态
+      if (!chatStore.hasAgent && !chatStore.isInQueue) {
+        chatStore.setWaitingReply(true)
+        chatStore.setTyping(true)
+      }
+
+      scrollToBottom()
+      return
+    }
 
     const clientMsgId = socket.sendMessage(text, 'TEXT')
 

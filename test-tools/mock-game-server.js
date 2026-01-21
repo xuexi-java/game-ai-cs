@@ -22,7 +22,7 @@ const LOCAL_IP = process.env.LOCAL_IP || '10.10.17.200';
 
 const CONFIG = {
   // 游戏标识（与客服后台配置的游戏名称一致）
-  GAME_ID: process.env.GAME_ID || 'test_game',
+  GAME_ID: process.env.GAME_ID || '10003',
 
   // 签名密钥（与客服后台配置的 playerApiSecret 一致）
   SECRET: process.env.SECRET || 's3cr3t_k7m9n2p4q6x8w1e5r0t2y4u6',

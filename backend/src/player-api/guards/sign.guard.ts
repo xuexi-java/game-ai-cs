@@ -157,11 +157,12 @@ export class SignGuard implements CanActivate {
     // 3. 查询游戏配置
     const game = await this.prisma.game.findFirst({
       where: {
-        name: gameid,
+        gameCode: gameid,
         deletedAt: null,
       },
       select: {
         id: true,
+        gameCode: true,
         name: true,
         enabled: true,
         playerApiSecret: true,

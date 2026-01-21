@@ -235,9 +235,12 @@ export class TicketService {
         throw new Error('问题类型不能为空');
       }
 
-      // 验证游戏是否存在
-      const game = await this.prisma.game.findUnique({
-        where: { id: createTicketDto.gameId },
+      // 验证游戏是否存在（使用 gameCode 查询）
+      const game = await this.prisma.game.findFirst({
+        where: { 
+          gameCode: createTicketDto.gameId,
+          deletedAt: null 
+        },
         select: { id: true, enabled: true, deletedAt: true },
       });
       if (!game || game.deletedAt) {
@@ -321,6 +324,7 @@ export class TicketService {
         ticket = await this.prisma.ticket.create({
           data: {
             ...otherData,
+            gameId: game.id, // 使用查询到的 Game.id (UUID)
             serverId,
             serverName,
             ticketNo,

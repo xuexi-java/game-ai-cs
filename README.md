@@ -92,6 +92,7 @@ cp backend/.env.example backend/.env
 ```
 
 ⚠️ **重要**: Docker 部署时请确保修改以下配置：
+
 - `DATABASE_URL`: 数据库连接字符串（Docker 中会自动配置，但可以自定义）
 - `JWT_SECRET`: JWT 密钥（生产环境必须修改）
 - `DIFY_API_KEY`: Dify API 密钥（如果使用 AI 功能）
@@ -108,7 +109,8 @@ cp frontend/admin-portal/.env.example frontend/admin-portal/.env
 # 编辑 .env 文件，根据实际情况修改配置
 ```
 
-⚠️ **注意**: 
+⚠️ **注意**:
+
 - Docker 部署时，前端使用相对路径通过 Nginx 代理，**不需要**配置前端环境变量
 - 本地开发模式（`npm run dev`）才需要配置前端环境变量
 
@@ -157,7 +159,8 @@ npm run db:migrate   # 运行数据库迁移
 npm run db:seed      # 初始化种子数据
 ```
 
-> 📍 **注意**: 
+> 📍 **注意**:
+>
 > - 如果使用 Docker 部署，数据库迁移会在容器启动时自动执行，无需手动运行
 > - 这些命令需要在**项目根目录**执行
 
@@ -170,13 +173,14 @@ npm run db:seed      # 初始化种子数据
 **前置准备**:
 
 1. 确保已安装 Docker 和 Docker Compose
+
    ```bash
    # 检查 Docker 版本
    docker --version
    docker-compose --version
    ```
-
 2. 配置环境变量（可选，用于生产环境）
+
    ```bash
    # 在项目根目录创建 .env 文件（如果还没有）
    # 可以设置以下环境变量：
@@ -188,17 +192,18 @@ npm run db:seed      # 初始化种子数据
 **部署步骤**:
 
 1. **进入项目根目录**
+
    ```bash
    cd game-ai-cs  # 或你的项目目录名
    ```
-
 2. **停止并清理旧容器（如果存在）**
+
    ```bash
    # 在项目根目录执行
    docker-compose down
    ```
-
 3. **构建并启动所有服务**
+
    ```bash
    # 在项目根目录执行
    # -d: 后台运行
@@ -207,23 +212,25 @@ npm run db:seed      # 初始化种子数据
    ```
 
    这个命令会：
+
    - 构建 PostgreSQL 数据库容器
    - 构建后端服务容器（包括生成 Prisma Client 和运行数据库迁移）
    - 构建前端服务容器（玩家端和管理端）
    - 启动所有服务并建立网络连接
-
 4. **检查服务状态**
+
    ```bash
    # 在项目根目录执行
    docker-compose ps
    ```
 
    应该看到所有服务状态为 `Up`：
+
    - `game-ai-cs-postgres` (数据库)
    - `game-ai-cs-backend` (后端服务)
    - `game-ai-cs-admin-portal` (管理端)
-
 5. **初始化数据库种子数据（可选）**
+
    ```bash
    # 在项目根目录执行
    # 这会创建默认的管理员和客服账户
@@ -231,6 +238,7 @@ npm run db:seed      # 初始化种子数据
    ```
 
 **服务访问地址**：
+
 - 管理端: http://localhost:20101
 - 后端API: http://localhost:21101/api/v1
 - API文档: http://localhost:21101/api/v1/docs
@@ -284,25 +292,26 @@ docker-compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
 **故障排查**:
 
 1. **查看服务日志**
+
    ```bash
    # 在项目根目录执行
    docker-compose logs -f backend
    ```
-
 2. **检查容器状态**
+
    ```bash
    # 在项目根目录执行
    docker-compose ps
    ```
-
 3. **重新构建服务**
+
    ```bash
    # 在项目根目录执行
    docker-compose build --no-cache backend
    docker-compose up -d backend
    ```
-
 4. **检查数据库连接**
+
    ```bash
    # 在项目根目录执行
    docker-compose exec postgres pg_isready -U postgres -d game_ai_cs
@@ -320,28 +329,35 @@ docker-compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
 #### 方式二：本地开发模式（需要本地安装 Node.js）
 
 **后端服务**:
+
 ```bash
 cd backend
 npm run start:dev
 ```
+
 后端服务运行在: http://localhost:21101
 
 **管理端**:
+
 ```bash
 cd frontend/admin-portal
 npm run dev
 ```
+
 管理端运行在: http://localhost:20101
 
 **玩家端 WebView**:
+
 ```bash
 cd webview-player
 npm run dev
 ```
+
 玩家端 WebView 开发服务器运行在: http://localhost:5173
 （注：正式环境下，玩家端 WebView 嵌入游戏客户端中运行）
 
 **注意**: 本地开发模式需要：
+
 - 确保 Docker 服务（PostgreSQL）已启动：`docker-compose up -d postgres`
 - 配置正确的环境变量（`.env` 文件）
 - 运行数据库迁移和种子数据
@@ -417,15 +433,18 @@ npm run preview       # 预览生产构建
 数据库初始化后会创建以下默认账户：
 
 ### 管理员账户
+
 - `admin` / `admin123` (系统管理员)
 - `admin2` / `admin123` (副管理员)
 
 ### 客服账户
+
 - `agent1` / `agent123` (客服001)
 - `agent2` / `agent123` (客服002)
 - `agent3` / `agent123` (客服003)
 
-⚠️ **重要**: 
+⚠️ **重要**:
+
 - 生产环境请务必修改所有账户的默认密码！
 - 建议使用强密码（至少8位，包含字母和数字）
 - 可通过管理端修改账户密码
@@ -433,10 +452,12 @@ npm run preview       # 预览生产构建
 ## 📖 文档
 
 ### 产品文档
+
 - [产品需求文档](./docs/AI%20客服系统%20-%20产品需求文档.md)
 - [产品使用文档](./docs/产品使用文档.md) - **新用户必读**
 
 ### 技术文档
+
 - [技术文档](./docs/技术文档.md)
 - [数据库设计文档](./docs/数据库设计文档.md)
 - [数据库创建指南](./docs/数据库创建指南.md)
@@ -445,6 +466,7 @@ npm run preview       # 预览生产构建
 - [APK壳子开发说明](./docs/APK壳子开发说明.md)
 
 ### 配置文档
+
 - [Dify配置指南](./docs/Dify配置指南.md)
 - [AI优化功能配置指南](./docs/AI优化功能配置指南.md)
 - [工单自动关闭配置指南](./docs/工单自动关闭配置指南.md) - **工单管理必读**
@@ -453,6 +475,7 @@ npm run preview       # 预览生产构建
 ## 🛠️ 技术栈
 
 ### 后端
+
 - **框架**: Nest.js 10.x
 - **语言**: TypeScript 5.x
 - **数据库**: PostgreSQL 14+
@@ -462,6 +485,7 @@ npm run preview       # 预览生产构建
 - **日志**: JSON 单行格式，stdout/stderr 分流，支持 ELK/Loki
 
 ### 前端
+
 - **框架**: React 18.x
 - **语言**: TypeScript 5.x
 - **构建工具**: Vite 5.x
@@ -491,11 +515,13 @@ WAITING_TIMEOUT_HOURS="72"              # WAITING 状态工单超时时间（小
 REPLIED_TIMEOUT_HOURS="24"              # IN_PROGRESS 状态工单（客服已回复）超时时间（小时，默认: 24）
 ```
 
-⚠️ **重要**: 
+⚠️ **重要**:
+
 - `ENCRYPTION_SECRET_KEY`: 用于加密敏感数据（如 Dify API Key），生产环境必须设置为至少32字符的强随机字符串
 - 如果修改了 `ENCRYPTION_SECRET_KEY`，数据库中已加密的数据将无法解密，需要重新加密
 
 **工单自动关闭说明**：
+
 - `ENABLE_AUTO_CLOSURE`: 控制是否启用工单自动关闭功能。设置为 `false` 可以临时禁用自动关闭
 - `WAITING_TIMEOUT_HOURS`: 等待客服响应的工单超时时间。默认 72 小时（3天）后自动关闭
 - `REPLIED_TIMEOUT_HOURS`: 客服已回复但玩家未响应的工单超时时间。默认 24 小时后自动关闭
@@ -589,7 +615,6 @@ docker-compose -f docker-compose.prod.yml up -d --build
 docker-compose up -d --build
 ```
 
-
 ## 🤝 贡献指南
 
 1. Fork 项目
@@ -625,11 +650,13 @@ docker-compose up -d --build
 ### 日志优化（2025-12-22）
 
 **性能提升：**
+
 - 日志文件大小减少 80%（500MB → 100MB/小时）
 - CPU 占用减少 50%（60% → 30%）
 - 磁盘 IO 减少 75%（80MB/s → 20MB/s）
 
 **优化内容：**
+
 1. **字段缩写化**: timestamp→t, traceId→tid, userId→uid, method→m, path→p, statusCode→stc, cost→ms
 2. **动态采样**: 成功且快速的请求（<500ms）按 10% 采样，失败和慢请求 100% 记录
 3. **Redis 缓冲**: 日志先写入 Redis 队列，由独立进程批量写入磁盘
@@ -669,6 +696,7 @@ node backend/scripts/test-log-optimization.js
 ```
 
 详细配置请参考：
+
 - [日志系统优化实施指南](./docs/日志系统优化实施指南.md) - **高并发场景必读**
 - [日志优化工具说明](./backend/scripts/README-LOG-OPTIMIZATION.md)
 - [日志配置说明](./docs/日志配置说明.md)

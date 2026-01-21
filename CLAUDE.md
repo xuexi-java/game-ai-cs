@@ -95,21 +95,23 @@ npm run docker:down       # 停止容器
 
 ### 关键接口
 
-| 接口 | 说明 |
-|------|------|
+| 接口                            | 说明                                                |
+| ------------------------------- | --------------------------------------------------- |
 | `POST /api/v1/player/connect` | Bootstrap 入口，返回 wsToken/questList/activeTicket |
-| `POST /api/v1/player/upload` | 图片上传，Header 携带 X-Upload-Token |
-| WebSocket `/socket.io` | 实时聊天，auth.token 携带 wsToken |
+| `POST /api/v1/player/upload`  | 图片上传，Header 携带 X-Upload-Token                |
+| WebSocket `/socket.io`        | 实时聊天，auth.token 携带 wsToken                   |
 
 ### WebSocket 事件
 
 **客户端 → 服务器**:
+
 - `ticket:create` - 创建工单
 - `ticket:resume` - 恢复工单
 - `message:send` - 发送消息 (需携带 clientMsgId)
 - `transfer:request` - 转人工
 
 **服务器 → 客户端**:
+
 - `ticket:created` / `ticket:resumed` - 工单状态
 - `message:ack` - 消息确认 (幂等)
 - `message:receive` - 收到消息
@@ -129,6 +131,7 @@ const decrypted = encryptionService.decrypt(encrypted);
 **格式**: `iv:tag:encrypted` (hex 编码)
 
 **环境变量**:
+
 ```env
 ENCRYPTION_SECRET_KEY=xxx  # 加密密钥 (至少32字符)
 ENCRYPTION_SALT=xxx        # 盐值
@@ -154,29 +157,33 @@ npm test -- --coverage      # 覆盖率报告
 
 ### 测试账号
 
-| 类型 | 账号 | 密码 |
-|------|------|------|
-| 管理员 | admin | admin123 |
-| 客服 | agent1 | agent123 |
+| 类型   | 账号   | 密码     |
+| ------ | ------ | -------- |
+| 管理员 | admin  | admin123 |
+| 客服   | agent1 | agent123 |
 
 ## 开发规范
 
 ### API 设计
+
 - RESTful 路径: `/api/v1/{resource}`
 - 使用 DTO 进行请求验证
 - 统一响应格式
 
 ### 数据库操作
+
 - 使用 Prisma Client，不写原生 SQL
 - 修改 Schema 后必须运行 `db:migrate`
 - 事务操作使用 `prisma.$transaction()`
 
 ### WebSocket
+
 - 网关: `backend/src/websocket/websocket.gateway.ts`
 - 事件命名: `snake_case` (如 `new_message`, `session_assigned`)
 - 消息幂等: 使用 `clientMsgId` 去重
 
 ### 安全
+
 - 敏感数据使用 `EncryptionService` 加密存储
 - Dify API Key 存储在 Game 表，加密字段
 - JWT 认证，Token 有效期 8 小时
@@ -207,16 +214,16 @@ PLAYER_API_UPLOAD_TOKEN_TTL=600     # uploadToken 有效期(秒)
 
 ## 关键文件位置
 
-| 文件 | 说明 |
-|------|------|
-| `backend/src/player-api/` | 玩家端 API (WebView 接入核心) |
-| `backend/src/player-api/guards/sign.guard.ts` | 签名验证 Guard |
-| `backend/src/player-api/services/token.service.ts` | Token 生成/验证 |
-| `backend/src/common/encryption/encryption.service.ts` | 加密服务 |
-| `backend/src/websocket/websocket.gateway.ts` | WebSocket 网关 |
-| `backend/prisma/schema.prisma` | 数据库模型 |
-| `test-tools/mock-game-server.js` | 模拟游戏服务器 |
-| `docs/游戏客户端接入改造方案.md` | WebView 接入详细文档 |
+| 文件                                                    | 说明                          |
+| ------------------------------------------------------- | ----------------------------- |
+| `backend/src/player-api/`                             | 玩家端 API (WebView 接入核心) |
+| `backend/src/player-api/guards/sign.guard.ts`         | 签名验证 Guard                |
+| `backend/src/player-api/services/token.service.ts`    | Token 生成/验证               |
+| `backend/src/common/encryption/encryption.service.ts` | 加密服务                      |
+| `backend/src/websocket/websocket.gateway.ts`          | WebSocket 网关                |
+| `backend/prisma/schema.prisma`                        | 数据库模型                    |
+| `test-tools/mock-game-server.js`                      | 模拟游戏服务器                |
+| `docs/游戏客户端接入改造方案.md`                      | WebView 接入详细文档          |
 
 ## 注意事项
 

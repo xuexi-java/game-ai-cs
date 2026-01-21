@@ -18,6 +18,8 @@ export const useChatStore = defineStore('chat', () => {
   const showAgentOfflineModal = ref(false)
   const showSafeExitButton = ref(false)
   const hasAiResponse = ref(false)  // AI 是否已回复（用于控制转人工按钮显示）
+  const isTicketReady = ref(false)  // 工单是否已创建成功（用于控制消息发送）
+  const pendingMessages = ref<Array<{ text: string; type: 'TEXT' | 'IMAGE' }>>([])  // 等待工单就绪的消息队列
 
   // 计算属性
   const canInput = computed(() => inputMode.value === 'CHAT' && !isWaitingReply.value)
@@ -110,6 +112,20 @@ export const useChatStore = defineStore('chat', () => {
     hasAiResponse.value = value
   }
 
+  function setTicketReady(ready: boolean) {
+    isTicketReady.value = ready
+  }
+
+  function addPendingMessage(text: string, type: 'TEXT' | 'IMAGE' = 'TEXT') {
+    pendingMessages.value.push({ text, type })
+  }
+
+  function getPendingMessages() {
+    const msgs = [...pendingMessages.value]
+    pendingMessages.value = []
+    return msgs
+  }
+
   // 显示分类菜单
   function showCategoryMenu(questList?: Array<{ id: string; name: string; icon?: string }>) {
     // 如果有后端返回的问题类型列表，转换格式使用；否则使用静态后备数据
@@ -165,6 +181,8 @@ export const useChatStore = defineStore('chat', () => {
     showAgentOfflineModal.value = false
     showSafeExitButton.value = false
     hasAiResponse.value = false
+    isTicketReady.value = false
+    pendingMessages.value = []
   }
 
   return {
@@ -182,6 +200,8 @@ export const useChatStore = defineStore('chat', () => {
     showAgentOfflineModal,
     showSafeExitButton,
     hasAiResponse,
+    isTicketReady,
+    pendingMessages,
     // 计算
     canInput,
     isInQueue,
@@ -203,6 +223,9 @@ export const useChatStore = defineStore('chat', () => {
     setShowAgentOfflineModal,
     setShowSafeExitButton,
     setHasAiResponse,
+    setTicketReady,
+    addPendingMessage,
+    getPendingMessages,
     showCategoryMenu,
     handleCategorySelect,
     addSystemMessage,

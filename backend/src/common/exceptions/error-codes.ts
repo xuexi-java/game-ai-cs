@@ -30,6 +30,7 @@ export enum ErrorCodes {
   GAME_NOT_FOUND = 'E4001',
   GAME_DISABLED = 'E4002',
   SERVER_NOT_FOUND = 'E4003',
+  GAME_CODE_ALREADY_EXISTS = 'E4004', // 游戏代码已存在
 
   // 工单错误 (5000-5999)
   TICKET_NOT_FOUND = 'E5001',

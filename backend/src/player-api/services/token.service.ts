@@ -37,15 +37,16 @@ export class TokenService {
         };
       }
 
-      // 2. 查询游戏配置获取密钥
+      // 2. 查询游戏配置获取密钥（使用 gameCode 匹配）
       const game = await this.prisma.game.findFirst({
         where: {
-          name: decoded.gameid,
+          gameCode: decoded.gameid,
           deletedAt: null,
         },
         select: {
           id: true,
           name: true,
+          gameCode: true,
           enabled: true,
           playerApiEnabled: true,
           playerApiSecret: true,

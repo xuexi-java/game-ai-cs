@@ -219,8 +219,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-
-
     override fun onDestroy() {
         webView.destroy()
         super.onDestroy()
