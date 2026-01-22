@@ -199,13 +199,6 @@ async function bootstrap() {
   const protocol = process.env.NODE_ENV === 'production' ? 'https' : 'http';
   const baseUrl = `${protocol}://${host}:${port}`;
 
-  // 设置 logger 的 context
-  logger.setContext('Bootstrap');
-
-  logger.log(`🚀 后端服务运行在 ${baseUrl}`);
-  logger.log(`📚 Swagger 管理端文档: ${baseUrl}/api/v1/docs/admin`);
-  logger.log(`📚 Swagger 玩家端文档: ${baseUrl}/api/v1/docs/player`);
-
   // 恢复队列数据到 Redis（如果 Redis 可用）
   try {
     const queueService = app.get(QueueService);
