@@ -130,8 +130,8 @@ export class SignGuard implements CanActivate {
    * nonce 为游戏配置中的固定值 (playerApiNonce)
    */
   private async validateSign(request: any, body: any): Promise<boolean> {
-    // 签名有效期：2小时
-    const SIGN_EXPIRY_MS = 2 * 60 * 60 * 1000;
+    // 签名有效期：从环境变量读取，默认 2 小时
+    const SIGN_EXPIRY_MS = parseInt(process.env.PLAYER_API_SIGN_EXPIRY_MS || '7200000', 10);
 
     // 1. 验证必填参数
     const { gameid, uid, areaid, ts, nonce, sign } = body;

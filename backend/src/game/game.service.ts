@@ -160,17 +160,25 @@ export class GameService {
       }
     }
 
-    // 加密敏感字段
+    // 处理敏感字段：空字符串视为不更新，有值则加密后更新
     const updateData: any = { ...updateGameDto };
-    if (updateGameDto.difyApiKey) {
+
+    // difyApiKey: 空字符串或 undefined 时不更新，保留原值
+    if (updateGameDto.difyApiKey && updateGameDto.difyApiKey.trim()) {
       updateData.difyApiKey = this.encryptionService.encrypt(
         updateGameDto.difyApiKey,
       );
+    } else {
+      delete updateData.difyApiKey;
     }
-    if (updateGameDto.playerApiSecret) {
+
+    // playerApiSecret: 空字符串或 undefined 时不更新，保留原值
+    if (updateGameDto.playerApiSecret && updateGameDto.playerApiSecret.trim()) {
       updateData.playerApiSecret = this.encryptionService.encrypt(
         updateGameDto.playerApiSecret,
       );
+    } else {
+      delete updateData.playerApiSecret;
     }
 
     const updated = await this.prisma.game.update({

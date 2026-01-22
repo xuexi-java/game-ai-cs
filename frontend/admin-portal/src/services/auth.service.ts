@@ -1,4 +1,4 @@
-import apiClient from './api';
+import apiClient, { resetAuthState } from './api';
 import type { LoginRequest, LoginResponse, User } from '../types';
 
 /**
@@ -22,6 +22,8 @@ export const getCurrentUser = (): User | null => {
 export const saveUserInfo = (token: string, user: User) => {
   localStorage.setItem('admin_token', token);
   localStorage.setItem('admin_user', JSON.stringify(user));
+  // 重置认证失效标志，恢复正常请求
+  resetAuthState();
 };
 
 /**

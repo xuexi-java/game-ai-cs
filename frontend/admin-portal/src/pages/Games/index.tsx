@@ -13,7 +13,10 @@ import {
   Typography,
   Divider,
   Tooltip,
+  Checkbox,
+  TimePicker,
 } from 'antd';
+import dayjs from 'dayjs';
 import type { ColumnsType } from 'antd/es/table';
 import { PlusOutlined, EditOutlined, DeleteOutlined, ApiOutlined, CopyOutlined, QuestionCircleOutlined } from '@ant-design/icons';
 import { getGames, createGame, updateGame, deleteGame } from '../../services/game.service';
@@ -22,6 +25,48 @@ import { useMessage } from '../../hooks/useMessage';
 import './index.css';
 
 const { Text } = Typography;
+
+// 工作日选项
+const WEEKDAYS = [
+  { label: '周日', value: 0 },
+  { label: '周一', value: 1 },
+  { label: '周二', value: 2 },
+  { label: '周三', value: 3 },
+  { label: '周四', value: 4 },
+  { label: '周五', value: 5 },
+  { label: '周六', value: 6 },
+];
+
+// 默认工作时间配置
+const DEFAULT_WORKING_HOURS = {
+  workDays: [1, 2, 3, 4, 5],
+  periods: [
+    { start: '09:00', end: '12:00' },
+    { start: '14:00', end: '18:00' },
+  ],
+  displayText: '周一至周五 9:00-12:00, 14:00-18:00',
+};
+
+// 生成显示文本
+const generateDisplayText = (workDays: number[], periods: { start: string; end: string }[]) => {
+  const dayNames = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+  const sortedDays = [...workDays].sort((a, b) => a - b);
+
+  // 简化工作日显示
+  let daysText = '';
+  if (sortedDays.length === 7) {
+    daysText = '每天';
+  } else if (JSON.stringify(sortedDays) === JSON.stringify([1, 2, 3, 4, 5])) {
+    daysText = '周一至周五';
+  } else if (JSON.stringify(sortedDays) === JSON.stringify([0, 6])) {
+    daysText = '周末';
+  } else {
+    daysText = sortedDays.map(d => dayNames[d]).join('、');
+  }
+
+  const periodsText = periods.map(p => `${p.start}-${p.end}`).join(', ');
+  return `${daysText} ${periodsText}`;
+};
 
 const maskApiKey = (key?: string) => {
   if (!key) return '-';
@@ -61,6 +106,12 @@ const GamesPage: React.FC = () => {
     gameForm.setFieldsValue({
       enabled: true,
       playerApiEnabled: true,
+      // 默认工作时间配置
+      workDays: DEFAULT_WORKING_HOURS.workDays,
+      workPeriod1Start: dayjs(DEFAULT_WORKING_HOURS.periods[0].start, 'HH:mm'),
+      workPeriod1End: dayjs(DEFAULT_WORKING_HOURS.periods[0].end, 'HH:mm'),
+      workPeriod2Start: dayjs(DEFAULT_WORKING_HOURS.periods[1].start, 'HH:mm'),
+      workPeriod2End: dayjs(DEFAULT_WORKING_HOURS.periods[1].end, 'HH:mm'),
     });
     setGameModalVisible(true);
   };
@@ -68,6 +119,11 @@ const GamesPage: React.FC = () => {
   const handleEditGame = (game: Game) => {
     setEditingGame(game);
     gameForm.resetFields();  // 先重置表单，清空所有字段
+
+    // 解析工作时间配置
+    const workingHours = game.workingHours as typeof DEFAULT_WORKING_HOURS | null;
+    const periods = workingHours?.periods || DEFAULT_WORKING_HOURS.periods;
+
     gameForm.setFieldsValue({
       name: game.name,
       gameCode: game.gameCode,
@@ -77,6 +133,12 @@ const GamesPage: React.FC = () => {
       // 玩家API配置（密钥不回显，需重新输入）
       playerApiNonce: game.playerApiNonce,
       playerApiEnabled: game.playerApiEnabled ?? true,
+      // 工作时间配置
+      workDays: workingHours?.workDays || DEFAULT_WORKING_HOURS.workDays,
+      workPeriod1Start: periods[0] ? dayjs(periods[0].start, 'HH:mm') : undefined,
+      workPeriod1End: periods[0] ? dayjs(periods[0].end, 'HH:mm') : undefined,
+      workPeriod2Start: periods[1] ? dayjs(periods[1].start, 'HH:mm') : undefined,
+      workPeriod2End: periods[1] ? dayjs(periods[1].end, 'HH:mm') : undefined,
     });
     setGameModalVisible(true);
   };
@@ -94,11 +156,39 @@ const GamesPage: React.FC = () => {
 
   const handleGameSubmit = async (values: any) => {
     try {
+      // 组装工作时间配置
+      const periods: { start: string; end: string }[] = [];
+      if (values.workPeriod1Start && values.workPeriod1End) {
+        periods.push({
+          start: values.workPeriod1Start.format('HH:mm'),
+          end: values.workPeriod1End.format('HH:mm'),
+        });
+      }
+      if (values.workPeriod2Start && values.workPeriod2End) {
+        periods.push({
+          start: values.workPeriod2Start.format('HH:mm'),
+          end: values.workPeriod2End.format('HH:mm'),
+        });
+      }
+
+      const workingHours = {
+        workDays: values.workDays || DEFAULT_WORKING_HOURS.workDays,
+        periods: periods.length > 0 ? periods : DEFAULT_WORKING_HOURS.periods,
+        displayText: generateDisplayText(
+          values.workDays || DEFAULT_WORKING_HOURS.workDays,
+          periods.length > 0 ? periods : DEFAULT_WORKING_HOURS.periods
+        ),
+      };
+
+      // 移除临时字段，添加组装后的配置
+      const { workDays, workPeriod1Start, workPeriod1End, workPeriod2Start, workPeriod2End, ...submitValues } = values;
+      submitValues.workingHours = workingHours;
+
       if (editingGame) {
-        await updateGame(editingGame.id, values);
+        await updateGame(editingGame.id, submitValues);
         message.success('游戏更新成功');
       } else {
-        await createGame(values);
+        await createGame(submitValues);
         message.success('游戏创建成功');
       }
       setGameModalVisible(false);
@@ -272,19 +362,26 @@ const GamesPage: React.FC = () => {
 
           <Form.Item
             name="difyApiKey"
-            label="Dify API Key"
-            
+            label={
+              <Space>
+                <span>Dify API Key</span>
+                {editingGame && editingGame.difyApiKey && (
+                  <Tag color="green" style={{ marginLeft: 8 }}>已配置</Tag>
+                )}
+              </Space>
+            }
             rules={[
               {
                 required: !editingGame,  // 仅创建时必填
                 message: '请输入 Dify API Key'
               }
             ]}
+            extra={editingGame ? "留空保持现有密钥不变，填写新值则更新" : undefined}
           >
             <Input.Password
               placeholder={
                 editingGame
-                  ? "留空保持现有密钥不变，填写则更新"
+                  ? "输入新密钥以更新，或留空保持不变"
                   : "请输入该游戏对应的 Dify API Key"
               }
             />
@@ -303,13 +400,21 @@ const GamesPage: React.FC = () => {
 
           <Form.Item
             name="playerApiSecret"
-            label="签名密钥 (Secret)"
+            label={
+              <Space>
+                <span>签名密钥 (Secret)</span>
+                {editingGame && editingGame.playerApiSecret && (
+                  <Tag color="green" style={{ marginLeft: 8 }}>已配置</Tag>
+                )}
+              </Space>
+            }
             rules={[
               { min: 8, message: '密钥长度不能少于8位' },
               { max: 64, message: '密钥长度不能超过64位' },
             ]}
+            extra={editingGame ? "留空保持现有密钥不变，填写新值则更新" : undefined}
           >
-            <Input.Password placeholder="留空保持现有密钥不变，填写则更新密钥" />
+            <Input.Password placeholder={editingGame ? "输入新密钥以更新，或留空保持不变" : "请输入签名密钥（8-64位）"} />
           </Form.Item>
 
           <Form.Item
@@ -322,6 +427,44 @@ const GamesPage: React.FC = () => {
             ]}
           >
             <Input placeholder="例如: a1b2c3d4e5f6g7h8" />
+          </Form.Item>
+
+          <Divider orientation="left">
+            客服工作时间
+            <Tooltip title="设置客服在线服务时间，非工作时间将提示玩家">
+              <QuestionCircleOutlined style={{ marginLeft: 8, color: '#999' }} />
+            </Tooltip>
+          </Divider>
+
+          <Form.Item
+            name="workDays"
+            label="工作日"
+          >
+            <Checkbox.Group options={WEEKDAYS} />
+          </Form.Item>
+
+          <Form.Item label="工作时段 1">
+            <Space>
+              <Form.Item name="workPeriod1Start" noStyle>
+                <TimePicker format="HH:mm" placeholder="开始时间" />
+              </Form.Item>
+              <span>至</span>
+              <Form.Item name="workPeriod1End" noStyle>
+                <TimePicker format="HH:mm" placeholder="结束时间" />
+              </Form.Item>
+            </Space>
+          </Form.Item>
+
+          <Form.Item label="工作时段 2" extra="可选，用于设置午休等分段工作时间">
+            <Space>
+              <Form.Item name="workPeriod2Start" noStyle>
+                <TimePicker format="HH:mm" placeholder="开始时间" />
+              </Form.Item>
+              <span>至</span>
+              <Form.Item name="workPeriod2End" noStyle>
+                <TimePicker format="HH:mm" placeholder="结束时间" />
+              </Form.Item>
+            </Space>
           </Form.Item>
 
           <Form.Item>

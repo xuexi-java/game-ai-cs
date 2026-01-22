@@ -41,17 +41,25 @@ export enum ClosedBy {
   SYSTEM = 'SYSTEM',
 }
 
-// 客服工作时间配置
-const WORKING_HOURS = {
-  // 周末不休息 (1=周一, ..., 5=周五)
-  workDays: [0,1, 2, 3, 4, 5, 6],
-  // 工作时间段
+/**
+ * 工作时间配置接口
+ */
+export interface WorkingHoursConfig {
+  workDays: number[];  // 工作日 (0=周日, 1=周一, ..., 6=周六)
+  periods: { start: string; end: string }[];  // 工作时间段
+  displayText: string;  // 显示文本
+}
+
+/**
+ * 默认工作时间配置（当游戏未配置时使用）
+ */
+const DEFAULT_WORKING_HOURS: WorkingHoursConfig = {
+  workDays: [1, 2, 3, 4, 5],  // 周一到周五
   periods: [
-    { start: '09:30', end: '12:30' },
-    { start: '14:00', end: '18:30' },
+    { start: '09:00', end: '12:00' },
+    { start: '14:00', end: '18:00' },
   ],
-  // 显示文本
-  displayText: '上午:9:30-12:30, 下午:14:00-18:30',
+  displayText: '周一至周五 9:00-12:00, 14:00-18:00',
 };
 
 @Injectable()
@@ -67,13 +75,15 @@ export class PlayerApiService {
 
   /**
    * 检查当前是否在工作时间内
+   * @param workingHours 工作时间配置（可选，默认使用 DEFAULT_WORKING_HOURS）
    */
-  private isWithinWorkingHours(): boolean {
+  private isWithinWorkingHours(workingHours?: WorkingHoursConfig): boolean {
+    const config = workingHours || DEFAULT_WORKING_HOURS;
     const now = new Date();
     const dayOfWeek = now.getDay(); // 0=周日, 1=周一, ..., 6=周六
 
     // 检查是否是工作日
-    if (!WORKING_HOURS.workDays.includes(dayOfWeek)) {
+    if (!config.workDays.includes(dayOfWeek)) {
       return false;
     }
 
@@ -81,7 +91,7 @@ export class PlayerApiService {
     const currentTime = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
 
     // 检查是否在任一工作时间段内
-    return WORKING_HOURS.periods.some(
+    return config.periods.some(
       (period) => currentTime >= period.start && currentTime <= period.end,
     );
   }
@@ -102,13 +112,14 @@ export class PlayerApiService {
 
   /**
    * 检查客服可用性
+   * @param workingHours 工作时间配置（可选）
    * 返回: { available, reason }
    */
-  private async checkAgentAvailability(): Promise<{
+  private async checkAgentAvailability(workingHours?: WorkingHoursConfig): Promise<{
     available: boolean;
     reason?: string;
   }> {
-    const isWorkingHours = this.isWithinWorkingHours();
+    const isWorkingHours = this.isWithinWorkingHours(workingHours);
     if (!isWorkingHours) {
       return { available: false, reason: '非工作时间' };
     }
@@ -119,6 +130,33 @@ export class PlayerApiService {
     }
 
     return { available: true };
+  }
+
+  /**
+   * 解析游戏配置中的工作时间
+   */
+  private parseWorkingHours(gameWorkingHours: unknown): WorkingHoursConfig {
+    if (!gameWorkingHours || typeof gameWorkingHours !== 'object') {
+      return DEFAULT_WORKING_HOURS;
+    }
+
+    try {
+      const config = gameWorkingHours as Record<string, unknown>;
+
+      // 验证必要字段
+      if (!Array.isArray(config.workDays) || !Array.isArray(config.periods)) {
+        return DEFAULT_WORKING_HOURS;
+      }
+
+      return {
+        workDays: config.workDays as number[],
+        periods: config.periods as { start: string; end: string }[],
+        displayText: (config.displayText as string) || DEFAULT_WORKING_HOURS.displayText,
+      };
+    } catch {
+      this.logger.warn('解析工作时间配置失败，使用默认配置');
+      return DEFAULT_WORKING_HOURS;
+    }
   }
 
   /**
@@ -134,6 +172,15 @@ export class PlayerApiService {
     const { uid, areaid, gameid, playerName, language } = dto;
 
     try {
+      // 0. 获取游戏配置（用于读取工作时间）
+      const gameConfig = await this.prisma.game.findUnique({
+        where: { id: gameId },
+        select: { workingHours: true },
+      });
+
+      // 解析工作时间配置
+      const workingHours = this.parseWorkingHours(gameConfig?.workingHours);
+
       // 1. 生成 wsToken 和 uploadToken
       const wsTokenData = this.tokenService.generateWsToken(gameid, areaid, uid, playerName);
       const uploadTokenData = this.tokenService.generateUploadToken(gameid, areaid, uid);
@@ -157,8 +204,8 @@ export class PlayerApiService {
         routeMode: it.routeMode,
       }));
 
-      // 4. 检查客服可用性
-      const agentAvailability = await this.checkAgentAvailability();
+      // 4. 检查客服可用性（使用游戏配置的工作时间）
+      const agentAvailability = await this.checkAgentAvailability(workingHours);
 
       // 5. 查询未关闭工单
       this.logger.log(
@@ -255,7 +302,7 @@ export class PlayerApiService {
         questList,
         agentAvailable: agentAvailability.available,
         offlineReason: agentAvailability.reason,
-        workingHours: WORKING_HOURS.displayText,
+        workingHours: workingHours.displayText,
         activeTicket,
         history,
         bootstrapMessages,

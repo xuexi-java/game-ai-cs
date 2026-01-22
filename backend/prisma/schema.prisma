@@ -29,6 +29,11 @@ model Game {
   playerApiNonce   String?  @db.VarChar(32)  // 玩家接口固定Nonce (16位随机字符串)
   playerApiEnabled Boolean  @default(true)   // 是否启用玩家API
 
+  // ========== 客服工作时间配置 ==========
+  // JSON 格式: { workDays: number[], periods: {start: string, end: string}[], displayText: string }
+  // 示例: { "workDays": [1,2,3,4,5], "periods": [{"start":"09:00","end":"18:00"}], "displayText": "周一至周五 9:00-18:00" }
+  workingHours     Json?
+
   // 关系
   servers Server[]
   tickets Ticket[]

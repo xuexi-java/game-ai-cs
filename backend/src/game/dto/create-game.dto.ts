@@ -46,6 +46,14 @@ export class CreateGameDto {
   @IsBoolean()
   @IsOptional()
   playerApiEnabled?: boolean = true;
+
+  // ========== 工作时间配置 ==========
+  @IsOptional()
+  workingHours?: {
+    workDays: number[];
+    periods: { start: string; end: string }[];
+    displayText: string;
+  };
 }
 
 export class UpdateGameDto {
@@ -87,4 +95,12 @@ export class UpdateGameDto {
   @IsBoolean()
   @IsOptional()
   playerApiEnabled?: boolean;
+
+  // ========== 工作时间配置 ==========
+  @IsOptional()
+  workingHours?: {
+    workDays: number[];
+    periods: { start: string; end: string }[];
+    displayText: string;
+  };
 }

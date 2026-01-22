@@ -33,6 +33,13 @@ export interface LoginResponse {
   user: User;
 }
 
+// 工作时间配置类型
+export interface WorkingHoursConfig {
+  workDays: number[];
+  periods: { start: string; end: string }[];
+  displayText: string;
+}
+
 // 游戏相关类型
 export interface Game {
   id: string;
@@ -46,6 +53,8 @@ export interface Game {
   playerApiSecret?: string;
   playerApiNonce?: string;
   playerApiEnabled?: boolean;
+  // 工作时间配置
+  workingHours?: WorkingHoursConfig;
   createdAt: string;
 }
 

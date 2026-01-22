@@ -717,11 +717,12 @@ export class WebsocketGateway
         return { success: false, error: WsErrorCode.INVALID_TOKEN };
       }
 
-      // 1. 查找游戏配置
+      // 1. 查找游戏配置 (gameid 是游戏代码，如 "10003")
       const game = await this.prisma.game.findFirst({
-        where: { name: gameid, deletedAt: null },
+        where: { gameCode: gameid, deletedAt: null },
       });
       if (!game) {
+        this.logger.warn(`[ticket:resume] 游戏不存在: gameid=${gameid}`);
         return { success: false, error: 'GAME_NOT_FOUND' };
       }
 

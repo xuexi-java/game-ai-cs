@@ -3,6 +3,14 @@ import type { AxiosInstance, AxiosResponse } from 'axios';
 import { getGlobalMessage } from '../utils/message';
 import { API_BASE_URL } from '../config/api';
 
+// 认证失效锁：防止多个 401 请求同时触发重复的清除和跳转操作
+let isAuthInvalid = false;
+
+// 重置认证状态（登录成功后调用）
+export const resetAuthState = () => {
+  isAuthInvalid = false;
+};
+
 // 创建axios实例
 const apiClient: AxiosInstance = axios.create({
   baseURL: API_BASE_URL,
@@ -53,10 +61,16 @@ apiClient.interceptors.response.use(
       switch (status) {
         case 401:
           // 其他接口的 401（token 过期）
+          // 如果已经在处理认证失效，直接拒绝，避免重复提示和跳转
+          if (isAuthInvalid) {
+            return Promise.reject(new Error('认证已失效，请重新登录'));
+          }
+          // 第一个 401，设置锁并处理
+          isAuthInvalid = true;
           message.error('登录已过期，请重新登录');
           localStorage.removeItem('admin_token');
           localStorage.removeItem('admin_user');
-          // 避免重复跳转
+          // 跳转到登录页
           if (window.location.pathname !== '/login') {
             window.location.href = '/login';
           }
