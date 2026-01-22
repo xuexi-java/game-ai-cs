@@ -148,7 +148,7 @@ class MainActivity : AppCompatActivity() {
             mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
         }
 
-        // 将 Bridge 以 'AndroidBridge' 的名称暴露给 JavaScript
+        // 将 Bridge 以 'roadWebViewService' 的名称暴露给 JavaScript
         webView.addJavascriptInterface(object {
             @JavascriptInterface
             fun close() = runOnUiThread { finish() }
@@ -162,7 +162,7 @@ class MainActivity : AppCompatActivity() {
                 Log.d(TAG, "JS Bridge 调用 getPlayerInfo: $json")
                 return json
             }
-        }, "AndroidBridge")
+        }, "roadWebViewService")
 
         webView.webChromeClient = object : WebChromeClient() {
             /**
@@ -176,12 +176,10 @@ class MainActivity : AppCompatActivity() {
                 return true
             }
         }
-
         webView.webViewClient = object : WebViewClient() {
             override fun onPageFinished(view: WebView?, url: String?) {
                 progressBar.visibility = View.GONE
             }
-
             override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {
                 super.onReceivedError(view, request, error)
                 runOnUiThread {
@@ -190,7 +188,6 @@ class MainActivity : AppCompatActivity() {
             }
         }
     }
-
     /**
      * 构造带有查询参数的最终 URL 并在 WebView 中加载。
      */
@@ -205,7 +202,7 @@ class MainActivity : AppCompatActivity() {
             append("&nonce=${params.nonce}")
             append("&sign=${params.sign}")
             append("&playerName=${URLEncoder.encode(params.playerName, "UTF-8")}")
-            append("&platform=android")
+            append("&platform=Android")
         }
         Log.d(TAG, "Loading URL: $url")
         webView.loadUrl(url)

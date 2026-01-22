@@ -8,7 +8,7 @@ export type BridgeEnv = 'android' | 'ios' | 'url' | 'mock'
 
 export function detectEnv(): BridgeEnv {
   if (typeof window !== 'undefined') {
-    if (window.AndroidBridge) {
+    if (window.roadWebViewService) {
       return 'android'
     }
     if (window.webkit?.messageHandlers?.iosBridge) {

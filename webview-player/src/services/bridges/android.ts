@@ -11,7 +11,7 @@ export function createAndroidBridge(): NativeBridge {
      */
     getPlayerInfo(): PlayerInfo {
       try {
-        const result = window.AndroidBridge?.getPlayerInfo()
+        const result = window.roadWebViewService?.getPlayerInfo()
         if (result) {
           const info = JSON.parse(result)
           console.log('[Android] 玩家信息:', {
@@ -43,7 +43,7 @@ export function createAndroidBridge(): NativeBridge {
      */
     close(): void {
       try {
-        window.AndroidBridge?.close()
+        window.roadWebViewService?.close()
       } catch (error) {
         console.error('[Android] close 失败:', error)
       }

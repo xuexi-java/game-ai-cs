@@ -28,6 +28,16 @@ export class SessionAIService {
   ): void {
     setImmediate(async () => {
       try {
+        // 如果 description 为空，跳过 triage，直接发送欢迎消息
+        if (!ticket.description || !ticket.description.trim()) {
+          const welcomeMessage = await this.messageService.createAIMessage(
+            sessionId,
+            '您好！请问有什么可以帮您的？',
+          );
+          this.websocketGateway.notifyMessage(sessionId, welcomeMessage);
+          return;
+        }
+
         const difyResponse = await this.difyService.triage(
           ticket.description,
           ticket.game.difyApiKey,

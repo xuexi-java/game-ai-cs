@@ -32,7 +32,7 @@ function getApiBaseUrl(): string {
   if (import.meta.env.VITE_API_URL) return import.meta.env.VITE_API_URL
 
   // Android 模拟器中 localhost 指向模拟器自身，需要用 10.0.2.2 访问宿主机
-  const isAndroidEmulator = window.AndroidBridge !== undefined &&
+  const isAndroidEmulator = window.roadWebViewService !== undefined &&
     window.location.hostname !== 'localhost' &&
     window.location.hostname !== '127.0.0.1'
 

@@ -2,8 +2,8 @@ const crypto = require('crypto');
 
 // 配置（与后台游戏配置一致）
 const config = {
-  gameid: 'test_game',
-  uid: 'player001',
+  gameid: '10001',
+  uid: 'player002',
   areaid: '1',
   playerName: 'Test Player',
   nonce: 'n7k9m2x4p6q8w3e5',   // 游戏的 playerApiNonce

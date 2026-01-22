@@ -7,7 +7,7 @@ declare module '*.vue' {
 }
 
 interface Window {
-  AndroidBridge?: {
+  roadWebViewService?: {
     callPlayerApi(paramsJson: string, callbackId: string): void
     getPlayerInfo(): string
     getApiUrl(): string

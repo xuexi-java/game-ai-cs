@@ -55,7 +55,7 @@ ${h5Url}/?gameid=${gameid}&uid=${uid}&areaid=${areaid}&ts=${ts}&nonce=${nonce}&s
 - `ts/sign` 由游戏服务器生成，客户端不计算，不传 `secret`
 - `ts` 有效期 2 小时，过期需要重新获取并刷新 URL
 - `apiUrl` 可选：若 H5 构建时已配置 `VITE_API_URL` 或与后端同域反代，可不传；否则建议携带以避免默认 `localhost`
-- URL 模式下不要注入 `AndroidBridge`，否则 H5 会优先走 Bridge 并忽略 URL
+- URL 模式下不要注入 `roadWebViewService`，否则 H5 会优先走 Bridge 并忽略 URL
 
 ## 6. 签名规则（服务端计算）
 ```
