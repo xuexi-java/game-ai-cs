@@ -10,6 +10,7 @@ export const useConnectionStore = defineStore('connection', () => {
   const initFailed = ref(false)     // 初始化失败
   const playerInfo = ref<PlayerInfo | null>(null)
   const currentTid = ref<string | null>(null)
+  const currentSessionId = ref<string | null>(null)  // 当前会话ID（用于评价提交）
   const wsUrl = ref<string>('')
   const wsToken = ref<string>('')
   const uploadToken = ref<string>('')
@@ -51,6 +52,10 @@ export const useConnectionStore = defineStore('connection', () => {
     currentTid.value = tid
   }
 
+  function setCurrentSessionId(sessionId: string | null) {
+    currentSessionId.value = sessionId
+  }
+
   function setError(message: string, code?: string) {
     errorMessage.value = message
     errorCode.value = code || ''
@@ -89,6 +94,7 @@ export const useConnectionStore = defineStore('connection', () => {
     isInitializing.value = true
     initFailed.value = false
     currentTid.value = null
+    currentSessionId.value = null
     wsUrl.value = ''
     wsToken.value = ''
     uploadToken.value = ''
@@ -108,6 +114,7 @@ export const useConnectionStore = defineStore('connection', () => {
     initFailed,
     playerInfo,
     currentTid,
+    currentSessionId,
     wsUrl,
     wsToken,
     uploadToken,
@@ -125,6 +132,7 @@ export const useConnectionStore = defineStore('connection', () => {
     setConnected,
     setConnectionInfo,
     setCurrentTid,
+    setCurrentSessionId,
     setError,
     setInitFailed,
     setInitSuccess,

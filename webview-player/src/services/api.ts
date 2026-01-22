@@ -214,3 +214,35 @@ export function getImageUrl(url: string): string {
 export function getPlayerInfo(): PlayerInfo | null {
   return playerInfo
 }
+
+/**
+ * 提交满意度评价
+ */
+export async function submitRating(
+  sessionId: string,
+  rating: number,
+  comment?: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const response = await fetch(`${apiBaseUrl}/api/v1/satisfaction`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sessionId,
+        rating,
+        tags: [],  // 暂不支持标签
+        comment: comment || null
+      })
+    })
+
+    if (response.ok) {
+      return { success: true }
+    }
+
+    const data = await response.json()
+    return { success: false, error: data.message || '提交失败' }
+  } catch (error) {
+    console.error('[API] 提交评价失败:', error)
+    return { success: false, error: '网络错误' }
+  }
+}

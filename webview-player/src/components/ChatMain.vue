@@ -30,5 +30,8 @@ const emit = defineEmits<{
 
     <!-- 全局输入指示器 -->
     <TypingIndicator v-if="isTyping" />
+
+    <!-- 底部插槽（用于评价入口卡片等） -->
+    <slot name="bottom" />
   </main>
 </template>

@@ -87,6 +87,7 @@ export function useChat() {
         // 如果工单已有客服接入，设置标记（这样转人工后就不会限制发消息）
         if (activeTicket.isAgentConnected) {
           chatStore.setAssignedAgent('客服')  // 设置占位符，具体名称会在 onAgentAssigned 中更新
+          chatStore.setHadAgentInteraction(true)  // 标记有客服参与（用于评价）
         }
 
         // 显示历史消息
@@ -277,6 +278,12 @@ export function useChat() {
         console.log('[Chat] 工单已恢复，解锁输入框')
       }
 
+      // 保存会话ID（用于评价提交）
+      if (data.sessionId) {
+        connectionStore.setCurrentSessionId(data.sessionId)
+        console.log('[Chat] 保存会话ID:', data.sessionId)
+      }
+
       // 如果有待创建的工单类型，创建工单
       if (pendingIssueType.value) {
         // shouldConfirmClose 在用户点击"咨询新问题"时被设置为 true
@@ -305,6 +312,12 @@ export function useChat() {
       }
       // 清除上次尝试的问题类型（工单已成功创建）
       lastAttemptedIssueType.value = null
+
+      // 保存会话ID（用于评价提交）
+      if (data.sessionId) {
+        connectionStore.setCurrentSessionId(data.sessionId)
+        console.log('[Chat] 保存会话ID:', data.sessionId)
+      }
 
       // 标记工单已就绪
       chatStore.setTicketReady(true)
@@ -341,6 +354,8 @@ export function useChat() {
     socket.on('onAgentAssigned', (data: WsAgentAssignedData) => {
       // 设置客服信息，清除排队状态
       chatStore.setAssignedAgent(data.agentName)
+      // 标记有客服参与（用于判断是否显示评价弹窗）
+      chatStore.setHadAgentInteraction(true)
       // 客服接入后，取消等待回复的限制，玩家可以自由发送消息
       chatStore.setWaitingReply(false)
       // 添加系统消息提示客服已接入
@@ -364,6 +379,19 @@ export function useChat() {
         }
         // PLAYER 关闭时不显示消息，由用户操作触发
         chatStore.setInputMode('LOCKED')
+
+        // 保存后端返回的 sessionId（如果有），否则使用之前保存的
+        if (data.sessionId) {
+          connectionStore.setCurrentSessionId(data.sessionId)
+        }
+
+        // 显示评价卡片（只有与人工客服交流后才显示）
+        if (chatStore.hadAgentInteraction && connectionStore.currentSessionId) {
+          console.log('[Chat] 显示评价卡片, sessionId:', connectionStore.currentSessionId)
+          chatStore.setShowRatingCard(true)
+        }
+
+        scrollToBottom()
       }
     })
 
@@ -398,10 +426,14 @@ export function useChat() {
     })
 
     // Token 失效时自动刷新并重连
+    // 注意：SocketService 内部已有 maxTokenRefreshAttempts 限制，超限后会触发 onError
     socket.on('onTokenInvalid', async () => {
-      console.log('[Chat] wsToken 失效，重新获取...')
+      console.log('[Chat] wsToken 失效，尝试重新获取...')
 
       try {
+        // 添加短暂延迟，避免过于频繁的请求
+        await new Promise(resolve => setTimeout(resolve, 500))
+
         // 重新调用 Bootstrap 获取新 token
         const response = await api.callPlayerApi<PlayerConnectData>(
           '/api/v1/player/connect',
@@ -427,11 +459,11 @@ export function useChat() {
           socket.connect(absoluteWsUrl, wsToken)
         } else {
           console.error('[Chat] wsToken 刷新失败:', response.error)
-          connectionStore.setError('重新连接失败，请刷新页面', 'TOKEN_REFRESH_FAILED')
+          connectionStore.setError('连接认证失败，请重新进入', 'TOKEN_REFRESH_FAILED')
         }
       } catch (error) {
         console.error('[Chat] wsToken 刷新异常:', error)
-        connectionStore.setError('重新连接失败，请刷新页面', 'TOKEN_REFRESH_FAILED')
+        connectionStore.setError('连接认证失败，请重新进入', 'TOKEN_REFRESH_FAILED')
       }
     })
   }
@@ -722,6 +754,26 @@ export function useChat() {
     chatStore.setActiveTicket(null)
   }
 
+  // 处理评价提交
+  async function handleRatingSubmit(data: { rating: number; comment: string }) {
+    const sessionId = connectionStore.currentSessionId
+    if (!sessionId) {
+      console.error('[Chat] 无法提交评价：缺少 sessionId')
+      return
+    }
+
+    console.log('[Chat] 提交评价:', { sessionId, rating: data.rating })
+    const result = await api.submitRating(sessionId, data.rating, data.comment)
+
+    if (result.success) {
+      chatStore.setHasRated(true)
+    } else {
+      console.error('[Chat] 评价提交失败:', result.error)
+    }
+
+    scrollToBottom()
+  }
+
   // 显示打字动画后显示消息
   function showTypingThenMessage(
     messageData: { sender: 'AI' | 'AGENT'; type: 'TEXT'; content: string },
@@ -784,6 +836,8 @@ export function useChat() {
     close,
     retry,
     scrollToBottom,
-    endConsultation
+    endConsultation,
+    // 评价相关
+    handleRatingSubmit
   }
 }

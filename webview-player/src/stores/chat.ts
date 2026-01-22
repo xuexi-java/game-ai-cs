@@ -21,6 +21,11 @@ export const useChatStore = defineStore('chat', () => {
   const isTicketReady = ref(false)  // 工单是否已创建成功（用于控制消息发送）
   const pendingMessages = ref<Array<{ text: string; type: 'TEXT' | 'IMAGE' }>>([])  // 等待工单就绪的消息队列
 
+  // 评价相关状态
+  const showRatingCard = ref(false)      // 是否显示评价卡片（工单关闭时显示）
+  const hasRated = ref(false)            // 当前会话是否已评价
+  const hadAgentInteraction = ref(false) // 当前会话是否有客服参与（用于判断是否显示评价）
+
   // 计算属性
   const canInput = computed(() => inputMode.value === 'CHAT' && !isWaitingReply.value)
   const isInQueue = computed(() => queuePosition.value > 0)
@@ -126,6 +131,19 @@ export const useChatStore = defineStore('chat', () => {
     return msgs
   }
 
+  // 评价相关 actions
+  function setShowRatingCard(show: boolean) {
+    showRatingCard.value = show
+  }
+
+  function setHasRated(value: boolean) {
+    hasRated.value = value
+  }
+
+  function setHadAgentInteraction(value: boolean) {
+    hadAgentInteraction.value = value
+  }
+
   // 显示分类菜单
   function showCategoryMenu(questList?: Array<{ id: string; name: string; icon?: string }>) {
     // 如果有后端返回的问题类型列表，转换格式使用；否则使用静态后备数据
@@ -183,6 +201,10 @@ export const useChatStore = defineStore('chat', () => {
     hasAiResponse.value = false
     isTicketReady.value = false
     pendingMessages.value = []
+    // 评价相关
+    showRatingCard.value = false
+    hasRated.value = false
+    hadAgentInteraction.value = false
   }
 
   return {
@@ -202,6 +224,10 @@ export const useChatStore = defineStore('chat', () => {
     hasAiResponse,
     isTicketReady,
     pendingMessages,
+    // 评价相关状态
+    showRatingCard,
+    hasRated,
+    hadAgentInteraction,
     // 计算
     canInput,
     isInQueue,
@@ -229,6 +255,10 @@ export const useChatStore = defineStore('chat', () => {
     showCategoryMenu,
     handleCategorySelect,
     addSystemMessage,
-    reset
+    reset,
+    // 评价相关 actions
+    setShowRatingCard,
+    setHasRated,
+    setHadAgentInteraction
   }
 })

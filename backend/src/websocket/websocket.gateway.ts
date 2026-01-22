@@ -381,9 +381,18 @@ export class WebsocketGateway
         `reason=${tokenResult.errorMessage || '未知错误'}, ` +
         `tokenPreview=${tokenPreview}`,
       );
+
+      // 映射 TokenErrorCode 到 WsErrorCode
+      let wsErrorCode = WsErrorCode.INVALID_TOKEN;
+      if (tokenResult.errorCode === 'EXPIRED_TOKEN') {
+        wsErrorCode = WsErrorCode.TOKEN_EXPIRED;
+      } else if (!wsToken || wsToken.trim() === '') {
+        wsErrorCode = WsErrorCode.TOKEN_MISSING;
+      }
+
       client.emit('error', {
-        code: WsErrorCode.INVALID_TOKEN,
-        message: tokenResult.errorMessage || WsErrorMessages[WsErrorCode.INVALID_TOKEN],
+        code: wsErrorCode,
+        message: WsErrorMessages[wsErrorCode],
       });
       client.disconnect(true);
       return;
@@ -803,12 +812,13 @@ export class WebsocketGateway
       // 10. 发送连接就绪事件
       client.emit('connection:ready', {
         tid: data.tid,
+        sessionId: sessionId || undefined,  // 返回会话ID（用于评价提交）
         status: ticket.status,
         isReadOnly,
         history,
       });
 
-      this.logger.log(`工单恢复成功: tid=${data.tid}, isReadOnly=${isReadOnly}`);
+      this.logger.log(`工单恢复成功: tid=${data.tid}, sessionId=${sessionId}, isReadOnly=${isReadOnly}`);
 
       return { success: true, tid: data.tid, status: ticket.status, isReadOnly };
     } catch (error: unknown) {
@@ -1068,6 +1078,7 @@ export class WebsocketGateway
       // 发送工单状态更新
       client.emit('ticket:update', {
         tid: clientInfo.tid,
+        sessionId: clientInfo.sessionId || undefined,  // 返回会话ID（用于评价提交）
         status: 'RESOLVED',
         closeReason,
         closedBy: 'PLAYER',
@@ -1075,7 +1086,7 @@ export class WebsocketGateway
 
       this.notifyTicketUpdate(ticket.id, { status: 'RESOLVED', closeReason, closedBy: 'PLAYER' });
 
-      this.logger.log(`工单关闭: tid=${clientInfo.tid}, reason=${closeReason}`);
+      this.logger.log(`工单关闭: tid=${clientInfo.tid}, sessionId=${clientInfo.sessionId}, reason=${closeReason}`);
 
       return { success: true };
     } catch (error: unknown) {
@@ -1807,8 +1818,12 @@ export class WebsocketGateway
   }
 
   notifyTicketUpdate(ticketId: string, data: any) {
+    // 向管理端发送（使用破折号命名）
     this.server.to(`ticket:${ticketId}`).emit('ticket-update', data);
     this.server.emit('ticket-status-changed', { ticketId, ...data });
+
+    // 向玩家端发送（使用冒号命名）- 用于评价等功能
+    this.server.to(`ticket:${ticketId}`).emit('ticket:update', data);
   }
 
   /**
@@ -1823,6 +1838,35 @@ export class WebsocketGateway
         if (socket) {
           socket.emit('new-session', session);
           this.logger.log(`通知客服 ${agentId} 有新会话分配: ${session.id}`);
+        }
+      }
+    }
+  }
+
+  /**
+   * 通知客服自动分配了工单
+   * 当客服上线时自动分配工单后调用此方法
+   */
+  notifyAgentAutoAssigned(agentId: string, count: number, sessions: any[]) {
+    if (count === 0) return;
+
+    // 遍历所有连接的客户端，找到该客服的 socket
+    for (const [socketId, clientInfo] of this.connectedClients.entries()) {
+      if (clientInfo.userId === agentId) {
+        const socket = this.server?.sockets?.sockets?.get(socketId);
+        if (socket) {
+          socket.emit('tickets:auto_assigned', {
+            count,
+            message: `已自动分配 ${count} 个待处理工单`,
+            sessions: sessions.map((s) => ({
+              id: s.id,
+              ticketNo: s.ticket?.ticketNo,
+              playerName: s.ticket?.playerIdOrName,
+              gameName: s.ticket?.game?.name,
+              createdAt: s.createdAt,
+            })),
+          });
+          this.logger.log(`通知客服 ${agentId} 自动分配了 ${count} 个工单`);
         }
       }
     }

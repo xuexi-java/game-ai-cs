@@ -11,6 +11,7 @@ const props = defineProps<{
   isWaitingReply: boolean
   canTransfer: boolean
   showSafeExitButton: boolean
+  isSessionEnded?: boolean  // 咨询是否已结束（用于显示不同的锁定提示）
 }>()
 
 const emit = defineEmits<{
@@ -149,7 +150,7 @@ function handleFileUpload(event: Event) {
     <!-- 锁定状态 -->
     <div v-else-if="inputMode === 'LOCKED'" class="flex gap-2 items-center">
       <div class="flex-1 bg-gray-100 text-gray-400 px-4 py-3 rounded-2xl text-center text-xs select-none">
-        请在上方选择问题分类
+        {{ isSessionEnded ? '本次咨询已结束' : '请在上方选择问题分类' }}
       </div>
     </div>
 
@@ -173,7 +174,7 @@ function handleFileUpload(event: Event) {
       <div class="flex-1 bg-gray-50 rounded-2xl px-4 py-2 transition-colors focus-within:bg-white focus-within:ring-2 focus-within:ring-blue-100 border border-gray-100">
         <textarea
           v-model="inputText"
-          :disabled="inputMode === 'LOCKED' || isWaitingReply"
+          :disabled="isWaitingReply"
           rows="1"
           placeholder="请描述具体问题..."
           class="w-full bg-transparent outline-none resize-none max-h-24 text-gray-800 text-sm py-1 placeholder-gray-400"
@@ -182,7 +183,7 @@ function handleFileUpload(event: Event) {
       </div>
 
       <button
-        :disabled="!inputText.trim() || inputMode === 'LOCKED' || isWaitingReply"
+        :disabled="!inputText.trim() || isWaitingReply"
         class="bg-blue-600 text-white w-10 h-10 rounded-full flex items-center justify-center hover:bg-blue-700 disabled:opacity-50 disabled:scale-95 transition-all shadow-lg shadow-blue-200 shrink-0"
         @click="handleSend"
       >

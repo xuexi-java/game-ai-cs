@@ -10,6 +10,10 @@ import AgentOfflineModal from '@/components/AgentOfflineModal.vue'
 import ImagePreview from '@/components/ImagePreview.vue'
 import CloseConfirmModal from '@/components/CloseConfirmModal.vue'
 import QueueBanner from '@/components/QueueBanner.vue'
+import RatingCard from '@/components/RatingCard.vue'
+
+// 评价卡片 ref
+const ratingCardRef = ref<InstanceType<typeof RatingCard> | null>(null)
 
 const {
   chatStore,
@@ -25,8 +29,18 @@ const {
   safeExit,
   close,
   retry,
-  endConsultation
+  endConsultation,
+  handleRatingSubmit
 } = useChat()
+
+// 处理评价提交（包装原函数，成功后更新卡片状态）
+async function onRatingSubmit(data: { rating: number; comment: string }) {
+  await handleRatingSubmit(data)
+  // 提交成功后更新卡片为已提交状态
+  if (chatStore.hasRated) {
+    ratingCardRef.value?.setSubmitted()
+  }
+}
 
 // 图片预览
 const previewUrl = ref<string | null>(null)
@@ -129,19 +143,24 @@ onUnmounted(() => {
       </div>
     </template>
 
-    <!-- 初始化失败：显示转圈 + 重试按钮 -->
+    <!-- 初始化失败：显示错误信息 + 重试按钮 -->
     <template v-else-if="connectionStore.initFailed">
-      <div class="flex flex-col items-center justify-center h-full">
-        <!-- 转圈动画 -->
-        <div class="w-16 h-16 mb-6">
-          <svg class="animate-spin w-full h-full text-blue-500" viewBox="0 0 24 24" fill="none">
-            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" />
-            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-          </svg>
+      <div class="flex flex-col items-center justify-center h-full px-6">
+        <!-- 错误图标 -->
+        <div class="w-16 h-16 mb-4 rounded-full bg-red-100 flex items-center justify-center">
+          <i class="ri-wifi-off-line text-3xl text-red-500" />
         </div>
 
-        <!-- 提示文字 -->
-        <p class="text-gray-500 text-sm mb-6">正在连接客服中心...</p>
+        <!-- 错误信息 -->
+        <p class="text-gray-700 text-base font-medium mb-2">连接失败</p>
+        <p class="text-gray-500 text-sm text-center mb-6">
+          {{ connectionStore.errorMessage || '无法连接到客服中心' }}
+        </p>
+
+        <!-- 错误码（仅开发模式显示） -->
+        <p v-if="connectionStore.errorCode" class="text-gray-400 text-xs mb-4">
+          错误码: {{ connectionStore.errorCode }}
+        </p>
 
         <!-- 按钮组 -->
         <div class="flex gap-3">
@@ -220,7 +239,16 @@ onUnmounted(() => {
         :category-selected="chatStore.categorySelected"
         @category-select="handleCategorySelect"
         @preview="openPreview"
-      />
+      >
+        <!-- 评价卡片（工单关闭且有客服参与时显示在消息列表底部） -->
+        <template #bottom>
+          <RatingCard
+            v-if="chatStore.showRatingCard && !chatStore.hasRated"
+            ref="ratingCardRef"
+            @submit="onRatingSubmit"
+          />
+        </template>
+      </ChatMain>
 
       <!-- 输入区域 -->
       <ChatFooter
@@ -228,6 +256,7 @@ onUnmounted(() => {
         :is-waiting-reply="chatStore.isWaitingReply"
         :can-transfer="connectionStore.isConnected && !chatStore.hasAgent && !chatStore.isInQueue && !!chatStore.activeTicket && chatStore.hasAiResponse"
         :show-safe-exit-button="chatStore.showSafeExitButton"
+        :is-session-ended="chatStore.showRatingCard || chatStore.hasRated"
         @send-text="sendText"
         @send-images="sendImages"
         @transfer="transferToAgent"

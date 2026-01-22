@@ -39,6 +39,13 @@ export class TicketStatusService {
   ) {
     const ticket = await this.prisma.ticket.findUnique({
       where: { id, deletedAt: null },
+      include: {
+        sessions: {
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+          select: { id: true },
+        },
+      },
     });
 
     if (!ticket) {
@@ -117,8 +124,11 @@ export class TicketStatusService {
 
     // WebSocket 通知
     try {
+      // 获取最近使用的会话 ID（用于评价）
+      const latestSessionId = ticket.sessions?.[0]?.id;
       this.websocketGateway.notifyTicketUpdate(id, {
         status: updatedTicket.status,
+        sessionId: latestSessionId,  // 返回会话ID（用于评价提交）
         closedAt: updatedTicket.closedAt,
         closeReason: updatedTicket.closeReason,
         closedBy: updatedTicket.closedBy,
@@ -234,9 +244,13 @@ export class TicketStatusService {
 
         // 通知 WebSocket 客户端工单状态更新
         try {
+          // 获取最近使用的会话 ID（用于评价）
+          const latestSessionId = ticket.sessions.length > 0 ? ticket.sessions[0].id : undefined;
           this.websocketGateway.notifyTicketUpdate(ticketId, {
             status: 'RESOLVED',
+            sessionId: latestSessionId,  // 返回会话ID（用于评价提交）
             closedAt: new Date(),
+            closedBy,
           });
         } catch (error) {
           // WebSocket 通知失败不影响状态更新
